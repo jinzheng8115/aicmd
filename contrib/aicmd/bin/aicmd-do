@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<HELP
+Usage: aicmd-do [--yes] [--dry-run] [--output PATH] <task>
+
+Generate a local shell script for a file/data task with aicmd, save it, then optionally run it after confirmation.
+
+用法：aicmd-do [--yes] [--dry-run] [--output PATH] <任务>
+
+让 aicmd 生成一个本地 shell 脚本，保存到文件，然后确认后执行。
+
+Examples:
+  aicmd-do "写个脚本，统计 data.csv 每列的空值数量"
+  aicmd-do --output scripts/clean-data.sh "写个脚本清洗 input.csv，输出 cleaned.csv"
+  aicmd-do --yes "写个脚本处理 logs/*.log，提取 ERROR 行到 errors.txt"
+HELP
+}
+
+yes=false
+dry_run=false
+output=""
+task_parts=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -y|--yes)
+      yes=true; shift ;;
+    --dry-run)
+      dry_run=true; shift ;;
+    -o|--output)
+      output="$2"; shift 2 ;;
+    --output=*)
+      output="${1#--output=}"; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    --*)
+      echo "Unknown option: $1" >&2; exit 2 ;;
+    *)
+      task_parts+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#task_parts[@]} -eq 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
+task="${task_parts[*]}"
+if [[ -z "$output" ]]; then
+  mkdir -p .aicmd
+  output=".aicmd/task-$(date +%Y%m%d-%H%M%S).sh"
+fi
+mkdir -p "$(dirname "$output")"
+
+prompt="You are generating a local automation script for the user's terminal. Output only a complete zsh script. Do not use Markdown, explanations, or code fences.
+
+Requirements:
+- Start with #!/usr/bin/env zsh and set -euo pipefail.
+- Prefer safe inspection and validation before modifying files.
+- If processing files, check that input files exist and create output directories as needed.
+- Avoid deleting or overwriting originals unless the user explicitly asks for it.
+- Print clear progress messages.
+- Make the script runnable from the current working directory: $(pwd).
+- The user task is: $task"
+
+script="$(aicmd "$prompt")"
+# Remove accidental Markdown fences if the model produced them anyway.
+script="$(printf '%s\n' "$script" | sed '/^```[a-zA-Z0-9_-]*[[:space:]]*$/d; /^```[[:space:]]*$/d')"
+
+if ! printf '%s\n' "$script" | head -n 1 | grep -q '^#!'; then
+  script="#!/usr/bin/env zsh
+set -euo pipefail
+
+$script"
+fi
+
+printf '%s\n' "$script" > "$output"
+chmod +x "$output"
+
+echo "[aicmd-do script] $output"
+echo "----- script begin -----"
+sed -n '1,220p' "$output"
+echo "----- script end -----"
+
+if [[ "$dry_run" == "true" ]]; then
+  echo "[aicmd-do] dry-run only; script was not executed"
+  exit 0
+fi
+
+if [[ "$yes" != "true" ]]; then
+  printf 'Run this script now? [y/N] '
+  read -r answer
+  case "$answer" in
+    y|Y|yes|YES) ;;
+    *) echo "[aicmd-do] not executed"; exit 0 ;;
+  esac
+fi
+
+echo "[aicmd-do] running $output"
+"$output"

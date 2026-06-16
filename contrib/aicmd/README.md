@@ -13,7 +13,7 @@ English:
 - Tavily MCP pre-search for current or query-like requests.
 - Evidence Protocol for time-sensitive answers: confirmed, inferred, or unconfirmed.
 - Terminal-friendly output: plain text by default, no heavy Markdown formatting.
-- Memory helpers: save previous output, search memories, and analyze failed commands.
+- Memory helpers: save previous output, search memories, analyze failed commands, and generate executable task scripts with confirmation.
 
 中文：
 - 默认每日会话：`aicmd hello` 会按北京时间日期使用 `-s main-YYYYMMDD`。
@@ -59,7 +59,9 @@ aicmd hello
 aicmd -s dev hello
 aicmd "check the latest aichat version"
 aicmd -e "list files in the current directory"
+aicmd -e "create scripts/process_data.py to process input.csv, then run it"
 aicmd-err -- pnpm test
+aicmd-do "write a script to summarize data.csv"
 aicmd-mem 记录一下
 aicmd-mem-search docker的命令
 ```
@@ -71,9 +73,39 @@ aicmd 你好
 aicmd -s dev 继续上次 dev 会话
 aicmd 查一下 aichat 最新版本
 aicmd -e 列出当前目录文件
+aicmd -e "创建 scripts/process_data.py 处理 input.csv，然后执行它"
 aicmd-err -- pnpm test
+aicmd-do "write a script to summarize data.csv"
 aicmd-mem 记录一下
 aicmd-mem-search docker的命令
+```
+
+
+
+## Chat vs execute mode / 对话模式和执行模式
+
+English: Plain `aicmd` is chat mode. It answers in text and will not write scripts, modify files, or run commands by itself. Use `aicmd -e` when you want AIChat's shell assistant to produce executable shell commands. For example, ask it to create a script file and then run that script.
+
+中文：普通 `aicmd` 是对话模式，只会用文本回答，不会自己写脚本、改文件或执行命令。如果你希望 AIChat 生成可执行 shell 命令，请使用 `aicmd -e`。比如明确要求它创建脚本文件，然后执行这个脚本。
+
+```bash
+aicmd "写个脚本处理 input.csv"
+# Chat only / 只会对话说明
+
+aicmd -e "创建 scripts/process_data.py 处理 input.csv，然后执行 python3 scripts/process_data.py"
+# Execute mode / 生成可执行命令
+```
+
+## Script execution helper / 脚本执行辅助
+
+English: Plain `aicmd` is a chat command and does not write or execute files by itself. Use `aicmd-do` when you want the model to create a script for a local file/data task. It saves the script, prints it for review, and only runs it after confirmation. Use `--yes` only when you trust the generated script.
+
+中文：普通 `aicmd` 是聊天命令，不会自己写文件或执行脚本。如果你希望模型为本地文件/数据任务生成脚本，请使用 `aicmd-do`。它会先保存脚本并打印出来给你检查，只有确认后才执行。只有在你信任生成脚本时才使用 `--yes`。
+
+```bash
+aicmd-do "写个脚本处理 input.csv，输出 cleaned.csv"
+aicmd-do --dry-run "写个脚本统计 logs/*.log 里的 ERROR 数量"
+aicmd-do --yes --output scripts/process-data.sh "写个脚本处理 data.csv"
 ```
 
 ## Environment variables / 环境变量

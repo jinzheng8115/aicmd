@@ -11,6 +11,7 @@ install -m 0755 "$ROOT_DIR/bin/aicmd" "$BIN_DIR/aicmd"
 install -m 0755 "$ROOT_DIR/bin/aicmd-mem" "$BIN_DIR/aicmd-mem"
 install -m 0755 "$ROOT_DIR/bin/aicmd-mem-search" "$BIN_DIR/aicmd-mem-search"
 install -m 0755 "$ROOT_DIR/bin/aicmd-err" "$BIN_DIR/aicmd-err"
+install -m 0755 "$ROOT_DIR/bin/aicmd-do" "$BIN_DIR/aicmd-do"
 install -m 0644 "$ROOT_DIR/functions/tools/tavily_mcp_search.mjs" "$FUNCTIONS_DIR/tools/tavily_mcp_search.mjs"
 install -m 0644 "$ROOT_DIR/roles/auto.md" "$AICHAT_DIR/roles/auto.md"
 
