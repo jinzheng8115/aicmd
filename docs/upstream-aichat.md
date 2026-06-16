@@ -4,11 +4,11 @@ This file preserves the original upstream AIChat feature overview for attributio
 
 本文件保留上游 AIChat 原功能概览，用于归属说明和后续参考。
 
-# AICmd: AIChat-based Terminal Workflow
+# AICmd: Natural Language Terminal Commands
 
-AICmd is an open-source terminal AI workflow derived from [sigoden/aichat](https://github.com/sigoden/aichat). It keeps AIChat's all-in-one LLM CLI foundation and adds an optional `aicmd` workflow for daily sessions, auto role selection, Tavily MCP pre-search, an evidence protocol, terminal-friendly output, and agentmemory helpers.
+AICmd is an open-source terminal command tool derived from [sigoden/aichat](https://github.com/sigoden/aichat). The public AICmd workflow is intentionally narrow: describe a terminal task in natural language, review the generated shell command, then run it after confirmation.
 
-AICmd 是一个基于 [sigoden/aichat](https://github.com/sigoden/aichat) 改造的开源终端 AI 工作流项目。它保留 AIChat 的一体化 LLM CLI 基础能力，并新增可选的 `aicmd` 工作流，用于每日会话、自动角色、Tavily MCP 预搜索、证据协议、终端友好输出和 agentmemory 辅助命令。
+AICmd 是一个基于 [sigoden/aichat](https://github.com/sigoden/aichat) 改造的开源终端命令工具。AICmd 的公开工作流刻意收窄：用自然语言描述终端任务，检查生成的 shell 命令，然后确认执行。
 
 Original upstream / 原始上游：sigoden/aichat
 License / 许可证：Apache-2.0 and MIT, following upstream licensing.
@@ -21,15 +21,15 @@ License / 许可证：Apache-2.0 and MIT, following upstream licensing.
 AIChat is an all-in-one LLM CLI tool featuring Shell Assistant, CMD & REPL Mode, RAG, AI Tools & Agents, and More. 
 
 
-## Included aicmd Workflow / 内置 aicmd 工作流
+## AICmd Workflow / AICmd 工作流
 
-This fork includes an optional companion workflow in `contrib/aicmd/`. It keeps the upstream `aichat` command intact and adds `aicmd` for daily terminal sessions, auto role selection, Tavily MCP pre-search, an evidence protocol, plain terminal output, and agentmemory helpers.
+This fork renames the Rust binary to `aicmd` and focuses the CLI on natural-language terminal command generation. The upstream feature overview below is preserved only for attribution and reference; REPL, RAG, agents, macros, public role switching, and server mode are not exposed as AICmd product workflows.
 
-这个 fork 在 `contrib/aicmd/` 中加入了可选的伴随工作流。它保留上游 `aichat` 命令不变，新增 `aicmd`，用于每日终端会话、自动角色、Tavily MCP 预搜索、证据协议、终端纯文本输出和 agentmemory 辅助命令。
+这个 fork 将 Rust 二进制重命名为 `aicmd`，并把 CLI 聚焦到“用自然语言生成终端命令”。下面的上游功能概览仅用于归属说明和参考；REPL、RAG、agents、macros、公开 role 切换和 server mode 不作为 AICmd 产品工作流暴露。
 
-See `contrib/aicmd/README.md` for installation and usage.
+See `README.md` and `contrib/aicmd/README.md` for AICmd installation and usage.
 
-安装和使用说明见 `contrib/aicmd/README.md`。
+AICmd 安装和使用说明见 `README.md` 与 `contrib/aicmd/README.md`。
 
 ## Install
 

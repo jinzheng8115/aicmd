@@ -15,7 +15,7 @@ English:
 - Daily command session: plain `aicmd` uses `cmd-YYYYMMDD` by default.
 - Script workflow: `aicmd-do` asks AICmd to generate commands that create and run a task script through the normal confirmation flow.
 - Error workflow: `aicmd-err -- <command>` captures command output and asks AICmd to analyze it.
-- Broad upstream features such as REPL, RAG, agents, macros, and server mode are intentionally hidden from the main CLI flow.
+- Broad upstream features such as REPL, RAG, agents, macros, custom roles, and server mode are not part of the public AICmd CLI surface.
 
 中文：
 - Rust 二进制现在叫 `aicmd`。
@@ -23,7 +23,7 @@ English:
 - 每日命令会话：普通 `aicmd` 默认使用 `cmd-YYYYMMDD`。
 - 脚本工作流：`aicmd-do` 会让 AICmd 生成“创建并运行任务脚本”的命令，并走正常确认流程。
 - 报错工作流：`aicmd-err -- <command>` 捕获命令输出，并让 AICmd 分析。
-- REPL、RAG、agents、macros、server mode 等上游宽功能已从主 CLI 流程中隐藏。
+- REPL、RAG、agents、macros、自定义 roles、server mode 等上游宽功能不属于 AICmd 的公开 CLI 使用面。
 
 ## Install / 安装
 

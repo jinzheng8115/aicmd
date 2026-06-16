@@ -38,6 +38,6 @@ aicmd-err -- pnpm test
 
 ## Design boundary / 设计边界
 
-English: The CLI surface is now focused on natural-language terminal commands. Upstream AIChat code still exists internally where needed for LLM providers, sessions, config, and shell execution, but broad workflows such as REPL, RAG, agents, macros, and server mode are no longer product goals.
+English: The CLI surface is focused on natural-language terminal commands. Upstream AIChat code still exists internally where needed for LLM providers, sessions, config, and shell execution, but broad workflows such as REPL, RAG, agents, macros, custom roles, and server mode are not exposed as AICmd product workflows.
 
-中文：CLI 使用面现在聚焦自然语言终端命令。内部仍保留必要的上游 AIChat 代码，用于 LLM providers、session、配置和 shell 执行；但 REPL、RAG、agents、macros、server mode 等宽功能不再是产品目标。
+中文：CLI 使用面聚焦自然语言终端命令。内部仍保留必要的上游 AIChat 代码，用于 LLM providers、session、配置和 shell 执行；但 REPL、RAG、agents、macros、自定义 roles、server mode 等宽功能不会作为 AICmd 产品工作流暴露。
