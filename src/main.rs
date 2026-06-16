@@ -66,9 +66,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     if let Some(model_id) = &cli.model {
         config.write().set_model(model_id)?;
     }
-    if cli.no_stream {
-        config.write().stream = false;
-    }
     if cli.empty_session {
         config.write().empty_session()?;
     }

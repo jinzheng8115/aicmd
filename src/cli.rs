@@ -18,9 +18,6 @@ pub struct Cli {
     /// Include files, directories, or URLs
     #[clap(short = 'f', long, value_name = "FILE")]
     pub file: Vec<String>,
-    /// Turn off stream mode
-    #[clap(short = 'S', long)]
-    pub no_stream: bool,
     /// Display the message without sending it
     #[clap(long)]
     pub dry_run: bool,
