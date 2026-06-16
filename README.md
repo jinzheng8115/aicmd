@@ -1,4 +1,12 @@
-# AIChat: All-in-one LLM CLI Tool
+# AICmd: AIChat-based Terminal Workflow
+
+AICmd is an open-source terminal AI workflow derived from [sigoden/aichat](https://github.com/sigoden/aichat). It keeps AIChat's all-in-one LLM CLI foundation and adds an optional `aicmd` workflow for daily sessions, auto role selection, Tavily MCP pre-search, an evidence protocol, terminal-friendly output, and agentmemory helpers.
+
+AICmd 是一个基于 [sigoden/aichat](https://github.com/sigoden/aichat) 改造的开源终端 AI 工作流项目。它保留 AIChat 的一体化 LLM CLI 基础能力，并新增可选的 `aicmd` 工作流，用于每日会话、自动角色、Tavily MCP 预搜索、证据协议、终端友好输出和 agentmemory 辅助命令。
+
+Original upstream / 原始上游：sigoden/aichat
+License / 许可证：Apache-2.0 and MIT, following upstream licensing.
+
 
 [![CI](https://github.com/sigoden/aichat/actions/workflows/ci.yaml/badge.svg)](https://github.com/sigoden/aichat/actions/workflows/ci.yaml)
 [![Crates](https://img.shields.io/crates/v/aichat.svg)](https://crates.io/crates/aichat)
@@ -7,7 +15,7 @@
 AIChat is an all-in-one LLM CLI tool featuring Shell Assistant, CMD & REPL Mode, RAG, AI Tools & Agents, and More. 
 
 
-## aicmd Terminal Workflow / aicmd 终端工作流
+## Included aicmd Workflow / 内置 aicmd 工作流
 
 This fork includes an optional companion workflow in `contrib/aicmd/`. It keeps the upstream `aichat` command intact and adds `aicmd` for daily terminal sessions, auto role selection, Tavily MCP pre-search, an evidence protocol, plain terminal output, and agentmemory helpers.
 
