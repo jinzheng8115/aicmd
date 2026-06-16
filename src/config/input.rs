@@ -2,9 +2,8 @@ use super::*;
 
 use crate::client::{
     init_client, patch_messages, ChatCompletionsData, Client, ImageUrl, Message, MessageContent,
-    MessageContentPart, MessageContentToolCalls, MessageRole, Model,
+    MessageContentPart, Model,
 };
-use crate::function::ToolResult;
 use crate::utils::{base64_encode, is_loader_protocol, sha256, AbortSignal};
 
 use anyhow::{bail, Context, Result};
@@ -22,11 +21,8 @@ pub struct Input {
     raw: (String, Vec<String>),
     patched_text: Option<String>,
     last_reply: Option<String>,
-    continue_output: Option<String>,
-    regenerate: bool,
     medias: Vec<String>,
     data_urls: HashMap<String, String>,
-    tool_calls: Option<MessageContentToolCalls>,
     role: Role,
     with_session: bool,
 }
@@ -40,11 +36,8 @@ impl Input {
             raw: (text.to_string(), vec![]),
             patched_text: None,
             last_reply: None,
-            continue_output: None,
-            regenerate: false,
             medias: Default::default(),
             data_urls: Default::default(),
-            tool_calls: None,
             role,
             with_session,
         }
@@ -105,11 +98,8 @@ impl Input {
             raw: (raw_text.to_string(), raw_paths),
             patched_text: None,
             last_reply,
-            continue_output: None,
-            regenerate: false,
             medias,
             data_urls,
-            tool_calls: Default::default(),
             role,
             with_session,
         })
@@ -138,9 +128,6 @@ impl Input {
         self.data_urls.clone()
     }
 
-    pub fn tool_calls(&self) -> &Option<MessageContentToolCalls> {
-        &self.tool_calls
-    }
 
     pub fn text(&self) -> String {
         match self.patched_text.clone() {
@@ -161,40 +148,10 @@ impl Input {
         self.config.read().stream && !self.role().model().no_stream()
     }
 
-    pub fn continue_output(&self) -> Option<&str> {
-        self.continue_output.as_deref()
-    }
 
-    pub fn set_continue_output(&mut self, output: &str) {
-        let output = match &self.continue_output {
-            Some(v) => format!("{v}{output}"),
-            None => output.to_string(),
-        };
-        self.continue_output = Some(output);
-    }
 
-    pub fn regenerate(&self) -> bool {
-        self.regenerate
-    }
 
-    pub fn set_regenerate(&mut self) {
-        let role = self.config.read().extract_role();
-        if role.name() == self.role().name() {
-            self.role = role;
-        }
-        self.regenerate = true;
-        self.tool_calls = None;
-    }
 
-    pub fn merge_tool_results(mut self, output: String, tool_results: Vec<ToolResult>) -> Self {
-        match self.tool_calls.as_mut() {
-            Some(exist_tool_results) => {
-                exist_tool_results.merge(tool_results, output);
-            }
-            None => self.tool_calls = Some(MessageContentToolCalls::new(tool_results, output)),
-        }
-        self
-    }
 
     pub fn create_client(&self) -> Result<Box<dyn Client>> {
         init_client(&self.config, Some(self.role().model().clone()))
@@ -220,17 +177,11 @@ impl Input {
     }
 
     pub fn build_messages(&self) -> Result<Vec<Message>> {
-        let mut messages = if let Some(session) = self.session(&self.config.read().session) {
+        let messages = if let Some(session) = self.session(&self.config.read().session) {
             session.build_messages(self)
         } else {
             self.role().build_messages(self)
         };
-        if let Some(tool_calls) = &self.tool_calls {
-            messages.push(Message::new(
-                MessageRole::Assistant,
-                MessageContent::ToolCalls(tool_calls.clone()),
-            ))
-        }
         Ok(messages)
     }
 

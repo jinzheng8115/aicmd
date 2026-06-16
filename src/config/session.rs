@@ -2,10 +2,7 @@ use super::input::*;
 use super::*;
 
 use crate::client::{Message, MessageContent, MessageRole};
-use crate::render::MarkdownRender;
-
 use anyhow::{bail, Context, Result};
-use inquire::{validator::Validation, Confirm, Text};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -94,13 +91,7 @@ impl Session {
         &self.name
     }
 
-    pub fn role_name(&self) -> Option<&str> {
-        self.role_name.as_deref()
-    }
 
-    pub fn dirty(&self) -> bool {
-        self.dirty
-    }
 
     pub fn save_session(&self) -> Option<bool> {
         self.save_session
@@ -114,13 +105,7 @@ impl Session {
         self.tokens = self.model().total_tokens(&self.messages);
     }
 
-    pub fn has_user_messages(&self) -> bool {
-        self.messages.iter().any(|v| v.role.is_user())
-    }
 
-    pub fn user_messages_len(&self) -> usize {
-        self.messages.iter().filter(|v| v.role.is_user()).count()
-    }
 
     pub fn export(&self) -> Result<String> {
         let mut data = json!({
@@ -154,77 +139,6 @@ impl Session {
         Ok(output)
     }
 
-    pub fn render(&self, render: &mut MarkdownRender) -> Result<String> {
-        let mut items = vec![];
-
-        if let Some(path) = &self.path {
-            items.push(("path", path.to_string()));
-        }
-
-        items.push(("model", self.model().id()));
-
-        if let Some(temperature) = self.temperature() {
-            items.push(("temperature", temperature.to_string()));
-        }
-        if let Some(top_p) = self.top_p() {
-            items.push(("top_p", top_p.to_string()));
-        }
-
-        if let Some(use_tools) = self.use_tools() {
-            items.push(("use_tools", use_tools));
-        }
-
-        if let Some(save_session) = self.save_session() {
-            items.push(("save_session", save_session.to_string()));
-        }
-
-        if let Some(compress_threshold) = self.compress_threshold {
-            items.push(("compress_threshold", compress_threshold.to_string()));
-        }
-
-        if let Some(max_input_tokens) = self.model().max_input_tokens() {
-            items.push(("max_input_tokens", max_input_tokens.to_string()));
-        }
-
-        let mut lines: Vec<String> = items
-            .iter()
-            .map(|(name, value)| format!("{name:<20}{value}"))
-            .collect();
-
-        lines.push(String::new());
-
-        if !self.is_empty() {
-            let resolve_url_fn = |url: &str| resolve_data_url(&self.data_urls, url.to_string());
-
-            for message in &self.messages {
-                match message.role {
-                    MessageRole::System => {
-                        lines.push(
-                            render
-                                .render(&message.content.render_input(resolve_url_fn)),
-                        );
-                    }
-                    MessageRole::Assistant => {
-                        if let MessageContent::Text(text) = &message.content {
-                            lines.push(render.render(text));
-                        }
-                        lines.push("".into());
-                    }
-                    MessageRole::User => {
-                        lines.push(format!(
-                            ">> {}",
-                            message.content.render_input(resolve_url_fn)
-                        ));
-                    }
-                    MessageRole::Tool => {
-                        lines.push(message.content.render_input(resolve_url_fn));
-                    }
-                }
-            }
-        }
-
-        Ok(lines.join("\n"))
-    }
 
     pub fn tokens_usage(&self) -> (usize, f32) {
         let tokens = self.tokens();
@@ -250,73 +164,13 @@ impl Session {
         self.update_tokens();
     }
 
-    pub fn clear_role(&mut self) {
-        self.role_name = None;
-        self.role_prompt.clear();
-    }
 
-    pub fn set_save_session(&mut self, value: Option<bool>) {
-        if self.save_session != value {
-            self.save_session = value;
-            self.dirty = true;
-        }
-    }
 
     pub fn set_save_session_this_time(&mut self) {
         self.save_session_this_time = true;
     }
 
-    pub fn set_compress_threshold(&mut self, value: Option<usize>) {
-        if self.compress_threshold != value {
-            self.compress_threshold = value;
-            self.dirty = true;
-        }
-    }
 
-    pub fn exit(&mut self, session_dir: &Path, is_repl: bool) -> Result<()> {
-        let mut save_session = self.save_session();
-        if self.save_session_this_time {
-            save_session = Some(true);
-        }
-        if self.dirty && save_session != Some(false) {
-            let mut session_dir = session_dir.to_path_buf();
-            let mut session_name = self.name().to_string();
-            if save_session.is_none() {
-                if !is_repl {
-                    return Ok(());
-                }
-                let ans = Confirm::new("Save session?").with_default(false).prompt()?;
-                if !ans {
-                    return Ok(());
-                }
-                if session_name == TEMP_SESSION_NAME {
-                    session_name = Text::new("Session name:")
-                        .with_validator(|input: &str| {
-                            let input = input.trim();
-                            if input.is_empty() {
-                                Ok(Validation::Invalid("This name is required".into()))
-                            } else if input == TEMP_SESSION_NAME {
-                                Ok(Validation::Invalid("This name is reserved".into()))
-                            } else {
-                                Ok(Validation::Valid)
-                            }
-                        })
-                        .prompt()?;
-                }
-            } else if save_session == Some(true) && session_name == TEMP_SESSION_NAME {
-                session_dir = session_dir.join("_");
-                ensure_parent_exists(&session_dir).with_context(|| {
-                    format!("Failed to create directory '{}'", session_dir.display())
-                })?;
-
-                let now = chrono::Local::now();
-                session_name = now.format("%Y%m%dT%H%M%S").to_string();
-            }
-            let session_path = session_dir.join(format!("{session_name}.yaml"));
-            self.save(&session_name, &session_path, is_repl)?;
-        }
-        Ok(())
-    }
 
     pub fn save(&mut self, session_name: &str, session_path: &Path, is_repl: bool) -> Result<()> {
         ensure_parent_exists(session_path)?;
@@ -346,6 +200,11 @@ impl Session {
         Ok(())
     }
 
+    pub fn persist(&mut self, session_path: &Path) -> Result<()> {
+        let session_name = self.name.clone();
+        self.save(&session_name, session_path, false)
+    }
+
     pub fn guard_empty(&self) -> Result<()> {
         if !self.is_empty() {
             bail!("Cannot perform this operation because the session has messages, please `.empty session` first.");
@@ -354,37 +213,17 @@ impl Session {
     }
 
     pub fn add_message(&mut self, input: &Input, output: &str) -> Result<()> {
-        if input.continue_output().is_some() {
-            if let Some(message) = self.messages.last_mut() {
-                if let MessageContent::Text(text) = &mut message.content {
-                    *text = format!("{text}{output}");
-                }
-            }
-        } else if input.regenerate() {
-            if let Some(message) = self.messages.last_mut() {
-                if let MessageContent::Text(text) = &mut message.content {
-                    *text = output.to_string();
-                }
-            }
-        } else {
-            if self.messages.is_empty() {
+        if self.messages.is_empty() {
                 self.messages.extend(input.role().build_messages(input));
             } else {
                 self.messages
                     .push(Message::new(MessageRole::User, input.message_content()));
             }
             self.data_urls.extend(input.data_urls());
-            if let Some(tool_calls) = input.tool_calls() {
-                self.messages.push(Message::new(
-                    MessageRole::Tool,
-                    MessageContent::ToolCalls(tool_calls.clone()),
-                ))
-            }
-            self.messages.push(Message::new(
-                MessageRole::Assistant,
-                MessageContent::Text(output.to_string()),
-            ));
-        }
+        self.messages.push(Message::new(
+            MessageRole::Assistant,
+            MessageContent::Text(output.to_string()),
+        ));
         self.dirty = true;
         self.update_tokens();
         Ok(())
@@ -405,18 +244,6 @@ impl Session {
 
     pub fn build_messages(&self, input: &Input) -> Vec<Message> {
         let mut messages = self.messages.clone();
-        if input.continue_output().is_some() {
-            return messages;
-        } else if input.regenerate() {
-            while let Some(last) = messages.last() {
-                if !last.role.is_user() {
-                    messages.pop();
-                } else {
-                    break;
-                }
-            }
-            return messages;
-        }
         let mut need_add_msg = true;
         let len = messages.len();
         if len == 0 {

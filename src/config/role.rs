@@ -103,15 +103,7 @@ impl Role {
             .collect()
     }
 
-    pub fn list_builtin_roles() -> Vec<Self> {
-        RolesAsset::iter()
-            .filter_map(|v| Role::builtin(&v).ok())
-            .collect()
-    }
 
-    pub fn has_args(&self) -> bool {
-        self.name.contains('#')
-    }
 
     pub fn export(&self) -> String {
         let mut metadata = vec![];
@@ -136,28 +128,6 @@ impl Role {
         }
     }
 
-    pub fn save(&mut self, role_name: &str, role_path: &Path, is_repl: bool) -> Result<()> {
-        ensure_parent_exists(role_path)?;
-
-        let content = self.export();
-        std::fs::write(role_path, content).with_context(|| {
-            format!(
-                "Failed to write role {} to {}",
-                self.name,
-                role_path.display()
-            )
-        })?;
-
-        if is_repl {
-            println!("✓ Saved role to '{}'.", role_path.display());
-        }
-
-        if role_name != self.name {
-            self.name = role_name.to_string();
-        }
-
-        Ok(())
-    }
 
     pub fn sync<T: RoleLike>(&mut self, role_like: &T) {
         let model = role_like.model();
@@ -223,7 +193,7 @@ impl Role {
 
     pub fn build_messages(&self, input: &Input) -> Vec<Message> {
         let mut content = input.message_content();
-        let mut messages = if self.is_empty_prompt() {
+        let messages = if self.is_empty_prompt() {
             vec![Message::new(MessageRole::User, content)]
         } else if self.is_embedded_prompt() {
             content.merge_prompt(|v: &str| self.prompt.replace(INPUT_PLACEHOLDER, v));
@@ -248,12 +218,6 @@ impl Role {
             messages.push(Message::new(MessageRole::User, content));
             messages
         };
-        if let Some(text) = input.continue_output() {
-            messages.push(Message::new(
-                MessageRole::Assistant,
-                MessageContent::Text(text.into()),
-            ));
-        }
         messages
     }
 }

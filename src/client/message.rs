@@ -1,6 +1,6 @@
 use super::Model;
 
-use crate::{function::ToolResult, multiline_text, utils::dimmed_text};
+use crate::function::ToolResult;
 
 use serde::{Deserialize, Serialize};
 
@@ -86,43 +86,6 @@ pub enum MessageContent {
 }
 
 impl MessageContent {
-    pub fn render_input(&self, resolve_url_fn: impl Fn(&str) -> String) -> String {
-        match self {
-            MessageContent::Text(text) => multiline_text(text),
-            MessageContent::Array(list) => {
-                let (mut concated_text, mut files) = (String::new(), vec![]);
-                for item in list {
-                    match item {
-                        MessageContentPart::Text { text } => {
-                            concated_text = format!("{concated_text} {text}")
-                        }
-                        MessageContentPart::ImageUrl { image_url } => {
-                            files.push(resolve_url_fn(&image_url.url))
-                        }
-                    }
-                }
-                if !concated_text.is_empty() {
-                    concated_text = format!(" -- {}", multiline_text(&concated_text))
-                }
-                format!(".file {}{}", files.join(" "), concated_text)
-            }
-            MessageContent::ToolCalls(MessageContentToolCalls {
-                tool_results, text, ..
-            }) => {
-                let mut lines = vec![];
-                if !text.is_empty() {
-                    lines.push(text.clone())
-                }
-                for tool_result in tool_results {
-                    let mut parts = vec!["Call".to_string()];
-                    parts.push(tool_result.call.name.clone());
-                    parts.push(tool_result.call.arguments.to_string());
-                    lines.push(dimmed_text(&parts.join(" ")));
-                }
-                lines.join("\n")
-            }
-        }
-    }
 
     pub fn merge_prompt(&mut self, replace_fn: impl Fn(&str) -> String) {
         match self {
@@ -174,22 +137,6 @@ pub struct MessageContentToolCalls {
     pub tool_results: Vec<ToolResult>,
     pub text: String,
     pub sequence: bool,
-}
-
-impl MessageContentToolCalls {
-    pub fn new(tool_results: Vec<ToolResult>, text: String) -> Self {
-        Self {
-            tool_results,
-            text,
-            sequence: false,
-        }
-    }
-
-    pub fn merge(&mut self, tool_results: Vec<ToolResult>, _text: String) {
-        self.tool_results.extend(tool_results);
-        self.text.clear();
-        self.sequence = true;
-    }
 }
 
 pub fn patch_messages(messages: &mut Vec<Message>, model: &Model) {

@@ -7,7 +7,7 @@ pub use self::role::{Role, RoleLike, CODE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE};
 use self::session::Session;
 
 use crate::client::{
-    create_client_config, list_client_types, list_models, ClientConfig, MessageContentToolCalls,
+    create_client_config, list_client_types, list_models, ClientConfig,
     Model, ModelType, ProviderModels, OPENAI_COMPATIBLE_PROVIDERS,
 };
 use crate::function::{FunctionDeclaration, Functions, ToolResult};
@@ -749,8 +749,14 @@ impl Config {
     fn save_message(&mut self, input: &Input, output: &str) -> Result<()> {
         let mut input = input.clone();
         input.clear_patch();
+        let sessions_dir = self.sessions_dir();
         if let Some(session) = input.session_mut(&mut self.session) {
             session.add_message(&input, output)?;
+            let session_path = match session.name().split_once("/") {
+                Some((dir, name)) => sessions_dir.join(dir).join(format!("{name}.yaml")),
+                None => sessions_dir.join(format!("{}.yaml", session.name())),
+            };
+            session.persist(&session_path)?;
             return Ok(());
         }
 
@@ -758,7 +764,7 @@ impl Config {
             return Ok(());
         }
         let mut file = self.open_message_file()?;
-        if output.is_empty() && input.tool_calls().is_none() {
+        if output.is_empty() {
             return Ok(());
         }
         let now = now();
@@ -773,20 +779,7 @@ impl Config {
             Some(role) => format!(" ({role})"),
             None => String::new(),
         };
-        let tool_calls = match input.tool_calls() {
-            Some(MessageContentToolCalls {
-                tool_results, text, ..
-            }) => {
-                let mut lines = vec!["<tool_calls>".to_string()];
-                if !text.is_empty() {
-                    lines.push(text.clone());
-                }
-                lines.push(serde_json::to_string(&tool_results).unwrap_or_default());
-                lines.push("</tool_calls>\n".to_string());
-                lines.join("\n")
-            }
-            None => String::new(),
-        };
+        let tool_calls = String::new();
         let output = format!(
             "# CHAT: {summary} [{now}]{scope}\n{raw_input}\n--------\n{tool_calls}{output}\n--------\n\n",
         );
