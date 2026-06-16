@@ -3,9 +3,7 @@ mod role;
 mod session;
 
 pub use self::input::Input;
-pub use self::role::{
-    Role, RoleLike, CODE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE,
-};
+pub use self::role::{Role, RoleLike, CODE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE};
 use self::session::Session;
 
 use crate::client::{
@@ -18,7 +16,7 @@ use crate::utils::*;
 
 use anyhow::{anyhow, bail, Context, Result};
 use indexmap::IndexMap;
-use inquire::{list_option::ListOption, validator::Validation, Confirm, MultiSelect, Select, Text};
+use inquire::{Confirm, Select};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -26,13 +24,11 @@ use simplelog::LevelFilter;
 use std::collections::{HashMap, HashSet};
 use std::{
     env,
-    fs::{
-        create_dir_all, read_dir, read_to_string, remove_dir_all, remove_file, File, OpenOptions,
-    },
+    fs::{create_dir_all, read_dir, read_to_string, remove_file, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
     process,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 use syntect::highlighting::ThemeSet;
 use terminal_colorsaurus::{color_scheme, ColorScheme, QueryOptions};
@@ -55,15 +51,8 @@ const FUNCTIONS_BIN_DIR_NAME: &str = "bin";
 
 const CLIENTS_FIELD: &str = "clients";
 
-const SERVE_ADDR: &str = "127.0.0.1:8000";
-
 const SYNC_MODELS_URL: &str =
     "https://raw.githubusercontent.com/sigoden/aichat/refs/heads/main/models.yaml";
-
-const LEFT_PROMPT: &str = "{color.green}{?session }{session}{?role /}}{!session }}{role}{color.cyan}{?session )}{!session >}{color.reset} ";
-const RIGHT_PROMPT: &str = "{color.purple}{?session {?consume_tokens {consume_tokens}({consume_percent}%)}{!consume_tokens {consume_tokens}}}{color.reset}";
-
-static EDITOR: OnceLock<Option<String>> = OnceLock::new();
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -77,8 +66,6 @@ pub struct Config {
     pub dry_run: bool,
     pub stream: bool,
     pub save: bool,
-    pub keybindings: String,
-    pub editor: Option<String>,
     pub wrap: Option<String>,
     pub wrap_code: bool,
 
@@ -86,8 +73,6 @@ pub struct Config {
     pub mapping_tools: IndexMap<String, String>,
     pub use_tools: Option<String>,
 
-    pub repl_prelude: Option<String>,
-    pub cmd_prelude: Option<String>,
     pub save_session: Option<bool>,
     pub compress_threshold: usize,
     #[serde(default)]
@@ -95,10 +80,7 @@ pub struct Config {
 
     pub highlight: bool,
     pub theme: Option<String>,
-    pub left_prompt: Option<String>,
-    pub right_prompt: Option<String>,
 
-    pub serve_addr: Option<String>,
     pub user_agent: Option<String>,
     pub save_shell_history: bool,
     pub sync_models_url: Option<String>,
@@ -134,8 +116,6 @@ impl Default for Config {
             dry_run: false,
             stream: true,
             save: false,
-            keybindings: "emacs".into(),
-            editor: None,
             wrap: None,
             wrap_code: false,
 
@@ -143,18 +123,13 @@ impl Default for Config {
             mapping_tools: Default::default(),
             use_tools: None,
 
-            repl_prelude: None,
-            cmd_prelude: None,
             save_session: None,
             compress_threshold: 4000,
             document_loaders: Default::default(),
 
             highlight: true,
             theme: None,
-            left_prompt: None,
-            right_prompt: None,
 
-            serve_addr: None,
             user_agent: None,
             save_shell_history: true,
             sync_models_url: None,
@@ -313,28 +288,6 @@ impl Config {
     pub fn models_override_file() -> PathBuf {
         Self::local_path("models-override.yaml")
     }
-
-    pub fn state(&self) -> StateFlags {
-        let mut flags = StateFlags::empty();
-        if let Some(session) = &self.session {
-            if session.is_empty() {
-                flags |= StateFlags::SESSION_EMPTY;
-            } else {
-                flags |= StateFlags::SESSION;
-            }
-            if session.role_name().is_some() {
-                flags |= StateFlags::ROLE;
-            }
-        } else if self.role.is_some() {
-            flags |= StateFlags::ROLE;
-        }
-        flags
-    }
-
-    pub fn serve_addr(&self) -> String {
-        self.serve_addr.clone().unwrap_or_else(|| SERVE_ADDR.into())
-    }
-
     pub fn log_config(is_serve: bool) -> Result<(LevelFilter, Option<PathBuf>)> {
         let log_level = env::var(get_env_name("log_level"))
             .ok()
@@ -363,18 +316,6 @@ impl Config {
             },
         };
         Ok((log_level, log_path))
-    }
-
-    pub fn edit_config(&self) -> Result<()> {
-        let config_path = Self::config_file();
-        let editor = self.editor()?;
-        edit_file(&editor, &config_path)?;
-        println!(
-            "NOTE: Remember to restart {} if there are changes made to '{}",
-            env!("CARGO_CRATE_NAME"),
-            config_path.display(),
-        );
-        Ok(())
     }
 
     pub fn current_model(&self) -> &Model {
@@ -449,7 +390,6 @@ impl Config {
             ("function_calling", self.function_calling.to_string()),
             ("stream", self.stream.to_string()),
             ("save", self.save.to_string()),
-            ("keybindings", self.keybindings.clone()),
             ("wrap", wrap),
             ("wrap_code", self.wrap_code.to_string()),
             ("highlight", self.highlight.to_string()),
@@ -471,170 +411,6 @@ impl Config {
             .join("");
         Ok(output)
     }
-
-    pub fn update(config: &GlobalConfig, data: &str) -> Result<()> {
-        let parts: Vec<&str> = data.split_whitespace().collect();
-        if parts.len() != 2 {
-            bail!("Usage: .set <key> <value>. If value is null, unset key.");
-        }
-        let key = parts[0];
-        let value = parts[1];
-        match key {
-            "temperature" => {
-                let value = parse_value(value)?;
-                config.write().set_temperature(value);
-            }
-            "top_p" => {
-                let value = parse_value(value)?;
-                config.write().set_top_p(value);
-            }
-            "use_tools" => {
-                let value = parse_value(value)?;
-                config.write().set_use_tools(value);
-            }
-            "max_output_tokens" => {
-                let value = parse_value(value)?;
-                config.write().set_max_output_tokens(value);
-            }
-            "save_session" => {
-                let value = parse_value(value)?;
-                config.write().set_save_session(value);
-            }
-            "compress_threshold" => {
-                let value = parse_value(value)?;
-                config.write().set_compress_threshold(value);
-            }
-            "dry_run" => {
-                let value = value.parse().with_context(|| "Invalid value")?;
-                config.write().dry_run = value;
-            }
-            "function_calling" => {
-                let value = value.parse().with_context(|| "Invalid value")?;
-                if value && config.write().functions.is_empty() {
-                    bail!("Function calling cannot be enabled because no functions are installed.")
-                }
-                config.write().function_calling = value;
-            }
-            "stream" => {
-                let value = value.parse().with_context(|| "Invalid value")?;
-                config.write().stream = value;
-            }
-            "save" => {
-                let value = value.parse().with_context(|| "Invalid value")?;
-                config.write().save = value;
-            }
-            "highlight" => {
-                let value = value.parse().with_context(|| "Invalid value")?;
-                config.write().highlight = value;
-            }
-            _ => bail!("Unknown key '{key}'"),
-        }
-        Ok(())
-    }
-
-    pub fn delete(config: &GlobalConfig, kind: &str) -> Result<()> {
-        let (dir, file_ext) = match kind {
-            "role" => (Self::roles_dir(), Some(".md")),
-            "session" => (config.read().sessions_dir(), Some(".yaml")),
-            _ => bail!("Unknown kind '{kind}'"),
-        };
-        let names = match read_dir(&dir) {
-            Ok(rd) => {
-                let mut names = vec![];
-                for entry in rd.flatten() {
-                    let name = entry.file_name();
-                    match file_ext {
-                        Some(file_ext) => {
-                            if let Some(name) = name.to_string_lossy().strip_suffix(file_ext) {
-                                names.push(name.to_string());
-                            }
-                        }
-                        None => {
-                            if entry.path().is_dir() {
-                                names.push(name.to_string_lossy().to_string());
-                            }
-                        }
-                    }
-                }
-                names.sort_unstable();
-                names
-            }
-            Err(_) => vec![],
-        };
-
-        if names.is_empty() {
-            bail!("No {kind} to delete")
-        }
-
-        let select_names = MultiSelect::new(&format!("Select {kind} to delete:"), names)
-            .with_validator(|list: &[ListOption<&String>]| {
-                if list.is_empty() {
-                    Ok(Validation::Invalid(
-                        "At least one item must be selected".into(),
-                    ))
-                } else {
-                    Ok(Validation::Valid)
-                }
-            })
-            .prompt()?;
-
-        for name in select_names {
-            match file_ext {
-                Some(ext) => {
-                    let path = dir.join(format!("{name}{ext}"));
-                    remove_file(&path).with_context(|| {
-                        format!("Failed to delete {kind} at '{}'", path.display())
-                    })?;
-                }
-                None => {
-                    let path = dir.join(name);
-                    remove_dir_all(&path).with_context(|| {
-                        format!("Failed to delete {kind} at '{}'", path.display())
-                    })?;
-                }
-            }
-        }
-        println!("✓ Successfully deleted {kind}.");
-        Ok(())
-    }
-
-    pub fn set_temperature(&mut self, value: Option<f64>) {
-        match self.role_like_mut() {
-            Some(role_like) => role_like.set_temperature(value),
-            None => self.temperature = value,
-        }
-    }
-
-    pub fn set_top_p(&mut self, value: Option<f64>) {
-        match self.role_like_mut() {
-            Some(role_like) => role_like.set_top_p(value),
-            None => self.top_p = value,
-        }
-    }
-
-    pub fn set_use_tools(&mut self, value: Option<String>) {
-        match self.role_like_mut() {
-            Some(role_like) => role_like.set_use_tools(value),
-            None => self.use_tools = value,
-        }
-    }
-
-    pub fn set_save_session(&mut self, value: Option<bool>) {
-        if let Some(session) = self.session.as_mut() {
-            session.set_save_session(value);
-        } else {
-            self.save_session = value;
-        }
-    }
-
-    pub fn set_compress_threshold(&mut self, value: Option<usize>) {
-        if let Some(session) = self.session.as_mut() {
-            session.set_compress_threshold(value);
-        } else {
-            self.compress_threshold = value.unwrap_or_default();
-        }
-    }
-
     pub fn set_wrap(&mut self, value: &str) -> Result<()> {
         if value == "no" {
             self.wrap = None;
@@ -648,20 +424,6 @@ impl Config {
         }
         Ok(())
     }
-
-    pub fn set_max_output_tokens(&mut self, value: Option<isize>) {
-        match self.role_like_mut() {
-            Some(role_like) => {
-                let mut model = role_like.model().clone();
-                model.set_max_tokens(value, true);
-                role_like.set_model(model);
-            }
-            None => {
-                self.model.set_max_tokens(value, true);
-            }
-        };
-    }
-
     pub fn set_model(&mut self, model_id: &str) -> Result<()> {
         let model = Model::retrieve_model(self, model_id, ModelType::Chat)?;
         match self.role_like_mut() {
@@ -693,32 +455,6 @@ impl Config {
         }
         Ok(())
     }
-
-    pub fn role_info(&self) -> Result<String> {
-        if let Some(session) = &self.session {
-            if session.role_name().is_some() {
-                let role = session.to_role();
-                Ok(role.export())
-            } else {
-                bail!("No session role")
-            }
-        } else if let Some(role) = &self.role {
-            Ok(role.export())
-        } else {
-            bail!("No role")
-        }
-    }
-
-    pub fn exit_role(&mut self) -> Result<()> {
-        if let Some(session) = self.session.as_mut() {
-            session.guard_empty()?;
-            session.clear_role();
-        } else if self.role.is_some() {
-            self.role = None;
-        }
-        Ok(())
-    }
-
     pub fn retrieve_role(&self, name: &str) -> Result<Role> {
         let names = Self::list_roles(false);
         let mut role = if names.contains(&name.to_string()) {
@@ -750,105 +486,6 @@ impl Config {
         }
         Ok(role)
     }
-
-    pub fn new_role(&mut self, name: &str) -> Result<()> {
-        if self.macro_flag {
-            bail!("No role");
-        }
-        let ans = Confirm::new("Create a new role?")
-            .with_default(true)
-            .prompt()?;
-        if ans {
-            self.upsert_role(name)?;
-        } else {
-            bail!("No role");
-        }
-        Ok(())
-    }
-
-    pub fn edit_role(&mut self) -> Result<()> {
-        let role_name;
-        if let Some(session) = self.session.as_ref() {
-            if let Some(name) = session.role_name().map(|v| v.to_string()) {
-                if session.is_empty() {
-                    role_name = Some(name);
-                } else {
-                    bail!("Cannot perform this operation because you are in a non-empty session")
-                }
-            } else {
-                bail!("No role")
-            }
-        } else {
-            role_name = self.role.as_ref().map(|v| v.name().to_string());
-        }
-        let name = role_name.ok_or_else(|| anyhow!("No role"))?;
-        self.upsert_role(&name)?;
-        self.use_role(&name)
-    }
-
-    pub fn upsert_role(&mut self, name: &str) -> Result<()> {
-        let role_path = Self::role_file(name);
-        ensure_parent_exists(&role_path)?;
-        let editor = self.editor()?;
-        edit_file(&editor, &role_path)?;
-        if self.working_mode.is_repl() {
-            println!("✓ Saved the role to '{}'.", role_path.display());
-        }
-        Ok(())
-    }
-
-    pub fn save_role(&mut self, name: Option<&str>) -> Result<()> {
-        let mut role_name = match &self.role {
-            Some(role) => {
-                if role.has_args() {
-                    bail!("Unable to save the role with arguments (whose name contains '#')")
-                }
-                match name {
-                    Some(v) => v.to_string(),
-                    None => role.name().to_string(),
-                }
-            }
-            None => bail!("No role"),
-        };
-        if role_name == TEMP_ROLE_NAME {
-            role_name = Text::new("Role name:")
-                .with_validator(|input: &str| {
-                    let input = input.trim();
-                    if input.is_empty() {
-                        Ok(Validation::Invalid("This name is required".into()))
-                    } else if input == TEMP_ROLE_NAME {
-                        Ok(Validation::Invalid("This name is reserved".into()))
-                    } else {
-                        Ok(Validation::Valid)
-                    }
-                })
-                .prompt()?;
-        }
-        let role_path = Self::role_file(&role_name);
-        if let Some(role) = self.role.as_mut() {
-            role.save(&role_name, &role_path, self.working_mode.is_repl())?;
-        }
-
-        Ok(())
-    }
-
-    pub fn all_roles() -> Vec<Role> {
-        let mut roles: HashMap<String, Role> = Role::list_builtin_roles()
-            .iter()
-            .map(|v| (v.name().to_string(), v.clone()))
-            .collect();
-        let names = Self::list_roles(false);
-        for name in names {
-            if let Ok(content) = read_to_string(Self::role_file(&name)) {
-                let role = Role::new(&name, &content);
-                roles.insert(name, role);
-            }
-        }
-        let mut roles: Vec<_> = roles.into_values().collect();
-        roles.sort_unstable_by(|a, b| a.name().cmp(b.name()));
-        roles
-    }
-
     pub fn list_roles(with_builtin: bool) -> Vec<String> {
         let mut names = HashSet::new();
         if let Ok(rd) = read_dir(Self::roles_dir()) {
@@ -868,11 +505,6 @@ impl Config {
         let mut names: Vec<_> = names.into_iter().collect();
         names.sort_unstable();
         names
-    }
-
-    pub fn has_role(name: &str) -> bool {
-        let names = Self::list_roles(true);
-        names.contains(&name.to_string())
     }
 
     pub fn use_session(&mut self, session_name: Option<&str>) -> Result<()> {
@@ -925,60 +557,6 @@ impl Config {
         self.session = session;
         Ok(())
     }
-
-    pub fn session_info(&self) -> Result<String> {
-        if let Some(session) = &self.session {
-            let render_options = self.render_options()?;
-            let mut markdown_render = MarkdownRender::init(render_options)?;
-            session.render(&mut markdown_render)
-        } else {
-            bail!("No session")
-        }
-    }
-
-    pub fn exit_session(&mut self) -> Result<()> {
-        if let Some(mut session) = self.session.take() {
-            let sessions_dir = self.sessions_dir();
-            session.exit(&sessions_dir, self.working_mode.is_repl())?;
-            self.discontinuous_last_message();
-        }
-        Ok(())
-    }
-
-    pub fn save_session(&mut self, name: Option<&str>) -> Result<()> {
-        let session_name = match &self.session {
-            Some(session) => match name {
-                Some(v) => v.to_string(),
-                None => session.name().to_string(),
-            },
-            None => bail!("No session"),
-        };
-        let session_path = self.session_file(&session_name);
-        if let Some(session) = self.session.as_mut() {
-            session.save(&session_name, &session_path, self.working_mode.is_repl())?;
-        }
-        Ok(())
-    }
-
-    pub fn edit_session(&mut self) -> Result<()> {
-        let name = match &self.session {
-            Some(session) => session.name().to_string(),
-            None => bail!("No session"),
-        };
-        let session_path = self.session_file(&name);
-        self.save_session(Some(&name))?;
-        let editor = self.editor()?;
-        edit_file(&editor, &session_path).with_context(|| {
-            format!(
-                "Failed to edit '{}' with '{editor}'",
-                session_path.display()
-            )
-        })?;
-        self.session = Some(Session::load(self, &name, &session_path)?);
-        self.discontinuous_last_message();
-        Ok(())
-    }
-
     pub fn empty_session(&mut self) -> Result<()> {
         if let Some(session) = self.session.as_mut() {
             session.clear_messages();
@@ -1000,46 +578,6 @@ impl Config {
 
     pub fn list_sessions(&self) -> Vec<String> {
         list_file_names(self.sessions_dir(), ".yaml")
-    }
-
-    pub fn apply_prelude(&mut self) -> Result<()> {
-        if self.macro_flag || !self.state().is_empty() {
-            return Ok(());
-        }
-        let prelude = match self.working_mode {
-            WorkingMode::Repl => self.repl_prelude.as_ref(),
-            WorkingMode::Cmd => self.cmd_prelude.as_ref(),
-            WorkingMode::Serve => return Ok(()),
-        };
-        let prelude = match prelude {
-            Some(v) => {
-                if v.is_empty() {
-                    return Ok(());
-                }
-                v.to_string()
-            }
-            None => return Ok(()),
-        };
-
-        let err_msg = || format!("Invalid prelude '{prelude}");
-        match prelude.split_once(':') {
-            Some(("role", name)) => {
-                self.use_role(name).with_context(err_msg)?;
-            }
-            Some(("session", name)) => {
-                self.use_session(Some(name)).with_context(err_msg)?;
-            }
-            Some((session_name, role_name)) => {
-                self.use_session(Some(session_name)).with_context(err_msg)?;
-                if let Some(true) = self.session.as_ref().map(|v| v.is_empty()) {
-                    self.use_role(role_name).with_context(err_msg)?;
-                }
-            }
-            _ => {
-                bail!("{}", err_msg())
-            }
-        }
-        Ok(())
     }
 
     pub fn select_functions(&self, role: &Role) -> Option<Vec<FunctionDeclaration>> {
@@ -1089,23 +627,6 @@ impl Config {
         } else {
             Some(functions)
         }
-    }
-
-    pub fn editor(&self) -> Result<String> {
-        EDITOR.get_or_init(move || {
-            let editor = self.editor.clone()
-                .or_else(|| env::var("VISUAL").ok().or_else(|| env::var("EDITOR").ok()))
-                .unwrap_or_else(|| {
-                    if cfg!(windows) {
-                        "notepad".to_string()
-                    } else {
-                        "nano".to_string()
-                    }
-                });
-            which::which(&editor).ok().map(|_| editor)
-        })
-        .clone()
-        .ok_or_else(|| anyhow!("Editor not found. Please add the `editor` configuration or set the $EDITOR or $VISUAL environment variable."))
     }
 
     pub fn sync_models_url(&self) -> String {
@@ -1187,19 +708,6 @@ impl Config {
         );
         Ok(RenderOptions::new(theme, wrap, self.wrap_code, truecolor))
     }
-
-    pub fn render_prompt_left(&self) -> String {
-        let variables = self.generate_prompt_context();
-        let left_prompt = self.left_prompt.as_deref().unwrap_or(LEFT_PROMPT);
-        render_prompt(left_prompt, &variables)
-    }
-
-    pub fn render_prompt_right(&self) -> String {
-        let variables = self.generate_prompt_context();
-        let right_prompt = self.right_prompt.as_deref().unwrap_or(RIGHT_PROMPT);
-        render_prompt(right_prompt, &variables)
-    }
-
     pub fn print_markdown(&self, text: &str) -> Result<()> {
         if *IS_STDOUT_TERMINAL {
             let render_options = self.render_options()?;
@@ -1209,80 +717,6 @@ impl Config {
             println!("{text}");
         }
         Ok(())
-    }
-
-    fn generate_prompt_context(&self) -> HashMap<&str, String> {
-        let mut output = HashMap::new();
-        let role = self.extract_role();
-        output.insert("model", role.model().id());
-        output.insert("client_name", role.model().client_name().to_string());
-        output.insert("model_name", role.model().name().to_string());
-        output.insert(
-            "max_input_tokens",
-            role.model()
-                .max_input_tokens()
-                .unwrap_or_default()
-                .to_string(),
-        );
-        if let Some(temperature) = role.temperature() {
-            if temperature != 0.0 {
-                output.insert("temperature", temperature.to_string());
-            }
-        }
-        if let Some(top_p) = role.top_p() {
-            if top_p != 0.0 {
-                output.insert("top_p", top_p.to_string());
-            }
-        }
-        if self.dry_run {
-            output.insert("dry_run", "true".to_string());
-        }
-        if self.stream {
-            output.insert("stream", "true".to_string());
-        }
-        if self.save {
-            output.insert("save", "true".to_string());
-        }
-        if let Some(wrap) = &self.wrap {
-            if wrap != "no" {
-                output.insert("wrap", wrap.clone());
-            }
-        }
-        if !role.is_derived() {
-            output.insert("role", role.name().to_string());
-        }
-        if let Some(session) = &self.session {
-            output.insert("session", session.name().to_string());
-            output.insert("dirty", session.dirty().to_string());
-            let (tokens, percent) = session.tokens_usage();
-            output.insert("consume_tokens", tokens.to_string());
-            output.insert("consume_percent", percent.to_string());
-            output.insert("user_messages_len", session.user_messages_len().to_string());
-        }
-
-        if self.highlight {
-            output.insert("color.reset", "\u{1b}[0m".to_string());
-            output.insert("color.black", "\u{1b}[30m".to_string());
-            output.insert("color.dark_gray", "\u{1b}[90m".to_string());
-            output.insert("color.red", "\u{1b}[31m".to_string());
-            output.insert("color.light_red", "\u{1b}[91m".to_string());
-            output.insert("color.green", "\u{1b}[32m".to_string());
-            output.insert("color.light_green", "\u{1b}[92m".to_string());
-            output.insert("color.yellow", "\u{1b}[33m".to_string());
-            output.insert("color.light_yellow", "\u{1b}[93m".to_string());
-            output.insert("color.blue", "\u{1b}[34m".to_string());
-            output.insert("color.light_blue", "\u{1b}[94m".to_string());
-            output.insert("color.purple", "\u{1b}[35m".to_string());
-            output.insert("color.light_purple", "\u{1b}[95m".to_string());
-            output.insert("color.magenta", "\u{1b}[35m".to_string());
-            output.insert("color.light_magenta", "\u{1b}[95m".to_string());
-            output.insert("color.cyan", "\u{1b}[36m".to_string());
-            output.insert("color.light_cyan", "\u{1b}[96m".to_string());
-            output.insert("color.white", "\u{1b}[37m".to_string());
-            output.insert("color.light_gray", "\u{1b}[97m".to_string());
-        }
-
-        output
     }
 
     pub fn before_chat_completion(&mut self, input: &Input) -> Result<()> {
@@ -1437,14 +871,6 @@ impl Config {
         if let Some(Some(v)) = read_env_bool(&get_env_name("save")) {
             self.save = v;
         }
-        if let Ok(v) = env::var(get_env_name("keybindings")) {
-            if v == "vi" {
-                self.keybindings = v;
-            }
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("editor")) {
-            self.editor = v;
-        }
         if let Some(v) = read_env_value::<String>(&get_env_name("wrap")) {
             self.wrap = v;
         }
@@ -1464,12 +890,6 @@ impl Config {
             self.use_tools = v;
         }
 
-        if let Some(v) = read_env_value::<String>(&get_env_name("repl_prelude")) {
-            self.repl_prelude = v;
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("cmd_prelude")) {
-            self.cmd_prelude = v;
-        }
         if let Some(v) = read_env_bool(&get_env_name("save_session")) {
             self.save_session = v;
         }
@@ -1501,16 +921,7 @@ impl Config {
                 }
             }
         }
-        if let Some(v) = read_env_value::<String>(&get_env_name("left_prompt")) {
-            self.left_prompt = v;
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("right_prompt")) {
-            self.right_prompt = v;
-        }
 
-        if let Some(v) = read_env_value::<String>(&get_env_name("serve_addr")) {
-            self.serve_addr = v;
-        }
         if let Some(v) = read_env_value::<String>(&get_env_name("user_agent")) {
             self.user_agent = v;
         }
@@ -1583,17 +994,10 @@ pub fn load_env_file() -> Result<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WorkingMode {
     Cmd,
-    Repl,
     Serve,
 }
 
 impl WorkingMode {
-    pub fn is_cmd(&self) -> bool {
-        *self == WorkingMode::Cmd
-    }
-    pub fn is_repl(&self) -> bool {
-        *self == WorkingMode::Repl
-    }
     pub fn is_serve(&self) -> bool {
         *self == WorkingMode::Serve
     }
@@ -1618,45 +1022,6 @@ impl LastMessage {
             input,
             output,
             continuous: true,
-        }
-    }
-}
-
-bitflags::bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct StateFlags: u32 {
-        const ROLE = 1 << 0;
-        const SESSION_EMPTY = 1 << 1;
-        const SESSION = 1 << 2;
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AssertState {
-    True(StateFlags),
-    False(StateFlags),
-    TrueFalse(StateFlags, StateFlags),
-    Equal(StateFlags),
-}
-
-impl AssertState {
-    pub fn pass() -> Self {
-        AssertState::False(StateFlags::empty())
-    }
-
-    pub fn bare() -> Self {
-        AssertState::Equal(StateFlags::empty())
-    }
-
-    pub fn assert(self, flags: StateFlags) -> bool {
-        match self {
-            AssertState::True(true_flags) => true_flags & flags != StateFlags::empty(),
-            AssertState::False(false_flags) => false_flags & flags == StateFlags::empty(),
-            AssertState::TrueFalse(true_flags, false_flags) => {
-                (true_flags & flags != StateFlags::empty())
-                    && (false_flags & flags == StateFlags::empty())
-            }
-            AssertState::Equal(check_flags) => check_flags == flags,
         }
     }
 }

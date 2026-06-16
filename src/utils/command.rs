@@ -154,12 +154,6 @@ pub fn run_loader_command(path: &str, extension: &str, loader_command: &str) -> 
     }
 }
 
-pub fn edit_file(editor: &str, path: &Path) -> Result<()> {
-    let mut child = Command::new(editor).arg(path).spawn()?;
-    child.wait()?;
-    Ok(())
-}
-
 pub fn append_to_shell_history(shell: &str, command: &str, exit_code: i32) -> io::Result<()> {
     if let Some(history_file) = get_history_file(shell) {
         let command = command.replace('\n', " ");
