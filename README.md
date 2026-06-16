@@ -44,9 +44,9 @@ The installer builds the Rust binary, copies `aicmd`, `aicmd-do`, `aicmd-err`, a
 
 ## Config / 配置
 
-English: Users only fill `.env` before installation or edit `~/.aicmd/config.yaml` after installation. `.env` supports three provider kinds: `openai`, `anthropic`, and `google`. OpenAI also supports `AICMD_OPENAI_API_STYLE=chat|responses`. Temperature, max tokens, and thinking mode are not required in `.env`; defaults are used.
+English: Users only fill `.env` before installation or edit `~/.aicmd/config.yaml` after installation. `.env` supports exactly one provider configuration at a time; choose `openai`, `anthropic`, or `google`. To switch provider later, edit the same `.env` file and run `aicmd-model init --from-env --force`. OpenAI also supports `AICMD_OPENAI_API_STYLE=chat|responses`. Temperature, max tokens, and thinking mode are not required in `.env`; defaults are used.
 
-中文：用户只需要在安装前填写 `.env`，或安装后编辑 `~/.aicmd/config.yaml`。`.env` 支持三种接口种类：`openai`、`anthropic`、`google`。OpenAI 额外支持 `AICMD_OPENAI_API_STYLE=chat|responses`。temperature、max token、thinking 模式不需要在 `.env` 中配置，默认使用关闭或默认值。
+中文：用户只需要在安装前填写 `.env`，或安装后编辑 `~/.aicmd/config.yaml`。`.env` 同一时间只支持一组模型服务配置；从 `openai`、`anthropic`、`google` 中选择一种。后续如需切换服务商，修改同一个 `.env` 文件后运行 `aicmd-model init --from-env --force`。OpenAI 额外支持 `AICMD_OPENAI_API_STYLE=chat|responses`。temperature、max token、thinking 模式不需要在 `.env` 中配置，默认使用关闭或默认值。
 
 ## Detailed usage / 详细使用文档
 

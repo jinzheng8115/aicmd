@@ -308,9 +308,9 @@ contrib/aicmd/install.sh
 aicmd 当前目录下有多少文件
 ```
 
-The pre-install `.env` only asks for these values:
+The pre-install `.env` only asks for one provider configuration with these values:
 
-安装前的 `.env` 只需要填写这些值：
+安装前的 `.env` 只需要填写一组模型服务配置，包含这些值：
 
 ```text
 AICMD_MODEL_NAME       model display/client name / 模型标识
@@ -334,9 +334,9 @@ After installation, the single user-editable model config file is:
 ~/.aicmd/config.yaml
 ```
 
-AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`, or regenerate it from `.env` with `aicmd-model init --from-env --force`.
+AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`. To switch provider through `.env`, edit the same `.env` file and regenerate with `aicmd-model init --from-env --force`.
 
-AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，直接编辑运行时 `~/.aicmd/config.yaml`，也可以用 `aicmd-model init --from-env --force` 根据 `.env` 重新生成。
+AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，可以直接编辑运行时 `~/.aicmd/config.yaml`。如果通过 `.env` 切换服务商，请修改同一个 `.env` 文件后用 `aicmd-model init --from-env --force` 重新生成。
 
 Important config fields:
 
