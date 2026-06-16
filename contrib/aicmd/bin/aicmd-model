@@ -90,12 +90,13 @@ yaml_escape() {
 }
 
 config_from_env() {
-  local provider name api_base api_key model_id openai_api_style client_type
+  local provider name api_base api_key model_id default_model openai_api_style client_type
   provider="$(required_env AICMD_MODEL_PROVIDER)"
   name="$(required_env AICMD_MODEL_NAME)"
   api_base="$(required_env AICMD_MODEL_API_BASE)"
   api_key="$(required_env AICMD_MODEL_API_KEY)"
   model_id="$(required_env AICMD_MODEL_ID)"
+  default_model="${AICMD_DEFAULT_MODEL:-${name}:${model_id}}"
   openai_api_style="${AICMD_OPENAI_API_STYLE:-chat}"
 
   case "$provider" in
@@ -120,7 +121,7 @@ config_from_env() {
 # Generated from .env. Edit this file directly after installation.
 # 由 .env 生成。安装后如需调整，请直接编辑本文件。
 
-model: ${name}:${model_id}
+model: ${default_model}
 
 temperature: null
 top_p: null

@@ -318,8 +318,13 @@ AICMD_MODEL_PROVIDER   openai | anthropic | google / 接口种类
 AICMD_MODEL_API_BASE   API base URL / API 地址
 AICMD_MODEL_API_KEY    API key
 AICMD_MODEL_ID         provider model id / 模型 ID
+AICMD_DEFAULT_MODEL    optional default model; default is name:id / 可选默认模型；默认是 name:id
 AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
 ```
+
+When `.env` is converted to `config.yaml`, the generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:AICMD_MODEL_ID`.
+
+`.env` 转成 `config.yaml` 时，顶部 `model:` 如果设置了 `AICMD_DEFAULT_MODEL` 就使用它；否则使用 `AICMD_MODEL_NAME:AICMD_MODEL_ID`。
 
 After installation, the single user-editable model config file is:
 
