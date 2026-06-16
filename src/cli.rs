@@ -39,8 +39,8 @@ pub struct Cli {
     /// Unsupported in AICmd focused command workflow
     #[clap(long, value_name = "ADDRESS", hide = true)]
     pub serve: Option<Option<String>>,
-    /// Execute commands in natural language (default when text is provided)
-    #[clap(short = 'e', long)]
+    /// Compatibility no-op: natural-language command execution is the default
+    #[clap(short = 'e', long, hide = true)]
     pub execute: bool,
     /// Unsupported in AICmd focused command workflow
     #[clap(short = 'c', long, hide = true)]
