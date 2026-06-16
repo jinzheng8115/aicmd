@@ -90,27 +90,6 @@ impl Role {
         Ok(Role::new(name, content))
     }
 
-    pub fn export(&self) -> String {
-        let mut metadata = vec![];
-        if let Some(model) = self.model_id() {
-            metadata.push(format!("model: {model}"));
-        }
-        if let Some(temperature) = self.temperature() {
-            metadata.push(format!("temperature: {temperature}"));
-        }
-        if let Some(top_p) = self.top_p() {
-            metadata.push(format!("top_p: {top_p}"));
-        }
-        if metadata.is_empty() {
-            format!("{}\n", self.prompt)
-        } else if self.prompt.is_empty() {
-            format!("---\n{}\n---\n", metadata.join("\n"))
-        } else {
-            format!("---\n{}\n---\n\n{}\n", metadata.join("\n"), self.prompt)
-        }
-    }
-
-
     pub fn sync<T: RoleLike>(&mut self, role_like: &T) {
         let model = role_like.model();
         let temperature = role_like.temperature();
@@ -118,12 +97,7 @@ impl Role {
         self.batch_set(model, temperature, top_p);
     }
 
-    pub fn batch_set(
-        &mut self,
-        model: &Model,
-        temperature: Option<f64>,
-        top_p: Option<f64>,
-    ) {
+    pub fn batch_set(&mut self, model: &Model, temperature: Option<f64>, top_p: Option<f64>) {
         self.set_model(model.clone());
         if temperature.is_some() {
             self.set_temperature(temperature);

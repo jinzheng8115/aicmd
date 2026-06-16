@@ -118,17 +118,9 @@ impl Model {
         }
     }
 
-
-
-
     pub fn patch(&self) -> Option<&Value> {
         self.data.patch.as_ref()
     }
-
-    pub fn max_input_tokens(&self) -> Option<usize> {
-        self.data.max_input_tokens
-    }
-
 
     pub fn no_stream(&self) -> bool {
         self.data.no_stream
@@ -142,9 +134,6 @@ impl Model {
         self.data.system_prompt_prefix.as_deref()
     }
 
-
-
-
     pub fn max_tokens_param(&self) -> Option<isize> {
         if self.data.require_max_tokens {
             self.data.max_output_tokens
@@ -152,7 +141,6 @@ impl Model {
             None
         }
     }
-
 
     pub fn messages_tokens(&self, messages: &[Message]) -> usize {
         let messages_len = messages.len();

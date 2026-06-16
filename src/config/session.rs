@@ -4,7 +4,6 @@ use super::*;
 use crate::client::{Message, MessageContent, MessageRole};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{read_to_string, write};
 use std::path::Path;
@@ -79,53 +78,8 @@ impl Session {
         &self.name
     }
 
-    pub fn tokens(&self) -> usize {
-        self.tokens
-    }
-
     pub fn update_tokens(&mut self) {
         self.tokens = self.model().total_tokens(&self.messages);
-    }
-
-
-
-    pub fn export(&self) -> Result<String> {
-        let mut data = json!({
-            "path": self.path,
-            "model": self.model().id(),
-        });
-        if let Some(temperature) = self.temperature() {
-            data["temperature"] = temperature.into();
-        }
-        if let Some(top_p) = self.top_p() {
-            data["top_p"] = top_p.into();
-        }
-        let (tokens, percent) = self.tokens_usage();
-        data["total_tokens"] = tokens.into();
-        if let Some(max_input_tokens) = self.model().max_input_tokens() {
-            data["max_input_tokens"] = max_input_tokens.into();
-        }
-        if percent != 0.0 {
-            data["total/max"] = format!("{percent}%").into();
-        }
-        data["messages"] = json!(self.messages);
-
-        let output = serde_yaml::to_string(&data)
-            .with_context(|| format!("Unable to show info about session '{}'", &self.name))?;
-        Ok(output)
-    }
-
-
-    pub fn tokens_usage(&self) -> (usize, f32) {
-        let tokens = self.tokens();
-        let max_input_tokens = self.model().max_input_tokens().unwrap_or_default();
-        let percent = if max_input_tokens == 0 {
-            0.0
-        } else {
-            let percent = tokens as f32 / max_input_tokens as f32 * 100.0;
-            (percent * 100.0).round() / 100.0
-        };
-        (tokens, percent)
     }
 
     pub fn set_role(&mut self, role: Role) {
@@ -138,8 +92,6 @@ impl Session {
         self.dirty = true;
         self.update_tokens();
     }
-
-
 
     pub fn save(&mut self, session_name: &str, session_path: &Path) -> Result<()> {
         ensure_parent_exists(session_path)?;
@@ -155,7 +107,6 @@ impl Session {
                 session_path.display()
             )
         })?;
-
 
         if self.name() != session_name {
             self.name = session_name.to_string()

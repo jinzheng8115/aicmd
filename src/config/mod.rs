@@ -7,8 +7,8 @@ pub use self::role::{Role, RoleLike, EXPLAIN_SHELL_ROLE, SHELL_ROLE};
 use self::session::Session;
 
 use crate::client::{
-    create_client_config, list_client_types, list_models, ClientConfig,
-    Model, ModelType, ProviderModels, OPENAI_COMPATIBLE_PROVIDERS,
+    create_client_config, list_client_types, list_models, ClientConfig, Model, ModelType,
+    ProviderModels, OPENAI_COMPATIBLE_PROVIDERS,
 };
 use crate::render::{MarkdownRender, RenderOptions};
 use crate::utils::*;
@@ -262,63 +262,11 @@ impl Config {
             role.clone()
         } else {
             let mut role = Role::default();
-            role.batch_set(
-                &self.model,
-                self.temperature,
-                self.top_p,
-            );
+            role.batch_set(&self.model, self.temperature, self.top_p);
             role
         }
     }
 
-    pub fn info(&self) -> Result<String> {
-        if let Some(session) = &self.session {
-            session.export()
-        } else if let Some(role) = &self.role {
-            Ok(role.export())
-        } else {
-            self.sysinfo()
-        }
-    }
-
-    pub fn sysinfo(&self) -> Result<String> {
-        let display_path = |path: &Path| path.display().to_string();
-        let wrap = self
-            .wrap
-            .clone()
-            .map_or_else(|| String::from("no"), |v| v.to_string());
-        let role = self.extract_role();
-        let mut items = vec![
-            ("model", role.model().id()),
-            ("temperature", format_option_value(&role.temperature())),
-            ("top_p", format_option_value(&role.top_p())),
-            (
-                "max_output_tokens",
-                role.model()
-                    .max_tokens_param()
-                    .map(|v| format!("{v} (current model)"))
-                    .unwrap_or_else(|| "null".into()),
-            ),
-            ("dry_run", self.dry_run.to_string()),
-            ("stream", self.stream.to_string()),
-            ("wrap", wrap),
-            ("wrap_code", self.wrap_code.to_string()),
-            ("highlight", self.highlight.to_string()),
-            ("theme", format_option_value(&self.theme)),
-            ("config_file", display_path(&Self::config_file())),
-            ("env_file", display_path(&Self::env_file())),
-            ("sessions_dir", display_path(&self.sessions_dir())),
-        ];
-        if let Ok((_, Some(log_path))) = Self::log_config() {
-            items.push(("log_path", display_path(&log_path)));
-        }
-        let output = items
-            .iter()
-            .map(|(name, value)| format!("{name:<24}{value}\n"))
-            .collect::<Vec<String>>()
-            .join("");
-        Ok(output)
-    }
     pub fn set_wrap(&mut self, value: &str) -> Result<()> {
         if value == "no" {
             self.wrap = None;
@@ -781,14 +729,4 @@ where
 fn read_env_bool(key: &str) -> Option<Option<bool>> {
     let value = env::var(key).ok()?;
     Some(parse_bool(&value))
-}
-
-fn format_option_value<T>(value: &Option<T>) -> String
-where
-    T: std::fmt::Display,
-{
-    match value {
-        Some(value) => value.to_string(),
-        None => "null".to_string(),
-    }
 }
