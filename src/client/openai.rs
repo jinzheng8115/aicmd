@@ -14,6 +14,7 @@ pub struct OpenAIConfig {
     pub name: Option<String>,
     pub api_key: Option<String>,
     pub api_base: Option<String>,
+    pub api_style: Option<String>,
     pub organization_id: Option<String>,
     #[serde(default)]
     pub models: Vec<ModelData>,
@@ -46,9 +47,18 @@ fn prepare_chat_completions(
         .get_api_base()
         .unwrap_or_else(|_| API_BASE.to_string());
 
-    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-
-    let body = openai_build_chat_completions_body(data, &self_.model);
+    let api_style = self_.config.api_style.as_deref().unwrap_or("chat");
+    let (url, body) = if api_style == "responses" {
+        (
+            format!("{}/responses", api_base.trim_end_matches('/')),
+            openai_build_responses_body(data, &self_.model),
+        )
+    } else {
+        (
+            format!("{}/chat/completions", api_base.trim_end_matches('/')),
+            openai_build_chat_completions_body(data, &self_.model),
+        )
+    };
 
     let mut request_data = RequestData::new(url, body);
 
@@ -176,6 +186,46 @@ pub async fn openai_chat_completions_streaming(
     sse_stream(builder, handle).await
 }
 
+
+pub fn openai_build_responses_body(data: ChatCompletionsData, model: &Model) -> Value {
+    let ChatCompletionsData {
+        messages,
+        temperature,
+        top_p,
+        stream: _,
+    } = data;
+
+    let input: Vec<Value> = messages
+        .into_iter()
+        .filter_map(|message| {
+            let content = message.content.to_text();
+            if content.is_empty() {
+                None
+            } else {
+                Some(json!({
+                    "role": message.role,
+                    "content": content,
+                }))
+            }
+        })
+        .collect();
+
+    let mut body = json!({
+        "model": &model.real_name(),
+        "input": input,
+    });
+    if let Some(v) = model.max_tokens_param() {
+        body["max_output_tokens"] = v.into();
+    }
+    if let Some(v) = temperature {
+        body["temperature"] = v.into();
+    }
+    if let Some(v) = top_p {
+        body["top_p"] = v.into();
+    }
+    body
+}
+
 pub fn openai_build_chat_completions_body(data: ChatCompletionsData, model: &Model) -> Value {
     let ChatCompletionsData {
         messages,
@@ -285,6 +335,10 @@ pub fn openai_build_chat_completions_body(data: ChatCompletionsData, model: &Mod
 }
 
 pub fn openai_extract_chat_completions(data: &Value) -> Result<ChatCompletionsOutput> {
+    if data.get("choices").is_none() {
+        return openai_extract_responses(data);
+    }
+
     let text = data["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or_default();
@@ -328,6 +382,33 @@ pub fn openai_extract_chat_completions(data: &Value) -> Result<ChatCompletionsOu
         tool_calls,
     };
     Ok(output)
+}
+
+
+fn openai_extract_responses(data: &Value) -> Result<ChatCompletionsOutput> {
+    if let Some(text) = data["output_text"].as_str() {
+        if !text.is_empty() {
+            return Ok(ChatCompletionsOutput::new(text));
+        }
+    }
+
+    let mut parts = vec![];
+    if let Some(output) = data["output"].as_array() {
+        for item in output {
+            if let Some(content) = item["content"].as_array() {
+                for part in content {
+                    if let Some(text) = part["text"].as_str() {
+                        parts.push(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let text = parts.join("\n");
+    if text.is_empty() {
+        bail!("Invalid response data: {data}");
+    }
+    Ok(ChatCompletionsOutput::new(&text))
 }
 
 fn normalize_function_id(value: &str) -> Option<String> {

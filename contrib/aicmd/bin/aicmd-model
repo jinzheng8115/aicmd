@@ -6,30 +6,32 @@ usage() {
 Usage: aicmd-model <command>
 
 Manage the AICmd runtime model config at ~/.aicmd/config.yaml.
-AICmd has no separate public model template or models.yaml file; config.yaml is the only user-editable model configuration file.
+The recommended setup is: copy .env.example to .env, fill the model values, then run `aicmd-model init --from-env`.
 
 用法：aicmd-model <命令>
 
 管理 AICmd 运行时模型配置 ~/.aicmd/config.yaml。
-AICmd 不再提供单独的公开模型模板或 models.yaml；config.yaml 是唯一需要用户编辑的模型配置文件。
+推荐流程：复制 .env.example 为 .env，填写模型参数，然后运行 `aicmd-model init --from-env`。
 
 Commands / 命令:
-  init       Create runtime config.yaml with a built-in starter config / 用内置初始配置创建运行时 config.yaml
-  init --force
-             Overwrite runtime config.yaml with the starter config / 用初始配置覆盖运行时配置
-  path       Print runtime config.yaml path / 输出运行时 config.yaml 路径
-  dir        Print runtime config directory / 输出运行时配置目录
-  show       Print runtime config.yaml / 输出运行时配置
-  edit       Open runtime config.yaml in $EDITOR / 用 $EDITOR 编辑运行时配置
-  help       Show this help / 显示帮助
+  init                Create runtime config.yaml. Uses .env when found, otherwise writes a starter config.
+                      创建运行时 config.yaml。发现 .env 时读取它，否则写入初始配置。
+  init --from-env     Require .env and generate config.yaml from it / 必须读取 .env 并生成 config.yaml
+  init --force        Overwrite runtime config.yaml / 覆盖运行时配置
+  path                Print runtime config.yaml path / 输出运行时 config.yaml 路径
+  dir                 Print runtime config directory / 输出运行时配置目录
+  show                Print runtime config.yaml / 输出运行时配置
+  edit                Open runtime config.yaml in $EDITOR / 用 $EDITOR 编辑运行时配置
+  help                Show this help / 显示帮助
 
 Examples / 示例:
-  aicmd-model init
-  aicmd-model path
+  cp .env.example .env
+  $EDITOR .env
+  aicmd-model init --from-env
   aicmd-model show
-  EDITOR=vim aicmd-model edit
 HELP
 }
+
 config_dir() {
   if [[ -n "${AICMD_CONFIG_DIR:-}" ]]; then
     printf '%s\n' "$AICMD_CONFIG_DIR"
@@ -46,85 +48,170 @@ config_path() {
   fi
 }
 
-default_config() {
-  cat <<'YAML'
-# AICmd runtime config / AICmd 运行时配置
-#
-# English: This is the only user-editable model configuration file.
-# Edit model/client values here after running `aicmd-model init`.
-#
-# 中文：这是唯一需要用户编辑的模型配置文件。
-# 运行 `aicmd-model init` 后，在这里修改 model/client。
-#
-# Runtime config path / 运行时配置路径：
-#   ~/.aicmd/config.yaml
-#   Override / 显式指定: AICMD_CONFIG_DIR=/path/to/config-dir
+find_env_file() {
+  if [[ -n "${AICMD_MODEL_ENV:-}" ]]; then
+    printf '%s\n' "$AICMD_MODEL_ENV"
+  elif [[ -f .env ]]; then
+    printf '%s\n' ".env"
+  else
+    local script_dir root
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    root="$(cd "$script_dir/../../.." && pwd)"
+    if [[ -f "$root/.env" ]]; then
+      printf '%s\n' "$root/.env"
+    fi
+  fi
+}
 
-# Select the default model / 选择默认模型
-# Format / 格式: <client-name>:<model-name>
-model: openai:gpt-4o
+load_model_env() {
+  local env_file="$1"
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+}
+
+required_env() {
+  local name="$1"
+  local value="${!name:-}"
+  if [[ -z "$value" ]]; then
+    echo "missing required env: $name" >&2
+    exit 1
+  fi
+  printf '%s\n' "$value"
+}
+
+yaml_escape() {
+  local value
+  value="$(cat)"
+  value="${value//\\/\\\\}"
+  value="${value//"/\\"}"
+  printf '"%s"\n' "$value"
+}
+
+config_from_env() {
+  local provider name api_base api_key model_id openai_api_style client_type
+  provider="$(required_env AICMD_MODEL_PROVIDER)"
+  name="$(required_env AICMD_MODEL_NAME)"
+  api_base="$(required_env AICMD_MODEL_API_BASE)"
+  api_key="$(required_env AICMD_MODEL_API_KEY)"
+  model_id="$(required_env AICMD_MODEL_ID)"
+  openai_api_style="${AICMD_OPENAI_API_STYLE:-chat}"
+
+  case "$provider" in
+    openai)
+      client_type="openai"
+      if [[ "$openai_api_style" != "chat" && "$openai_api_style" != "responses" ]]; then
+        echo "AICMD_OPENAI_API_STYLE must be chat or responses" >&2
+        exit 1
+      fi
+      ;;
+    anthropic)
+      client_type="claude" ;;
+    google)
+      client_type="gemini" ;;
+    *)
+      echo "AICMD_MODEL_PROVIDER must be openai, anthropic, or google" >&2
+      exit 1 ;;
+  esac
+
+  cat <<YAML
+# AICmd runtime config / AICmd 运行时配置
+# Generated from .env. Edit this file directly after installation.
+# 由 .env 生成。安装后如需调整，请直接编辑本文件。
+
+model: ${name}:${model_id}
 
 temperature: null
 top_p: null
-
-# Command workflow behavior / 命令工作流行为
+stream: false
 save: true
 wrap: no
 highlight: true
 save_shell_history: true
 
-# File loaders used by `aicmd -f <file> ...`.
-# `aicmd -f <文件> ...` 使用的文件加载器。
+document_loaders:
+  pdf: 'pdftotext \$1 -'
+  docx: 'pandoc --to plain \$1'
+
+clients:
+  - type: ${client_type}
+    name: $(printf '%s' "$name" | yaml_escape)
+    api_base: $(printf '%s' "$api_base" | yaml_escape)
+    api_key: $(printf '%s' "$api_key" | yaml_escape)
+YAML
+
+  if [[ "$provider" == "openai" ]]; then
+    cat <<YAML
+    api_style: ${openai_api_style}
+YAML
+  fi
+
+  cat <<YAML
+    models:
+      - name: $(printf '%s' "$model_id" | yaml_escape)
+YAML
+}
+
+default_config() {
+  cat <<'YAML'
+# AICmd runtime config / AICmd 运行时配置
+#
+# Recommended: copy .env.example to .env, fill model values, then run:
+#   aicmd-model init --from-env
+#
+# 推荐：复制 .env.example 为 .env，填写模型参数，然后运行：
+#   aicmd-model init --from-env
+
+model: openai:gpt-4o
+
+temperature: null
+top_p: null
+stream: false
+save: true
+wrap: no
+highlight: true
+save_shell_history: true
+
 document_loaders:
   pdf: 'pdftotext $1 -'
   docx: 'pandoc --to plain $1'
 
-# Model providers / 模型服务配置
 clients:
-  # OpenAI / OpenAI 示例
   - type: openai
-    # name defaults to "openai" when omitted.
-    # 省略 name 时默认是 "openai"。
+    name: openai
     api_base: https://api.openai.com/v1
     api_key: sk-xxxx
+    api_style: chat
     models:
       - name: gpt-4o
-        max_input_tokens: 128000
-
-  # DeepSeek / DeepSeek 示例
-  - type: openai-compatible
-    name: deepseek
-    api_base: https://api.deepseek.com
-    api_key: sk-xxxx
-    models:
-      - name: deepseek-chat
-        max_input_tokens: 64000
-
-  # Local OpenAI-compatible provider, such as Ollama.
-  # 本地 OpenAI-compatible provider，例如 Ollama。
-  - type: openai-compatible
-    name: ollama
-    api_base: http://localhost:11434/v1
-    api_key: xxx
-    models:
-      - name: llama3.1
-        max_input_tokens: 128000
 YAML
 }
 
 init_config() {
-  local force path
-  force="${1:-false}"
+  local force="$1" from_env="$2" path env_file
   path="$(config_path)"
   if [[ -f "$path" && "$force" != "true" ]]; then
     echo "config already exists: $path" >&2
     echo "use 'aicmd-model init --force' to overwrite it" >&2
     exit 1
   fi
+
   mkdir -p "$(dirname "$path")"
-  default_config > "$path"
+  env_file="$(find_env_file || true)"
+  if [[ -n "$env_file" ]]; then
+    load_model_env "$env_file"
+    config_from_env > "$path"
+    echo "created config from env: $path"
+    echo "env file: $env_file"
+  elif [[ "$from_env" == "true" ]]; then
+    echo "env file not found. Copy .env.example to .env and fill it first." >&2
+    exit 1
+  else
+    default_config > "$path"
+    echo "created starter config: $path"
+  fi
   chmod 600 "$path" 2>/dev/null || true
-  echo "created config: $path"
   echo "edit it with: aicmd-model edit"
 }
 
@@ -132,13 +219,16 @@ cmd="${1:-help}"
 case "$cmd" in
   init)
     force=false
-    if [[ "${2:-}" == "--force" ]]; then
-      force=true
-    elif [[ -n "${2:-}" ]]; then
-      echo "Unknown option for init: $2" >&2
-      exit 2
-    fi
-    init_config "$force" ;;
+    from_env=false
+    shift || true
+    for arg in "$@"; do
+      case "$arg" in
+        --force) force=true ;;
+        --from-env) from_env=true ;;
+        *) echo "Unknown option for init: $arg" >&2; exit 2 ;;
+      esac
+    done
+    init_config "$force" "$from_env" ;;
   path)
     config_path ;;
   dir)
@@ -147,14 +237,14 @@ case "$cmd" in
     path="$(config_path)"
     if [[ ! -f "$path" ]]; then
       echo "config not found: $path" >&2
-      echo "run 'aicmd-model init' to create it" >&2
+      echo "run 'aicmd-model init --from-env' to create it" >&2
       exit 1
     fi
     cat "$path" ;;
   edit)
     path="$(config_path)"
     if [[ ! -f "$path" ]]; then
-      init_config false >/dev/null
+      init_config false false >/dev/null
     fi
     editor="${EDITOR:-vi}"
     exec "$editor" "$path" ;;

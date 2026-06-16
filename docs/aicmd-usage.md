@@ -18,17 +18,19 @@ AICmd 刻意保持聚焦。它不暴露上游 AIChat 的宽功能，例如 Chat 
 
 ## 2. Install / 安装
 
-From the repository root:
+From the repository root, configure the model first, then install:
 
-在项目根目录执行：
+在项目根目录先配置模型，然后安装：
 
 ```bash
+cp .env.example .env
+$EDITOR .env
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary and installs these commands to `~/.local/bin` by default:
+The installer builds the Rust binary, installs these commands to `~/.local/bin` by default, and generates `~/.aicmd/config.yaml` from `.env` when `.env` exists:
 
-安装脚本会构建 Rust 二进制，并默认安装这些命令到 `~/.local/bin`：
+安装脚本会构建 Rust 二进制，默认安装这些命令到 `~/.local/bin`，并在存在 `.env` 时生成 `~/.aicmd/config.yaml`：
 
 ```text
 aicmd
@@ -293,30 +295,43 @@ Recommended setup order:
 推荐设置顺序：
 
 ```bash
-# 1. Install AICmd / 先安装 AICmd
+# 1. Copy the simple model env file / 复制简单模型配置文件
+cp .env.example .env
+
+# 2. Fill model values / 填写模型参数
+$EDITOR .env
+
+# 3. Install and generate ~/.aicmd/config.yaml / 安装并生成 ~/.aicmd/config.yaml
 contrib/aicmd/install.sh
-
-# 2. Create runtime config / 创建运行时配置
-aicmd-model init
-
-# 3. Edit model and API key / 编辑模型和 API key
-aicmd-model edit
 
 # 4. Test / 测试
 aicmd 当前目录下有多少文件
 ```
 
-The single user-editable model config file is:
+The pre-install `.env` only asks for these values:
 
-唯一需要用户编辑的模型配置文件是：
+安装前的 `.env` 只需要填写这些值：
+
+```text
+AICMD_MODEL_NAME       model display/client name / 模型标识
+AICMD_MODEL_PROVIDER   openai | anthropic | google / 接口种类
+AICMD_MODEL_API_BASE   API base URL / API 地址
+AICMD_MODEL_API_KEY    API key
+AICMD_MODEL_ID         provider model id / 模型 ID
+AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
+```
+
+After installation, the single user-editable model config file is:
+
+安装后，唯一需要用户编辑的模型配置文件是：
 
 ```text
 ~/.aicmd/config.yaml
 ```
 
-AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`.
+AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`, or regenerate it from `.env` with `aicmd-model init --from-env --force`.
 
-AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，直接编辑运行时 `~/.aicmd/config.yaml`。
+AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，直接编辑运行时 `~/.aicmd/config.yaml`，也可以用 `aicmd-model init --from-env --force` 根据 `.env` 重新生成。
 
 Important config fields:
 
@@ -326,6 +341,7 @@ Important config fields:
 model: openai:gpt-4o
 temperature: null
 top_p: null
+stream: false
 save: true
 wrap: no
 highlight: true
@@ -341,9 +357,9 @@ clients:
   - type: openai
     api_base: https://api.openai.com/v1
     api_key: xxx
+    api_style: chat  # or responses / 或 responses
     models:
       - name: gpt-4o
-        max_input_tokens: 128000
 ```
 
 OpenAI-compatible example:
@@ -376,27 +392,28 @@ Other explicit overrides also follow the `AICMD_...` environment naming pattern.
 
 ## 9. Helper command: aicmd-model / 辅助命令：aicmd-model
 
-`aicmd-model` helps users create, find, show, and edit the runtime model config. AICmd has no separate public model template or `models.yaml`; `~/.aicmd/config.yaml` is the only user-editable model configuration file.
+`aicmd-model` helps users create, find, show, and edit the runtime model config. `aicmd-model init --from-env` reads the simple `.env` file and writes `~/.aicmd/config.yaml`.
 
-`aicmd-model` 用于创建、定位、查看和编辑运行时模型配置。AICmd 不再提供单独的公开模型模板或 `models.yaml`；`~/.aicmd/config.yaml` 是唯一需要用户编辑的模型配置文件。
+`aicmd-model` 用于创建、定位、查看和编辑运行时模型配置。`aicmd-model init --from-env` 会读取简单 `.env` 文件并写入 `~/.aicmd/config.yaml`。
 
 Usage:
 
 用法：
 
 ```bash
-aicmd-model init
+aicmd-model init --from-env
 aicmd-model path
 aicmd-model show
 EDITOR=vim aicmd-model edit
 ```
 
-Typical flow after installation:
+Typical flow after installation if `.env` was not used:
 
-安装后的典型流程：
+如果安装时没有使用 `.env`，安装后的典型流程：
 
 ```bash
-aicmd-model init
+aicmd-model init --from-env
+# or edit config directly / 或直接编辑配置
 EDITOR=vim aicmd-model edit
 ```
 

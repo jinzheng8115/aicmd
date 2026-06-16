@@ -28,19 +28,25 @@ English:
 
 ## Install / 安装
 
+Recommended first-time setup:
+
+推荐首次安装流程：
+
 ```bash
+cp .env.example .env
+$EDITOR .env
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin` by default.
+The installer builds the Rust binary, copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin`, and generates `~/.aicmd/config.yaml` from `.env` when `.env` exists.
 
-安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`。
+安装脚本会构建 Rust 二进制，把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`；如果项目根目录存在 `.env`，会根据 `.env` 生成 `~/.aicmd/config.yaml`。
 
 ## Config / 配置
 
-English: Install AICmd first, then run `aicmd-model init` and `aicmd-model edit` to create and edit `~/.aicmd/config.yaml`. There is no separate public model template or `models.yaml`; `config.yaml` is the only user-editable model configuration file.
+English: Users only fill `.env` before installation or edit `~/.aicmd/config.yaml` after installation. `.env` supports three provider kinds: `openai`, `anthropic`, and `google`. OpenAI also supports `AICMD_OPENAI_API_STYLE=chat|responses`. Temperature, max tokens, and thinking mode are not required in `.env`; defaults are used.
 
-中文：先安装 AICmd，然后运行 `aicmd-model init` 和 `aicmd-model edit` 创建并编辑 `~/.aicmd/config.yaml`。不再提供单独的公开模型模板或 `models.yaml`；`config.yaml` 是唯一需要用户编辑的模型配置文件。
+中文：用户只需要在安装前填写 `.env`，或安装后编辑 `~/.aicmd/config.yaml`。`.env` 支持三种接口种类：`openai`、`anthropic`、`google`。OpenAI 额外支持 `AICMD_OPENAI_API_STYLE=chat|responses`。temperature、max token、thinking 模式不需要在 `.env` 中配置，默认使用关闭或默认值。
 
 ## Detailed usage / 详细使用文档
 
