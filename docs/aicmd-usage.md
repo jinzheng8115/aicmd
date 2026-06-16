@@ -178,9 +178,9 @@ aicmd --dry-run 当前目录下有多少文件
 
 ## 6. Sessions / 会话
 
-AICmd uses command sessions so related command-generation context can continue.
+AICmd uses command sessions so related command-generation context can continue. Sessions store conversation context, not the selected model. The model always comes from current `~/.aicmd/config.yaml` or the current `-m` option.
 
-AICmd 使用命令会话，以便相关命令生成上下文可以延续。
+AICmd 使用命令会话，以便相关命令生成上下文可以延续。会话只保存对话上下文，不保存所选模型。模型始终来自当前 `~/.aicmd/config.yaml` 或本次命令的 `-m` 参数。
 
 Default session:
 

@@ -10,8 +10,6 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Session {
-    #[serde(rename(serialize = "model", deserialize = "model"))]
-    model_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -54,7 +52,7 @@ impl Session {
         let mut session: Self =
             serde_yaml::from_str(&content).with_context(|| format!("Invalid session {name}"))?;
 
-        session.model = Model::retrieve_model(config, &session.model_id, ModelType::Chat)?;
+        session.model = config.current_model().clone();
 
         session.name = name.to_string();
         session.path = Some(path.display().to_string());
@@ -83,7 +81,6 @@ impl Session {
     }
 
     pub fn set_role(&mut self, role: Role) {
-        self.model_id = role.model().id();
         self.temperature = role.temperature();
         self.top_p = role.top_p();
         self.model = role.model().clone();
@@ -195,7 +192,6 @@ impl RoleLike for Session {
 
     fn set_model(&mut self, model: Model) {
         if self.model().id() != model.id() {
-            self.model_id = model.id();
             self.model = model;
             self.dirty = true;
             self.update_tokens();
