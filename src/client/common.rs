@@ -28,10 +28,6 @@ pub static ALL_PROVIDER_MODELS: LazyLock<Vec<ProviderModels>> = LazyLock::new(||
         .unwrap_or_else(|| serde_yaml::from_str(MODELS_YAML).unwrap())
 });
 
-static EMBEDDING_MODEL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"((^|/)(bge-|e5-|uae-|gte-|text-)|embed|multilingual|minilm)").unwrap()
-});
-
 static ESCAPE_SLASH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?<!\\)/").unwrap());
 
 #[async_trait::async_trait]
@@ -45,8 +41,6 @@ pub trait Client: Sync + Send {
     fn name(&self) -> &str;
 
     fn model(&self) -> &Model;
-
-    fn model_mut(&mut self) -> &mut Model;
 
     fn build_client(&self) -> Result<ReqwestClient> {
         let mut builder = ReqwestClient::builder();
@@ -105,20 +99,6 @@ pub trait Client: Sync + Send {
         }
     }
 
-    async fn embeddings(&self, data: &EmbeddingsData) -> Result<Vec<Vec<f32>>> {
-        let client = self.build_client()?;
-        self.embeddings_inner(&client, data)
-            .await
-            .context("Failed to call embeddings api")
-    }
-
-    async fn rerank(&self, data: &RerankData) -> Result<RerankOutput> {
-        let client = self.build_client()?;
-        self.rerank_inner(&client, data)
-            .await
-            .context("Failed to call rerank api")
-    }
-
     async fn chat_completions_inner(
         &self,
         client: &ReqwestClient,
@@ -131,22 +111,6 @@ pub trait Client: Sync + Send {
         handler: &mut SseHandler,
         data: ChatCompletionsData,
     ) -> Result<()>;
-
-    async fn embeddings_inner(
-        &self,
-        _client: &ReqwestClient,
-        _data: &EmbeddingsData,
-    ) -> Result<EmbeddingsOutput> {
-        bail!("The client doesn't support embeddings api")
-    }
-
-    async fn rerank_inner(
-        &self,
-        _client: &ReqwestClient,
-        _data: &RerankData,
-    ) -> Result<RerankOutput> {
-        bail!("The client doesn't support rerank api")
-    }
 
     fn request_builder(
         &self,
@@ -304,45 +268,6 @@ impl ChatCompletionsOutput {
     }
 }
 
-#[derive(Debug)]
-pub struct EmbeddingsData {
-    pub texts: Vec<String>,
-    pub query: bool,
-}
-
-impl EmbeddingsData {
-    pub fn new(texts: Vec<String>, query: bool) -> Self {
-        Self { texts, query }
-    }
-}
-
-pub type EmbeddingsOutput = Vec<Vec<f32>>;
-
-#[derive(Debug)]
-pub struct RerankData {
-    pub query: String,
-    pub documents: Vec<String>,
-    pub top_n: usize,
-}
-
-impl RerankData {
-    pub fn new(query: String, documents: Vec<String>, top_n: usize) -> Self {
-        Self {
-            query,
-            documents,
-            top_n,
-        }
-    }
-}
-
-pub type RerankOutput = Vec<RerankResult>;
-
-#[derive(Debug, Deserialize)]
-pub struct RerankResult {
-    pub index: usize,
-    pub relevance_score: f64,
-}
-
 pub type PromptAction<'a> = (&'a str, &'a str, Option<&'a str>);
 
 pub async fn create_config(
@@ -474,22 +399,6 @@ pub async fn call_chat_completions_streaming(
     }
 }
 
-pub fn noop_prepare_embeddings<T>(_client: &T, _data: &EmbeddingsData) -> Result<RequestData> {
-    bail!("The client doesn't support embeddings api")
-}
-
-pub async fn noop_embeddings(_builder: RequestBuilder, _model: &Model) -> Result<EmbeddingsOutput> {
-    bail!("The client doesn't support embeddings api")
-}
-
-pub fn noop_prepare_rerank<T>(_client: &T, _data: &RerankData) -> Result<RequestData> {
-    bail!("The client doesn't support rerank api")
-}
-
-pub async fn noop_rerank(_builder: RequestBuilder, _model: &Model) -> Result<RerankOutput> {
-    bail!("The client doesn't support rerank api")
-}
-
 pub fn catch_error(data: &Value, status: u16) -> Result<()> {
     if (200..300).contains(&status) {
         return Ok(());
@@ -612,20 +521,7 @@ async fn set_client_models_config(client_config: &mut Value, client: &str) -> Re
     let models: Vec<Value> = model_names
         .iter()
         .map(|v| {
-            let l = v.to_lowercase();
-            if l.contains("rank") {
-                json!({
-                    "name": v,
-                    "type": "reranker",
-                })
-            } else if let Ok(true) = EMBEDDING_MODEL_RE.is_match(&l) {
-                json!({
-                    "name": v,
-                    "type": "embedding",
-                    "default_chunk_size": 1000,
-                    "max_batch_size": 100
-                })
-            } else if v.contains("vision") {
+            if v.contains("vision") {
                 json!({
                     "name": v,
                     "supports_vision": true

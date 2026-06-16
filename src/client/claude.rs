@@ -34,8 +34,6 @@ impl_client_trait!(
         claude_chat_completions,
         claude_chat_completions_streaming
     ),
-    (noop_prepare_embeddings, noop_embeddings),
-    (noop_prepare_rerank, noop_rerank),
 );
 
 fn prepare_chat_completions(

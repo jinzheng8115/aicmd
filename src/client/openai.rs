@@ -35,8 +35,6 @@ impl_client_trait!(
         openai_chat_completions,
         openai_chat_completions_streaming
     ),
-    (prepare_embeddings, openai_embeddings),
-    (noop_prepare_rerank, noop_rerank),
 );
 
 fn prepare_chat_completions(
@@ -62,25 +60,6 @@ fn prepare_chat_completions(
     Ok(request_data)
 }
 
-fn prepare_embeddings(self_: &OpenAIClient, data: &EmbeddingsData) -> Result<RequestData> {
-    let api_key = self_.get_api_key()?;
-    let api_base = self_
-        .get_api_base()
-        .unwrap_or_else(|_| API_BASE.to_string());
-
-    let url = format!("{api_base}/embeddings");
-
-    let body = openai_build_embeddings_body(data, &self_.model);
-
-    let mut request_data = RequestData::new(url, body);
-
-    request_data.bearer_auth(api_key);
-    if let Some(organization_id) = &self_.config.organization_id {
-        request_data.header("OpenAI-Organization", organization_id);
-    }
-
-    Ok(request_data)
-}
 
 pub async fn openai_chat_completions(
     builder: RequestBuilder,
@@ -195,32 +174,6 @@ pub async fn openai_chat_completions_streaming(
     };
 
     sse_stream(builder, handle).await
-}
-
-pub async fn openai_embeddings(
-    builder: RequestBuilder,
-    _model: &Model,
-) -> Result<EmbeddingsOutput> {
-    let res = builder.send().await?;
-    let status = res.status();
-    let data: Value = res.json().await?;
-    if !status.is_success() {
-        catch_error(&data, status.as_u16())?;
-    }
-    let res_body: EmbeddingsResBody =
-        serde_json::from_value(data).context("Invalid embeddings data")?;
-    let output = res_body.data.into_iter().map(|v| v.embedding).collect();
-    Ok(output)
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBody {
-    data: Vec<EmbeddingsResBodyEmbedding>,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBodyEmbedding {
-    embedding: Vec<f32>,
 }
 
 pub fn openai_build_chat_completions_body(data: ChatCompletionsData, model: &Model) -> Value {
@@ -341,13 +294,6 @@ pub fn openai_build_chat_completions_body(data: ChatCompletionsData, model: &Mod
             .collect();
     }
     body
-}
-
-pub fn openai_build_embeddings_body(data: &EmbeddingsData, model: &Model) -> Value {
-    json!({
-        "input": data.texts,
-        "model": model.real_name()
-    })
 }
 
 pub fn openai_extract_chat_completions(data: &Value) -> Result<ChatCompletionsOutput> {

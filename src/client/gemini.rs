@@ -1,10 +1,8 @@
 use super::vertexai::*;
 use super::*;
 
-use anyhow::{Context, Result};
-use reqwest::RequestBuilder;
+use anyhow::Result;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
 const API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -33,8 +31,6 @@ impl_client_trait!(
         gemini_chat_completions,
         gemini_chat_completions_streaming
     ),
-    (prepare_embeddings, embeddings),
-    (noop_prepare_rerank, noop_rerank),
 );
 
 fn prepare_chat_completions(
@@ -65,72 +61,4 @@ fn prepare_chat_completions(
     request_data.header("x-goog-api-key", api_key);
 
     Ok(request_data)
-}
-
-fn prepare_embeddings(self_: &GeminiClient, data: &EmbeddingsData) -> Result<RequestData> {
-    let api_key = self_.get_api_key()?;
-    let api_base = self_
-        .get_api_base()
-        .unwrap_or_else(|_| API_BASE.to_string());
-
-    let url = format!(
-        "{}/models/{}:batchEmbedContents?key={}",
-        api_base.trim_end_matches('/'),
-        self_.model.real_name(),
-        api_key
-    );
-
-    let model_id = format!("models/{}", self_.model.real_name());
-
-    let requests: Vec<_> = data
-        .texts
-        .iter()
-        .map(|text| {
-            json!({
-                "model": model_id,
-                "content": {
-                    "parts": [
-                        {
-                            "text": text
-                        }
-                    ]
-                },
-            })
-        })
-        .collect();
-
-    let body = json!({
-        "requests": requests,
-    });
-
-    let request_data = RequestData::new(url, body);
-
-    Ok(request_data)
-}
-
-async fn embeddings(builder: RequestBuilder, _model: &Model) -> Result<EmbeddingsOutput> {
-    let res = builder.send().await?;
-    let status = res.status();
-    let data: Value = res.json().await?;
-    if !status.is_success() {
-        catch_error(&data, status.as_u16())?;
-    }
-    let res_body: EmbeddingsResBody =
-        serde_json::from_value(data).context("Invalid embeddings data")?;
-    let output = res_body
-        .embeddings
-        .into_iter()
-        .map(|embedding| embedding.values)
-        .collect();
-    Ok(output)
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBody {
-    embeddings: Vec<EmbeddingsResBodyEmbedding>,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBodyEmbedding {
-    values: Vec<f32>,
 }

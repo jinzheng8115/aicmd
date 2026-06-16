@@ -160,9 +160,6 @@ macro_rules! client_common_fns {
             &self.model
         }
 
-        fn model_mut(&mut self) -> &mut Model {
-            &mut self.model
-        }
     };
 }
 
@@ -171,8 +168,6 @@ macro_rules! impl_client_trait {
     (
         $client:ident,
         ($prepare_chat_completions:path, $chat_completions:path, $chat_completions_streaming:path),
-        ($prepare_embeddings:path, $embeddings:path),
-        ($prepare_rerank:path, $rerank:path),
     ) => {
         #[async_trait::async_trait]
         impl $crate::client::Client for $crate::client::$client {
@@ -197,26 +192,6 @@ macro_rules! impl_client_trait {
                 let request_data = $prepare_chat_completions(self, data)?;
                 let builder = self.request_builder(client, request_data);
                 $chat_completions_streaming(builder, handler, self.model()).await
-            }
-
-            async fn embeddings_inner(
-                &self,
-                client: &reqwest::Client,
-                data: &$crate::client::EmbeddingsData,
-            ) -> Result<$crate::client::EmbeddingsOutput> {
-                let request_data = $prepare_embeddings(self, data)?;
-                let builder = self.request_builder(client, request_data);
-                $embeddings(builder, self.model()).await
-            }
-
-            async fn rerank_inner(
-                &self,
-                client: &reqwest::Client,
-                data: &$crate::client::RerankData,
-            ) -> Result<$crate::client::RerankOutput> {
-                let request_data = $prepare_rerank(self, data)?;
-                let builder = self.request_builder(client, request_data);
-                $rerank(builder, self.model()).await
             }
         }
     };

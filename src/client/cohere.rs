@@ -1,11 +1,10 @@
 use super::openai::*;
-use super::openai_compatible::*;
 use super::*;
 
 use anyhow::{bail, Context, Result};
 use reqwest::RequestBuilder;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 const API_BASE: &str = "https://api.cohere.ai/v2";
 
@@ -34,8 +33,6 @@ impl_client_trait!(
         chat_completions,
         chat_completions_streaming
     ),
-    (prepare_embeddings, embeddings),
-    (prepare_rerank, generic_rerank),
 );
 
 fn prepare_chat_completions(
@@ -62,48 +59,6 @@ fn prepare_chat_completions(
     Ok(request_data)
 }
 
-fn prepare_embeddings(self_: &CohereClient, data: &EmbeddingsData) -> Result<RequestData> {
-    let api_key = self_.get_api_key()?;
-    let api_base = self_
-        .get_api_base()
-        .unwrap_or_else(|_| API_BASE.to_string());
-
-    let url = format!("{}/embed", api_base.trim_end_matches('/'));
-
-    let input_type = match data.query {
-        true => "search_query",
-        false => "search_document",
-    };
-
-    let body = json!({
-        "model": self_.model.real_name(),
-        "texts": data.texts,
-        "input_type": input_type,
-        "embedding_types": ["float"],
-    });
-
-    let mut request_data = RequestData::new(url, body);
-
-    request_data.bearer_auth(api_key);
-
-    Ok(request_data)
-}
-
-fn prepare_rerank(self_: &CohereClient, data: &RerankData) -> Result<RequestData> {
-    let api_key = self_.get_api_key()?;
-    let api_base = self_
-        .get_api_base()
-        .unwrap_or_else(|_| API_BASE.to_string());
-
-    let url = format!("{}/rerank", api_base.trim_end_matches('/'));
-    let body = generic_build_rerank_body(data, &self_.model);
-
-    let mut request_data = RequestData::new(url, body);
-
-    request_data.bearer_auth(api_key);
-
-    Ok(request_data)
-}
 
 async fn chat_completions(
     builder: RequestBuilder,
@@ -186,28 +141,6 @@ async fn chat_completions_streaming(
     };
 
     sse_stream(builder, handle).await
-}
-
-async fn embeddings(builder: RequestBuilder, _model: &Model) -> Result<EmbeddingsOutput> {
-    let res = builder.send().await?;
-    let status = res.status();
-    let data: Value = res.json().await?;
-    if !status.is_success() {
-        catch_error(&data, status.as_u16())?;
-    }
-    let res_body: EmbeddingsResBody =
-        serde_json::from_value(data).context("Invalid embeddings data")?;
-    Ok(res_body.embeddings.float)
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBody {
-    embeddings: EmbeddingsResBodyEmbeddings,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBodyEmbeddings {
-    float: Vec<Vec<f32>>,
 }
 
 fn extract_chat_completions(data: &Value) -> Result<ChatCompletionsOutput> {

@@ -77,16 +77,6 @@ impl Client for VertexAIClient {
         }
     }
 
-    async fn embeddings_inner(
-        &self,
-        client: &ReqwestClient,
-        data: &EmbeddingsData,
-    ) -> Result<Vec<Vec<f32>>> {
-        prepare_gcloud_access_token(client, self.name(), &self.config.adc_file).await?;
-        let request_data = prepare_embeddings(self, data)?;
-        let builder = self.request_builder(client, request_data);
-        embeddings(builder, self.model()).await
-    }
 }
 
 fn prepare_chat_completions(
@@ -152,33 +142,6 @@ fn prepare_chat_completions(
     Ok(request_data)
 }
 
-fn prepare_embeddings(self_: &VertexAIClient, data: &EmbeddingsData) -> Result<RequestData> {
-    let project_id = self_.get_project_id()?;
-    let location = self_.get_location()?;
-    let access_token = get_access_token(self_.name())?;
-
-    let base_url = if location == "global" {
-        format!("https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/global/publishers")
-    } else {
-        format!("https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers")
-    };
-    let url = format!(
-        "{base_url}/google/models/{}:predict",
-        self_.model.real_name()
-    );
-
-    let instances: Vec<_> = data.texts.iter().map(|v| json!({"content": v})).collect();
-
-    let body = json!({
-        "instances": instances,
-    });
-
-    let mut request_data = RequestData::new(url, body);
-
-    request_data.bearer_auth(access_token);
-
-    Ok(request_data)
-}
 
 pub async fn gemini_chat_completions(
     builder: RequestBuilder,
@@ -236,37 +199,6 @@ pub async fn gemini_chat_completions_streaming(
     Ok(())
 }
 
-async fn embeddings(builder: RequestBuilder, _model: &Model) -> Result<EmbeddingsOutput> {
-    let res = builder.send().await?;
-    let status = res.status();
-    let data: Value = res.json().await?;
-    if !status.is_success() {
-        catch_error(&data, status.as_u16())?;
-    }
-    let res_body: EmbeddingsResBody =
-        serde_json::from_value(data).context("Invalid embeddings data")?;
-    let output = res_body
-        .predictions
-        .into_iter()
-        .map(|v| v.embeddings.values)
-        .collect();
-    Ok(output)
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBody {
-    predictions: Vec<EmbeddingsResBodyPrediction>,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBodyPrediction {
-    embeddings: EmbeddingsResBodyPredictionEmbeddings,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBodyPredictionEmbeddings {
-    values: Vec<f32>,
-}
 
 fn gemini_extract_chat_completions_text(data: &Value) -> Result<ChatCompletionsOutput> {
     let mut text_parts = vec![];

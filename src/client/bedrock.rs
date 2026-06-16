@@ -89,58 +89,6 @@ impl BedrockClient {
         Ok(builder)
     }
 
-    fn embeddings_builder(
-        &self,
-        client: &ReqwestClient,
-        data: &EmbeddingsData,
-    ) -> Result<RequestBuilder> {
-        let access_key_id = self.get_access_key_id()?;
-        let secret_access_key = self.get_secret_access_key()?;
-        let region = self.get_region()?;
-        let session_token = self.get_session_token().ok();
-        let host = format!("bedrock-runtime.{region}.amazonaws.com");
-
-        let uri = format!("/model/{}/invoke", self.model.real_name());
-
-        let input_type = match data.query {
-            true => "search_query",
-            false => "search_document",
-        };
-
-        let body = json!({
-            "texts": data.texts,
-            "input_type": input_type,
-        });
-
-        let mut request_data = RequestData::new("", body);
-        self.patch_request_data(&mut request_data);
-        let RequestData {
-            url: _,
-            headers,
-            body,
-        } = request_data;
-
-        let builder = aws_fetch(
-            client,
-            &AwsCredentials {
-                access_key_id,
-                secret_access_key,
-                region,
-                session_token,
-            },
-            AwsRequest {
-                method: Method::POST,
-                host,
-                service: "bedrock".into(),
-                uri,
-                querystring: "".into(),
-                headers,
-                body: body.to_string(),
-            },
-        )?;
-
-        Ok(builder)
-    }
 }
 
 #[async_trait::async_trait]
@@ -166,14 +114,6 @@ impl Client for BedrockClient {
         chat_completions_streaming(builder, handler).await
     }
 
-    async fn embeddings_inner(
-        &self,
-        client: &ReqwestClient,
-        data: &EmbeddingsData,
-    ) -> Result<EmbeddingsOutput> {
-        let builder = self.embeddings_builder(client, data)?;
-        embeddings(builder).await
-    }
 }
 
 async fn chat_completions(builder: RequestBuilder) -> Result<ChatCompletionsOutput> {
@@ -299,24 +239,6 @@ async fn chat_completions_streaming(
     Ok(())
 }
 
-async fn embeddings(builder: RequestBuilder) -> Result<EmbeddingsOutput> {
-    let res = builder.send().await?;
-    let status = res.status();
-    let data: Value = res.json().await?;
-
-    if !status.is_success() {
-        catch_error(&data, status.as_u16())?;
-    }
-
-    let res_body: EmbeddingsResBody =
-        serde_json::from_value(data).context("Invalid embeddings data")?;
-    Ok(res_body.embeddings)
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResBody {
-    embeddings: Vec<Vec<f32>>,
-}
 
 fn build_chat_completions_body(data: ChatCompletionsData, model: &Model) -> Result<Value> {
     let ChatCompletionsData {
