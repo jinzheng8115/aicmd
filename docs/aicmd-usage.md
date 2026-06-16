@@ -182,6 +182,14 @@ AICmd uses command sessions so related command-generation context can continue. 
 
 AICmd 使用命令会话，以便相关命令生成上下文可以延续。会话只保存对话上下文，不保存所选模型。模型始终来自当前 `~/.aicmd/config.yaml` 或本次命令的 `-m` 参数。
 
+Show the current default session name:
+
+显示当前默认会话名称：
+
+```bash
+aicmd -s
+```
+
 Default session:
 
 默认会话：

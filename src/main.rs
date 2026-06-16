@@ -58,6 +58,12 @@ fn confirm_action(message: &str) -> Result<bool> {
     Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "YES"))
 }
 
+fn default_session_name() -> String {
+    let beijing = chrono::Utc::now()
+        .with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).expect("valid timezone"));
+    format!("cmd-{}", beijing.format("%Y%m%d"))
+}
+
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
     let abort_signal = create_abort_signal();
 
@@ -66,13 +72,14 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     }
 
     config.write().use_role(SHELL_ROLE)?;
-    let default_session;
+    let default_session = default_session_name();
+    if matches!(cli.session, Some(None)) && text.is_none() && cli.file.is_empty() {
+        println!("current session: {default_session}");
+        return Ok(());
+    }
     let session_name = if let Some(session) = &cli.session {
         session.as_ref().map(|v| v.as_str())
     } else {
-        let beijing = chrono::Utc::now()
-            .with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).expect("valid timezone"));
-        default_session = format!("cmd-{}", beijing.format("%Y%m%d"));
         Some(default_session.as_str())
     };
     config.write().use_session(session_name)?;
