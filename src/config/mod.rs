@@ -19,10 +19,10 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use simplelog::LevelFilter;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::{
     env,
-    fs::{create_dir_all, read_dir, read_to_string, remove_file},
+    fs::{create_dir_all, read_to_string, remove_file},
     path::{Path, PathBuf},
     process,
     sync::Arc,
@@ -37,7 +37,6 @@ const DARK_THEME: &[u8] = include_bytes!("../../assets/monokai-extended.theme.bi
 const LIGHT_THEME: &[u8] = include_bytes!("../../assets/monokai-extended-light.theme.bin");
 
 const CONFIG_FILE_NAME: &str = "config.yaml";
-const ROLES_DIR_NAME: &str = "roles";
 const ENV_FILE_NAME: &str = ".env";
 const SESSIONS_DIR_NAME: &str = "sessions";
 const CLIENTS_FIELD: &str = "clients";
@@ -191,17 +190,6 @@ impl Config {
         }
     }
 
-    pub fn roles_dir() -> PathBuf {
-        match env::var(get_env_name("roles_dir")) {
-            Ok(value) => PathBuf::from(value),
-            Err(_) => Self::local_path(ROLES_DIR_NAME),
-        }
-    }
-
-    pub fn role_file(name: &str) -> PathBuf {
-        Self::roles_dir().join(format!("{name}.md"))
-    }
-
     pub fn env_file() -> PathBuf {
         match env::var(get_env_name("env_file")) {
             Ok(value) => PathBuf::from(value),
@@ -319,7 +307,6 @@ impl Config {
             ("theme", format_option_value(&self.theme)),
             ("config_file", display_path(&Self::config_file())),
             ("env_file", display_path(&Self::env_file())),
-            ("roles_dir", display_path(&Self::roles_dir())),
             ("sessions_dir", display_path(&self.sessions_dir())),
         ];
         if let Ok((_, Some(log_path))) = Self::log_config() {
@@ -371,14 +358,7 @@ impl Config {
         Ok(())
     }
     pub fn retrieve_role(&self, name: &str) -> Result<Role> {
-        let names = Self::list_roles(false);
-        let mut role = if names.contains(&name.to_string()) {
-            let path = Self::role_file(name);
-            let content = read_to_string(&path)?;
-            Role::new(name, &content)
-        } else {
-            Role::builtin(name)?
-        };
+        let mut role = Role::builtin(name)?;
         let current_model = self.current_model().clone();
         match role.model_id() {
             Some(model_id) => {
@@ -401,27 +381,6 @@ impl Config {
         }
         Ok(role)
     }
-    pub fn list_roles(with_builtin: bool) -> Vec<String> {
-        let mut names = HashSet::new();
-        if let Ok(rd) = read_dir(Self::roles_dir()) {
-            for entry in rd.flatten() {
-                if let Some(name) = entry
-                    .file_name()
-                    .to_str()
-                    .and_then(|v| v.strip_suffix(".md"))
-                {
-                    names.insert(name.to_string());
-                }
-            }
-        }
-        if with_builtin {
-            names.extend(Role::list_builtin_role_names());
-        }
-        let mut names: Vec<_> = names.into_iter().collect();
-        names.sort_unstable();
-        names
-    }
-
     pub fn use_session(&mut self, session_name: Option<&str>) -> Result<()> {
         if self.session.is_some() {
             bail!(

@@ -90,14 +90,6 @@ impl Role {
         Ok(Role::new(name, content))
     }
 
-    pub fn list_builtin_role_names() -> Vec<String> {
-        RolesAsset::iter()
-            .filter_map(|v| v.strip_suffix(".md").map(|v| v.to_string()))
-            .collect()
-    }
-
-
-
     pub fn export(&self) -> String {
         let mut metadata = vec![];
         if let Some(model) = self.model_id() {
