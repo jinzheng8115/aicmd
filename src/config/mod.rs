@@ -1,9 +1,7 @@
-mod agent;
 mod input;
 mod role;
 mod session;
 
-pub use self::agent::{Agent, AgentVariables};
 pub use self::input::Input;
 pub use self::role::{
     Role, RoleLike, CODE_ROLE, CREATE_TITLE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE,
@@ -15,7 +13,6 @@ use crate::client::{
     Model, ModelType, ProviderModels, OPENAI_COMPATIBLE_PROVIDERS,
 };
 use crate::function::{FunctionDeclaration, Functions, ToolResult};
-use crate::rag::Rag;
 use crate::render::{MarkdownRender, RenderOptions};
 use crate::utils::*;
 
@@ -41,7 +38,6 @@ use syntect::highlighting::ThemeSet;
 use terminal_colorsaurus::{color_scheme, ColorScheme, QueryOptions};
 
 pub const TEMP_ROLE_NAME: &str = "%%";
-pub const TEMP_RAG_NAME: &str = "temp";
 pub const TEMP_SESSION_NAME: &str = "temp";
 
 /// Monokai Extended
@@ -53,11 +49,9 @@ const ROLES_DIR_NAME: &str = "roles";
 const ENV_FILE_NAME: &str = ".env";
 const MESSAGES_FILE_NAME: &str = "messages.md";
 const SESSIONS_DIR_NAME: &str = "sessions";
-const RAGS_DIR_NAME: &str = "rags";
 const FUNCTIONS_DIR_NAME: &str = "functions";
 const FUNCTIONS_FILE_NAME: &str = "functions.json";
 const FUNCTIONS_BIN_DIR_NAME: &str = "bin";
-const AGENTS_DIR_NAME: &str = "agents";
 
 const CLIENTS_FIELD: &str = "clients";
 
@@ -70,26 +64,7 @@ const SUMMARIZE_PROMPT: &str =
     "Summarize the discussion briefly in 200 words or less to use as a prompt for future context.";
 const SUMMARY_PROMPT: &str = "This is a summary of the chat history as a recap: ";
 
-const RAG_TEMPLATE: &str = r#"Answer the query based on the context while respecting the rules. (user query, some textual context and rules, all inside xml tags)
-
-<context>
-__CONTEXT__
-</context>
-
-<rules>
-- If you don't know, just say so.
-- If you are not sure, ask for clarification.
-- Answer in the same language as the user query.
-- If the context appears unreadable or of poor quality, tell the user then answer as best as you can.
-- If the answer is not in the context but you think you know the answer, explain that to the user then answer with your own knowledge.
-- Answer directly and without using xml tags.
-</rules>
-
-<user_query>
-__INPUT__
-</user_query>"#;
-
-const LEFT_PROMPT: &str = "{color.green}{?session {?agent {agent}>}{session}{?role /}}{!session {?agent {agent}>}}{role}{?rag @{rag}}{color.cyan}{?session )}{!session >}{color.reset} ";
+const LEFT_PROMPT: &str = "{color.green}{?session }{session}{?role /}}{!session }}{role}{color.cyan}{?session )}{!session >}{color.reset} ";
 const RIGHT_PROMPT: &str = "{color.purple}{?session {?consume_tokens {consume_tokens}({consume_percent}%)}{!consume_tokens {consume_tokens}}}{color.reset}";
 
 static EDITOR: OnceLock<Option<String>> = OnceLock::new();
@@ -117,19 +92,10 @@ pub struct Config {
 
     pub repl_prelude: Option<String>,
     pub cmd_prelude: Option<String>,
-    pub agent_prelude: Option<String>,
-
     pub save_session: Option<bool>,
     pub compress_threshold: usize,
     pub summarize_prompt: Option<String>,
     pub summary_prompt: Option<String>,
-
-    pub rag_embedding_model: Option<String>,
-    pub rag_reranker_model: Option<String>,
-    pub rag_top_k: usize,
-    pub rag_chunk_size: Option<usize>,
-    pub rag_chunk_overlap: Option<usize>,
-    pub rag_template: Option<String>,
 
     #[serde(default)]
     pub document_loaders: HashMap<String, String>,
@@ -151,9 +117,6 @@ pub struct Config {
     #[serde(skip)]
     pub info_flag: bool,
     #[serde(skip)]
-    pub agent_variables: Option<AgentVariables>,
-
-    #[serde(skip)]
     pub model: Model,
     #[serde(skip)]
     pub functions: Functions,
@@ -166,10 +129,6 @@ pub struct Config {
     pub role: Option<Role>,
     #[serde(skip)]
     pub session: Option<Session>,
-    #[serde(skip)]
-    pub rag: Option<Arc<Rag>>,
-    #[serde(skip)]
-    pub agent: Option<Agent>,
 }
 
 impl Default for Config {
@@ -193,19 +152,10 @@ impl Default for Config {
 
             repl_prelude: None,
             cmd_prelude: None,
-            agent_prelude: None,
-
             save_session: None,
             compress_threshold: 4000,
             summarize_prompt: None,
             summary_prompt: None,
-
-            rag_embedding_model: None,
-            rag_reranker_model: None,
-            rag_top_k: 5,
-            rag_chunk_size: None,
-            rag_chunk_overlap: None,
-            rag_template: None,
 
             document_loaders: Default::default(),
 
@@ -223,8 +173,6 @@ impl Default for Config {
 
             macro_flag: false,
             info_flag: false,
-            agent_variables: None,
-
             model: Default::default(),
             functions: Default::default(),
             working_mode: WorkingMode::Cmd,
@@ -232,8 +180,6 @@ impl Default for Config {
 
             role: None,
             session: None,
-            rag: None,
-            agent: None,
         }
     }
 }
@@ -339,29 +285,16 @@ impl Config {
     }
 
     pub fn messages_file(&self) -> PathBuf {
-        match &self.agent {
-            None => match env::var(get_env_name("messages_file")) {
-                Ok(value) => PathBuf::from(value),
-                Err(_) => Self::local_path(MESSAGES_FILE_NAME),
-            },
-            Some(agent) => Self::agent_data_dir(agent.name()).join(MESSAGES_FILE_NAME),
+        match env::var(get_env_name("messages_file")) {
+            Ok(value) => PathBuf::from(value),
+            Err(_) => Self::local_path(MESSAGES_FILE_NAME),
         }
     }
 
     pub fn sessions_dir(&self) -> PathBuf {
-        match &self.agent {
-            None => match env::var(get_env_name("sessions_dir")) {
-                Ok(value) => PathBuf::from(value),
-                Err(_) => Self::local_path(SESSIONS_DIR_NAME),
-            },
-            Some(agent) => Self::agent_data_dir(agent.name()).join(SESSIONS_DIR_NAME),
-        }
-    }
-
-    pub fn rags_dir() -> PathBuf {
-        match env::var(get_env_name("rags_dir")) {
+        match env::var(get_env_name("sessions_dir")) {
             Ok(value) => PathBuf::from(value),
-            Err(_) => Self::local_path(RAGS_DIR_NAME),
+            Err(_) => Self::local_path(SESSIONS_DIR_NAME),
         }
     }
 
@@ -387,46 +320,6 @@ impl Config {
         }
     }
 
-    pub fn rag_file(&self, name: &str) -> PathBuf {
-        match &self.agent {
-            Some(agent) => Self::agent_rag_file(agent.name(), name),
-            None => Self::rags_dir().join(format!("{name}.yaml")),
-        }
-    }
-
-    pub fn agents_data_dir() -> PathBuf {
-        Self::local_path(AGENTS_DIR_NAME)
-    }
-
-    pub fn agent_data_dir(name: &str) -> PathBuf {
-        match env::var(format!("{}_DATA_DIR", normalize_env_name(name))) {
-            Ok(value) => PathBuf::from(value),
-            Err(_) => Self::agents_data_dir().join(name),
-        }
-    }
-
-    pub fn agent_config_file(name: &str) -> PathBuf {
-        match env::var(format!("{}_CONFIG_FILE", normalize_env_name(name))) {
-            Ok(value) => PathBuf::from(value),
-            Err(_) => Self::agent_data_dir(name).join(CONFIG_FILE_NAME),
-        }
-    }
-
-    pub fn agent_rag_file(agent_name: &str, rag_name: &str) -> PathBuf {
-        Self::agent_data_dir(agent_name).join(format!("{rag_name}.yaml"))
-    }
-
-    pub fn agents_functions_dir() -> PathBuf {
-        Self::functions_dir().join(AGENTS_DIR_NAME)
-    }
-
-    pub fn agent_functions_dir(name: &str) -> PathBuf {
-        match env::var(format!("{}_FUNCTIONS_DIR", normalize_env_name(name))) {
-            Ok(value) => PathBuf::from(value),
-            Err(_) => Self::agents_functions_dir().join(name),
-        }
-    }
-
     pub fn models_override_file() -> PathBuf {
         Self::local_path("models-override.yaml")
     }
@@ -444,12 +337,6 @@ impl Config {
             }
         } else if self.role.is_some() {
             flags |= StateFlags::ROLE;
-        }
-        if self.agent.is_some() {
-            flags |= StateFlags::AGENT;
-        }
-        if self.rag.is_some() {
-            flags |= StateFlags::RAG;
         }
         flags
     }
@@ -503,8 +390,6 @@ impl Config {
     pub fn current_model(&self) -> &Model {
         if let Some(session) = self.session.as_ref() {
             session.model()
-        } else if let Some(agent) = self.agent.as_ref() {
-            agent.model()
         } else if let Some(role) = self.role.as_ref() {
             role.model()
         } else {
@@ -515,8 +400,6 @@ impl Config {
     pub fn role_like_mut(&mut self) -> Option<&mut dyn RoleLike> {
         if let Some(session) = self.session.as_mut() {
             Some(session)
-        } else if let Some(agent) = self.agent.as_mut() {
-            Some(agent)
         } else if let Some(role) = self.role.as_mut() {
             Some(role)
         } else {
@@ -527,8 +410,6 @@ impl Config {
     pub fn extract_role(&self) -> Role {
         if let Some(session) = self.session.as_ref() {
             session.to_role()
-        } else if let Some(agent) = self.agent.as_ref() {
-            agent.to_role()
         } else if let Some(role) = self.role.as_ref() {
             role.clone()
         } else {
@@ -544,25 +425,10 @@ impl Config {
     }
 
     pub fn info(&self) -> Result<String> {
-        if let Some(agent) = &self.agent {
-            let output = agent.export()?;
-            if let Some(session) = &self.session {
-                let session = session
-                    .export()?
-                    .split('\n')
-                    .map(|v| format!("  {v}"))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                Ok(format!("{output}session:\n{session}"))
-            } else {
-                Ok(output)
-            }
-        } else if let Some(session) = &self.session {
+        if let Some(session) = &self.session {
             session.export()
         } else if let Some(role) = &self.role {
             Ok(role.export())
-        } else if let Some(rag) = &self.rag {
-            rag.export()
         } else {
             self.sysinfo()
         }
@@ -574,10 +440,6 @@ impl Config {
             .wrap
             .clone()
             .map_or_else(|| String::from("no"), |v| v.to_string());
-        let (rag_reranker_model, rag_top_k) = match &self.rag {
-            Some(rag) => rag.get_config(),
-            None => (self.rag_reranker_model.clone(), self.rag_top_k),
-        };
         let role = self.extract_role();
         let mut items = vec![
             ("model", role.model().id()),
@@ -593,11 +455,6 @@ impl Config {
             ),
             ("save_session", format_option_value(&self.save_session)),
             ("compress_threshold", self.compress_threshold.to_string()),
-            (
-                "rag_reranker_model",
-                format_option_value(&rag_reranker_model),
-            ),
-            ("rag_top_k", rag_top_k.to_string()),
             ("dry_run", self.dry_run.to_string()),
             ("function_calling", self.function_calling.to_string()),
             ("stream", self.stream.to_string()),
@@ -611,7 +468,6 @@ impl Config {
             ("env_file", display_path(&Self::env_file())),
             ("roles_dir", display_path(&Self::roles_dir())),
             ("sessions_dir", display_path(&self.sessions_dir())),
-            ("rags_dir", display_path(&Self::rags_dir())),
             ("functions_dir", display_path(&Self::functions_dir())),
             ("messages_file", display_path(&self.messages_file())),
         ];
@@ -658,14 +514,6 @@ impl Config {
                 let value = parse_value(value)?;
                 config.write().set_compress_threshold(value);
             }
-            "rag_reranker_model" => {
-                let value = parse_value(value)?;
-                Self::set_rag_reranker_model(config, value)?;
-            }
-            "rag_top_k" => {
-                let value = value.parse().with_context(|| "Invalid value")?;
-                Self::set_rag_top_k(config, value)?;
-            }
             "dry_run" => {
                 let value = value.parse().with_context(|| "Invalid value")?;
                 config.write().dry_run = value;
@@ -698,8 +546,6 @@ impl Config {
         let (dir, file_ext) = match kind {
             "role" => (Self::roles_dir(), Some(".md")),
             "session" => (config.read().sessions_dir(), Some(".yaml")),
-            "rag" => (Self::rags_dir(), Some(".yaml")),
-            "agent-data" => (Self::agents_data_dir(), None),
             _ => bail!("Unknown kind '{kind}'"),
         };
         let names = match read_dir(&dir) {
@@ -799,33 +645,6 @@ impl Config {
         }
     }
 
-    pub fn set_rag_reranker_model(config: &GlobalConfig, value: Option<String>) -> Result<()> {
-        if let Some(id) = &value {
-            Model::retrieve_model(&config.read(), id, ModelType::Reranker)?;
-        }
-        let has_rag = config.read().rag.is_some();
-        match has_rag {
-            true => update_rag(config, |rag| {
-                rag.set_reranker_model(value)?;
-                Ok(())
-            })?,
-            false => config.write().rag_reranker_model = value,
-        }
-        Ok(())
-    }
-
-    pub fn set_rag_top_k(config: &GlobalConfig, value: usize) -> Result<()> {
-        let has_rag = config.read().rag.is_some();
-        match has_rag {
-            true => update_rag(config, |rag| {
-                rag.set_top_k(value)?;
-                Ok(())
-            })?,
-            false => config.write().rag_top_k = value,
-        }
-        Ok(())
-    }
-
     pub fn set_wrap(&mut self, value: &str) -> Result<()> {
         if value == "no" {
             self.wrap = None;
@@ -876,9 +695,6 @@ impl Config {
     }
 
     pub fn use_role_obj(&mut self, role: Role) -> Result<()> {
-        if self.agent.is_some() {
-            bail!("Cannot perform this operation because you are using a agent")
-        }
         if let Some(session) = self.session.as_mut() {
             session.guard_empty()?;
             session.set_role(role);
@@ -1095,19 +911,15 @@ impl Config {
                 }
             }
         }
-        let mut new_session = false;
         if let Some(session) = session.as_mut() {
             if session.is_empty() {
-                new_session = true;
                 if let Some(LastMessage {
                     input,
                     output,
                     continuous,
                 }) = &self.last_message
                 {
-                    if (*continuous && !output.is_empty())
-                        && self.agent.is_some() == input.with_agent()
-                    {
+                    if *continuous && !output.is_empty() {
                         let ans = Confirm::new(
                             "Start a session that incorporates the last question and answer?",
                         )
@@ -1121,7 +933,6 @@ impl Config {
             }
         }
         self.session = session;
-        self.init_agent_session_variables(new_session)?;
         Ok(())
     }
 
@@ -1129,16 +940,7 @@ impl Config {
         if let Some(session) = &self.session {
             let render_options = self.render_options()?;
             let mut markdown_render = MarkdownRender::init(render_options)?;
-            let agent_info: Option<(String, Vec<String>)> = self.agent.as_ref().map(|agent| {
-                let functions = agent
-                    .functions()
-                    .declarations()
-                    .iter()
-                    .filter_map(|v| if v.agent { Some(v.name.clone()) } else { None })
-                    .collect();
-                (agent.name().to_string(), functions)
-            });
-            session.render(&mut markdown_render, &agent_info)
+            session.render(&mut markdown_render)
         } else {
             bail!("No session")
         }
@@ -1192,9 +994,6 @@ impl Config {
 
     pub fn empty_session(&mut self) -> Result<()> {
         if let Some(session) = self.session.as_mut() {
-            if let Some(agent) = self.agent.as_ref() {
-                session.sync_agent(agent);
-            }
             session.clear_messages();
         } else {
             bail!("No session")
@@ -1336,243 +1135,6 @@ impl Config {
         Ok(())
     }
 
-    pub async fn use_rag(
-        config: &GlobalConfig,
-        rag: Option<&str>,
-        abort_signal: AbortSignal,
-    ) -> Result<()> {
-        if config.read().agent.is_some() {
-            bail!("Cannot perform this operation because you are using a agent")
-        }
-        let rag = match rag {
-            None => {
-                let rag_path = config.read().rag_file(TEMP_RAG_NAME);
-                if rag_path.exists() {
-                    remove_file(&rag_path).with_context(|| {
-                        format!("Failed to cleanup previous '{TEMP_RAG_NAME}' rag")
-                    })?;
-                }
-                Rag::init(config, TEMP_RAG_NAME, &rag_path, &[], abort_signal).await?
-            }
-            Some(name) => {
-                let rag_path = config.read().rag_file(name);
-                if !rag_path.exists() {
-                    if config.read().working_mode.is_cmd() {
-                        bail!("Unknown RAG '{name}'")
-                    }
-                    Rag::init(config, name, &rag_path, &[], abort_signal).await?
-                } else {
-                    Rag::load(config, name, &rag_path)?
-                }
-            }
-        };
-        config.write().rag = Some(Arc::new(rag));
-        Ok(())
-    }
-
-    pub async fn edit_rag_docs(config: &GlobalConfig, abort_signal: AbortSignal) -> Result<()> {
-        let mut rag = match config.read().rag.clone() {
-            Some(v) => v.as_ref().clone(),
-            None => bail!("No RAG"),
-        };
-
-        let document_paths = rag.document_paths();
-        let temp_file = temp_file(&format!("-rag-{}", rag.name()), ".txt");
-        tokio::fs::write(&temp_file, &document_paths.join("\n"))
-            .await
-            .with_context(|| format!("Failed to write to '{}'", temp_file.display()))?;
-        let editor = config.read().editor()?;
-        edit_file(&editor, &temp_file)?;
-        let new_document_paths = tokio::fs::read_to_string(&temp_file)
-            .await
-            .with_context(|| format!("Failed to read '{}'", temp_file.display()))?;
-        let new_document_paths = new_document_paths
-            .split('\n')
-            .filter_map(|v| {
-                let v = v.trim();
-                if v.is_empty() {
-                    None
-                } else {
-                    Some(v.to_string())
-                }
-            })
-            .collect::<Vec<_>>();
-        if new_document_paths.is_empty() || new_document_paths == document_paths {
-            bail!("No changes")
-        }
-        rag.refresh_document_paths(&new_document_paths, false, config, abort_signal)
-            .await?;
-        config.write().rag = Some(Arc::new(rag));
-        Ok(())
-    }
-
-    pub async fn rebuild_rag(config: &GlobalConfig, abort_signal: AbortSignal) -> Result<()> {
-        let mut rag = match config.read().rag.clone() {
-            Some(v) => v.as_ref().clone(),
-            None => bail!("No RAG"),
-        };
-        let document_paths = rag.document_paths().to_vec();
-        rag.refresh_document_paths(&document_paths, true, config, abort_signal)
-            .await?;
-        config.write().rag = Some(Arc::new(rag));
-        Ok(())
-    }
-
-    pub fn rag_sources(config: &GlobalConfig) -> Result<String> {
-        match config.read().rag.as_ref() {
-            Some(rag) => match rag.get_last_sources() {
-                Some(v) => Ok(v),
-                None => bail!("No sources"),
-            },
-            None => bail!("No RAG"),
-        }
-    }
-
-    pub fn rag_info(&self) -> Result<String> {
-        if let Some(rag) = &self.rag {
-            rag.export()
-        } else {
-            bail!("No RAG")
-        }
-    }
-
-    pub fn exit_rag(&mut self) -> Result<()> {
-        self.rag.take();
-        Ok(())
-    }
-
-    pub async fn search_rag(
-        config: &GlobalConfig,
-        rag: &Rag,
-        text: &str,
-        abort_signal: AbortSignal,
-    ) -> Result<String> {
-        let (reranker_model, top_k) = rag.get_config();
-        let (embeddings, ids) = rag
-            .search(text, top_k, reranker_model.as_deref(), abort_signal)
-            .await?;
-        let text = config.read().rag_template(&embeddings, text);
-        rag.set_last_sources(&ids);
-        Ok(text)
-    }
-
-    pub fn list_rags() -> Vec<String> {
-        match read_dir(Self::rags_dir()) {
-            Ok(rd) => {
-                let mut names = vec![];
-                for entry in rd.flatten() {
-                    let name = entry.file_name();
-                    if let Some(name) = name.to_string_lossy().strip_suffix(".yaml") {
-                        names.push(name.to_string());
-                    }
-                }
-                names.sort_unstable();
-                names
-            }
-            Err(_) => vec![],
-        }
-    }
-
-    pub fn rag_template(&self, embeddings: &str, text: &str) -> String {
-        if embeddings.is_empty() {
-            return text.to_string();
-        }
-        self.rag_template
-            .as_deref()
-            .unwrap_or(RAG_TEMPLATE)
-            .replace("__CONTEXT__", embeddings)
-            .replace("__INPUT__", text)
-    }
-
-    pub async fn use_agent(
-        config: &GlobalConfig,
-        agent_name: &str,
-        session_name: Option<&str>,
-        abort_signal: AbortSignal,
-    ) -> Result<()> {
-        if !config.read().function_calling {
-            bail!("Please enable function calling before using the agent.");
-        }
-        if config.read().agent.is_some() {
-            bail!("Already in a agent, please run '.exit agent' first to exit the current agent.");
-        }
-        let agent = Agent::init(config, agent_name, abort_signal).await?;
-        let session = session_name.map(|v| v.to_string()).or_else(|| {
-            if config.read().macro_flag {
-                None
-            } else {
-                agent.agent_prelude().map(|v| v.to_string())
-            }
-        });
-        config.write().rag = agent.rag();
-        config.write().agent = Some(agent);
-        if let Some(session) = session {
-            config.write().use_session(Some(&session))?;
-        } else {
-            config.write().init_agent_shared_variables()?;
-        }
-        Ok(())
-    }
-
-    pub fn agent_info(&self) -> Result<String> {
-        if let Some(agent) = &self.agent {
-            agent.export()
-        } else {
-            bail!("No agent")
-        }
-    }
-
-    pub fn agent_banner(&self) -> Result<String> {
-        if let Some(agent) = &self.agent {
-            Ok(agent.banner())
-        } else {
-            bail!("No agent")
-        }
-    }
-
-    pub fn edit_agent_config(&self) -> Result<()> {
-        let agent_name = match &self.agent {
-            Some(agent) => agent.name(),
-            None => bail!("No agent"),
-        };
-        let agent_config_path = Config::agent_config_file(agent_name);
-        ensure_parent_exists(&agent_config_path)?;
-        if !agent_config_path.exists() {
-            std::fs::write(
-                &agent_config_path,
-                "# see https://github.com/sigoden/aichat/blob/main/config.agent.example.yaml\n",
-            )
-            .with_context(|| format!("Failed to write to '{}'", agent_config_path.display()))?;
-        }
-        let editor = self.editor()?;
-        edit_file(&editor, &agent_config_path)?;
-        println!(
-            "NOTE: Remember to reload the agent if there are changes made to '{}'",
-            agent_config_path.display()
-        );
-        Ok(())
-    }
-
-    pub fn exit_agent(&mut self) -> Result<()> {
-        self.exit_session()?;
-        if self.agent.take().is_some() {
-            self.rag.take();
-            self.discontinuous_last_message();
-        }
-        Ok(())
-    }
-
-    pub fn exit_agent_session(&mut self) -> Result<()> {
-        self.exit_session()?;
-        if let Some(agent) = self.agent.as_mut() {
-            agent.exit_session();
-            if self.working_mode.is_repl() {
-                self.init_agent_shared_variables()?;
-            }
-        }
-        Ok(())
-    }
-
     pub fn apply_prelude(&mut self) -> Result<()> {
         if self.macro_flag || !self.state().is_empty() {
             return Ok(());
@@ -1653,26 +1215,6 @@ impl Config {
                         }
                     })
                     .collect();
-            }
-
-            if let Some(agent) = &self.agent {
-                let mut agent_functions = agent.functions().declarations().to_vec();
-                let tool_names: HashSet<String> = agent_functions
-                    .iter()
-                    .filter_map(|v| {
-                        if v.agent {
-                            None
-                        } else {
-                            Some(v.name.to_string())
-                        }
-                    })
-                    .collect();
-                agent_functions.extend(
-                    functions
-                        .into_iter()
-                        .filter(|v| !tool_names.contains(&v.name)),
-                );
-                functions = agent_functions;
             }
         };
         if functions.is_empty() {
@@ -1853,12 +1395,6 @@ impl Config {
             output.insert("consume_percent", percent.to_string());
             output.insert("user_messages_len", session.user_messages_len().to_string());
         }
-        if let Some(rag) = &self.rag {
-            output.insert("rag", rag.name().to_string());
-        }
-        if let Some(agent) = &self.agent {
-            output.insert("agent", agent.name().to_string());
-        }
 
         if self.highlight {
             output.insert("color.reset", "\u{1b}[0m".to_string());
@@ -1930,20 +1466,14 @@ impl Config {
         let now = now();
         let summary = input.summary();
         let raw_input = input.raw();
-        let scope = if self.agent.is_none() {
-            let role_name = if input.role().is_derived() {
-                None
-            } else {
-                Some(input.role().name())
-            };
-            match (role_name, input.rag_name()) {
-                (Some(role), Some(rag_name)) => format!(" ({role}#{rag_name})"),
-                (Some(role), _) => format!(" ({role})"),
-                (None, Some(rag_name)) => format!(" (#{rag_name})"),
-                _ => String::new(),
-            }
+        let role_name = if input.role().is_derived() {
+            None
         } else {
-            String::new()
+            Some(input.role().name())
+        };
+        let scope = match role_name {
+            Some(role) => format!(" ({role})"),
+            None => String::new(),
         };
         let tool_calls = match input.tool_calls() {
             Some(MessageContentToolCalls {
@@ -1964,67 +1494,6 @@ impl Config {
         );
         file.write_all(output.as_bytes())
             .with_context(|| "Failed to save message")
-    }
-
-    fn init_agent_shared_variables(&mut self) -> Result<()> {
-        let agent = match self.agent.as_mut() {
-            Some(v) => v,
-            None => return Ok(()),
-        };
-        if !agent.defined_variables().is_empty() && agent.shared_variables().is_empty() {
-            let mut config_variables = agent.config_variables().clone();
-            if let Some(v) = &self.agent_variables {
-                config_variables.extend(v.clone());
-            }
-            let new_variables = Agent::init_agent_variables(
-                agent.defined_variables(),
-                &config_variables,
-                self.info_flag,
-            )?;
-            agent.set_shared_variables(new_variables);
-        }
-        if !self.info_flag {
-            agent.update_shared_dynamic_instructions(false)?;
-        }
-        Ok(())
-    }
-
-    fn init_agent_session_variables(&mut self, new_session: bool) -> Result<()> {
-        let (agent, session) = match (self.agent.as_mut(), self.session.as_mut()) {
-            (Some(agent), Some(session)) => (agent, session),
-            _ => return Ok(()),
-        };
-        if new_session {
-            let shared_variables = agent.shared_variables().clone();
-            let session_variables =
-                if !agent.defined_variables().is_empty() && shared_variables.is_empty() {
-                    let mut config_variables = agent.config_variables().clone();
-                    if let Some(v) = &self.agent_variables {
-                        config_variables.extend(v.clone());
-                    }
-                    let new_variables = Agent::init_agent_variables(
-                        agent.defined_variables(),
-                        &config_variables,
-                        self.info_flag,
-                    )?;
-                    agent.set_shared_variables(new_variables.clone());
-                    new_variables
-                } else {
-                    shared_variables
-                };
-            agent.set_session_variables(session_variables);
-            if !self.info_flag {
-                agent.update_session_dynamic_instructions(None)?;
-            }
-            session.sync_agent(agent);
-        } else {
-            let variables = session.agent_variables();
-            agent.set_session_variables(variables.clone());
-            agent.update_session_dynamic_instructions(Some(
-                session.agent_instructions().to_string(),
-            ))?;
-        }
-        Ok(())
     }
 
     fn open_message_file(&self) -> Result<File> {
@@ -2137,10 +1606,6 @@ impl Config {
         if let Some(v) = read_env_value::<String>(&get_env_name("cmd_prelude")) {
             self.cmd_prelude = v;
         }
-        if let Some(v) = read_env_value::<String>(&get_env_name("agent_prelude")) {
-            self.agent_prelude = v;
-        }
-
         if let Some(v) = read_env_bool(&get_env_name("save_session")) {
             self.save_session = v;
         }
@@ -2152,25 +1617,6 @@ impl Config {
         }
         if let Some(v) = read_env_value::<String>(&get_env_name("summary_prompt")) {
             self.summary_prompt = v;
-        }
-
-        if let Some(v) = read_env_value::<String>(&get_env_name("rag_embedding_model")) {
-            self.rag_embedding_model = v;
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("rag_reranker_model")) {
-            self.rag_reranker_model = v;
-        }
-        if let Some(Some(v)) = read_env_value::<usize>(&get_env_name("rag_top_k")) {
-            self.rag_top_k = v;
-        }
-        if let Some(v) = read_env_value::<usize>(&get_env_name("rag_chunk_size")) {
-            self.rag_chunk_size = v;
-        }
-        if let Some(v) = read_env_value::<usize>(&get_env_name("rag_chunk_overlap")) {
-            self.rag_chunk_overlap = v;
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("rag_template")) {
-            self.rag_template = v;
         }
 
         if let Ok(v) = env::var(get_env_name("document_loaders")) {
@@ -2325,8 +1771,6 @@ bitflags::bitflags! {
         const ROLE = 1 << 0;
         const SESSION_EMPTY = 1 << 1;
         const SESSION = 1 << 2;
-        const RAG = 1 << 3;
-        const AGENT = 1 << 4;
     }
 }
 
@@ -2441,19 +1885,6 @@ where
 fn read_env_bool(key: &str) -> Option<Option<bool>> {
     let value = env::var(key).ok()?;
     Some(parse_bool(&value))
-}
-
-fn update_rag<F>(config: &GlobalConfig, f: F) -> Result<()>
-where
-    F: FnOnce(&mut Rag) -> Result<()>,
-{
-    let mut rag = match config.read().rag.clone() {
-        Some(v) => v.as_ref().clone(),
-        None => bail!("No RAG"),
-    };
-    f(&mut rag)?;
-    config.write().rag = Some(Arc::new(rag));
-    Ok(())
 }
 
 fn format_option_value<T>(value: &Option<T>) -> String

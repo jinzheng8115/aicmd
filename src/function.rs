@@ -1,5 +1,5 @@
 use crate::{
-    config::{Agent, Config, GlobalConfig},
+    config::{Config, GlobalConfig},
     utils::*,
 };
 
@@ -171,10 +171,7 @@ impl ToolCall {
     }
 
     pub fn eval(&self, config: &GlobalConfig) -> Result<Value> {
-        let (call_name, cmd_name, mut cmd_args, envs) = match &config.read().agent {
-            Some(agent) => self.extract_call_config_from_agent(config, agent)?,
-            None => self.extract_call_config_from_config(config)?,
-        };
+        let (call_name, cmd_name, mut cmd_args, envs) = self.extract_call_config_from_config(config)?;
 
         let json_data = if self.arguments.is_object() {
             self.arguments.clone()
@@ -202,35 +199,6 @@ impl ToolCall {
         Ok(output)
     }
 
-    fn extract_call_config_from_agent(
-        &self,
-        config: &GlobalConfig,
-        agent: &Agent,
-    ) -> Result<CallConfig> {
-        let function_name = self.name.clone();
-        match agent.functions().find(&function_name) {
-            Some(function) => {
-                let agent_name = agent.name().to_string();
-                if function.agent {
-                    Ok((
-                        format!("{agent_name}-{function_name}"),
-                        agent_name,
-                        vec![function_name],
-                        agent.variable_envs(),
-                    ))
-                } else {
-                    Ok((
-                        function_name.clone(),
-                        function_name,
-                        vec![],
-                        Default::default(),
-                    ))
-                }
-            }
-            None => self.extract_call_config_from_config(config),
-        }
-    }
-
     fn extract_call_config_from_config(&self, config: &GlobalConfig) -> Result<CallConfig> {
         let function_name = self.name.clone();
         match config.read().functions.contains(&function_name) {
@@ -253,12 +221,6 @@ pub fn run_llm_function(
     let prompt = format!("Call {cmd_name} {}", cmd_args.join(" "));
 
     let mut bin_dirs: Vec<PathBuf> = vec![];
-    if cmd_args.len() > 1 {
-        let dir = Config::agent_functions_dir(&cmd_name).join("bin");
-        if dir.exists() {
-            bin_dirs.push(dir);
-        }
-    }
     bin_dirs.push(Config::functions_bin_dir());
     let current_path = std::env::var("PATH").context("No PATH environment variable")?;
     let prepend_path = bin_dirs

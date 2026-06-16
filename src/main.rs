@@ -2,7 +2,6 @@ mod cli;
 mod client;
 mod config;
 mod function;
-mod rag;
 mod render;
 #[macro_use]
 mod utils;

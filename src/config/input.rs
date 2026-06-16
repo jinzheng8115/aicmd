@@ -28,14 +28,12 @@ pub struct Input {
     data_urls: HashMap<String, String>,
     tool_calls: Option<MessageContentToolCalls>,
     role: Role,
-    rag_name: Option<String>,
     with_session: bool,
-    with_agent: bool,
 }
 
 impl Input {
     pub fn from_str(config: &GlobalConfig, text: &str, role: Option<Role>) -> Self {
-        let (role, with_session, with_agent) = resolve_role(&config.read(), role);
+        let (role, with_session) = resolve_role(&config.read(), role);
         Self {
             config: config.clone(),
             text: text.to_string(),
@@ -48,9 +46,7 @@ impl Input {
             data_urls: Default::default(),
             tool_calls: None,
             role,
-            rag_name: None,
             with_session,
-            with_agent,
         }
     }
 
@@ -102,7 +98,7 @@ impl Input {
                 ));
             }
         }
-        let (role, with_session, with_agent) = resolve_role(&config.read(), role);
+        let (role, with_session) = resolve_role(&config.read(), role);
         Ok(Self {
             config: config.clone(),
             text: texts.join("\n"),
@@ -115,9 +111,7 @@ impl Input {
             data_urls,
             tool_calls: Default::default(),
             role,
-            rag_name: None,
             with_session,
-            with_agent,
         })
     }
 
@@ -190,23 +184,6 @@ impl Input {
         }
         self.regenerate = true;
         self.tool_calls = None;
-    }
-
-    pub async fn use_embeddings(&mut self, abort_signal: AbortSignal) -> Result<()> {
-        if self.text.is_empty() {
-            return Ok(());
-        }
-        let rag = self.config.read().rag.clone();
-        if let Some(rag) = rag {
-            let result = Config::search_rag(&self.config, &rag, &self.text, abort_signal).await?;
-            self.patched_text = Some(result);
-            self.rag_name = Some(rag.name().to_string());
-        }
-        Ok(())
-    }
-
-    pub fn rag_name(&self) -> Option<&str> {
-        self.rag_name.as_deref()
     }
 
     pub fn merge_tool_results(mut self, output: String, tool_results: Vec<ToolResult>) -> Self {
@@ -292,10 +269,6 @@ impl Input {
         }
     }
 
-    pub fn with_agent(&self) -> bool {
-        self.with_agent
-    }
-
     pub fn summary(&self) -> String {
         let text: String = self
             .text
@@ -374,14 +347,10 @@ impl Input {
     }
 }
 
-fn resolve_role(config: &Config, role: Option<Role>) -> (Role, bool, bool) {
+fn resolve_role(config: &Config, role: Option<Role>) -> (Role, bool) {
     match role {
-        Some(v) => (v, false, false),
-        None => (
-            config.extract_role(),
-            config.session.is_some(),
-            config.agent.is_some(),
-        ),
+        Some(v) => (v, false),
+        None => (config.extract_role(), config.session.is_some()),
     }
 }
 

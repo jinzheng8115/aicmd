@@ -33,11 +33,6 @@ pub struct Session {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     role_name: Option<String>,
-    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
-    agent_variables: AgentVariables,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    agent_instructions: String,
-
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     compressed_messages: Vec<Message>,
     messages: Vec<Message>,
@@ -175,11 +170,7 @@ impl Session {
         Ok(output)
     }
 
-    pub fn render(
-        &self,
-        render: &mut MarkdownRender,
-        agent_info: &Option<(String, Vec<String>)>,
-    ) -> Result<String> {
+    pub fn render(&self, render: &mut MarkdownRender) -> Result<String> {
         let mut items = vec![];
 
         if let Some(path) = &self.path {
@@ -230,7 +221,7 @@ impl Session {
                     MessageRole::System => {
                         lines.push(
                             render
-                                .render(&message.content.render_input(resolve_url_fn, agent_info)),
+                                .render(&message.content.render_input(resolve_url_fn)),
                         );
                     }
                     MessageRole::Assistant => {
@@ -242,11 +233,11 @@ impl Session {
                     MessageRole::User => {
                         lines.push(format!(
                             ">> {}",
-                            message.content.render_input(resolve_url_fn, agent_info)
+                            message.content.render_input(resolve_url_fn)
                         ));
                     }
                     MessageRole::Tool => {
-                        lines.push(message.content.render_input(resolve_url_fn, agent_info));
+                        lines.push(message.content.render_input(resolve_url_fn));
                     }
                 }
             }
@@ -282,21 +273,6 @@ impl Session {
     pub fn clear_role(&mut self) {
         self.role_name = None;
         self.role_prompt.clear();
-    }
-
-    pub fn sync_agent(&mut self, agent: &Agent) {
-        self.role_name = None;
-        self.role_prompt = agent.interpolated_instructions();
-        self.agent_variables = agent.variables().clone();
-        self.agent_instructions = self.role_prompt.clone();
-    }
-
-    pub fn agent_variables(&self) -> &AgentVariables {
-        &self.agent_variables
-    }
-
-    pub fn agent_instructions(&self) -> &str {
-        &self.agent_instructions
     }
 
     pub fn set_save_session(&mut self, value: Option<bool>) {
