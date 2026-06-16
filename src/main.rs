@@ -100,12 +100,25 @@ async fn shell_execute(
         return Ok(());
     }
     if *IS_STDOUT_TERMINAL {
-        let options = ["execute", "revise", "describe", "copy", "quit"];
+        let options = [
+            ("e", "xecute", "执行"),
+            ("r", "evise", "修改"),
+            ("d", "escribe", "解释"),
+            ("c", "opy", "复制"),
+            ("q", "uit", "退出"),
+        ];
         let command = color_text(eval_str.trim(), nu_ansi_term::Color::Rgb(255, 165, 0));
         let first_letter_color = nu_ansi_term::Color::Cyan;
         let prompt_text = options
             .iter()
-            .map(|v| format!("{}{}", color_text(&v[0..1], first_letter_color), &v[1..]))
+            .map(|(key, rest, zh)| {
+                format!(
+                    "{}{}({})",
+                    color_text(key, first_letter_color),
+                    rest,
+                    zh
+                )
+            })
             .collect::<Vec<String>>()
             .join(&dimmed_text(" | "));
         loop {

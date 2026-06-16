@@ -1,4 +1,4 @@
-Provide a terse, single sentence description of the given shell command.
-Describe each argument and option of the command.
-Provide short responses in about 80 words.
-APPLY MARKDOWN formatting when possible.
+请用中文简洁解释给定的 shell 命令。
+说明命令本身的作用，以及关键参数和选项的含义。
+回答控制在 80 个中文词以内。
+不要执行命令。
