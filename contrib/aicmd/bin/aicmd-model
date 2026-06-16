@@ -5,21 +5,20 @@ usage() {
   cat <<'HELP'
 Usage: aicmd-model <command>
 
-Manage AICmd model configuration. AICmd does not sync models.yaml into config.yaml.
-Customers should initialize and edit the runtime config.yaml, using model-config.example.yaml as the template.
+Manage the AICmd runtime model config at ~/.aicmd/config.yaml.
+AICmd has no separate public model template or models.yaml file; config.yaml is the only user-editable model configuration file.
 
 用法：aicmd-model <命令>
 
-管理 AICmd 模型配置。AICmd 不会把 models.yaml 同步到 config.yaml。
-客户应初始化并编辑运行时 config.yaml，并以 model-config.example.yaml 作为模板。
+管理 AICmd 运行时模型配置 ~/.aicmd/config.yaml。
+AICmd 不再提供单独的公开模型模板或 models.yaml；config.yaml 是唯一需要用户编辑的模型配置文件。
 
 Commands / 命令:
-  init       Create runtime config.yaml from model-config.example.yaml if missing / 如不存在则从模板创建运行时配置
+  init       Create runtime config.yaml with a built-in starter config / 用内置初始配置创建运行时 config.yaml
   init --force
-             Overwrite runtime config.yaml from template / 用模板覆盖运行时配置
+             Overwrite runtime config.yaml with the starter config / 用初始配置覆盖运行时配置
   path       Print runtime config.yaml path / 输出运行时 config.yaml 路径
   dir        Print runtime config directory / 输出运行时配置目录
-  template   Print model-config.example.yaml path / 输出模型配置模板路径
   show       Print runtime config.yaml / 输出运行时配置
   edit       Open runtime config.yaml in $EDITOR / 用 $EDITOR 编辑运行时配置
   help       Show this help / 显示帮助
@@ -31,7 +30,6 @@ Examples / 示例:
   EDITOR=vim aicmd-model edit
 HELP
 }
-
 config_dir() {
   if [[ -n "${AICMD_CONFIG_DIR:-}" ]]; then
     printf '%s\n' "$AICMD_CONFIG_DIR"
@@ -48,36 +46,83 @@ config_path() {
   fi
 }
 
-template_path() {
-  local script_dir root installed
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  root="$(cd "$script_dir/../../.." && pwd)"
-  installed="${AICMD_MODEL_TEMPLATE:-$HOME/.local/share/aicmd/model-config.example.yaml}"
-  if [[ -f "$root/model-config.example.yaml" ]]; then
-    printf '%s/model-config.example.yaml\n' "$root"
-  elif [[ -f "$installed" ]]; then
-    printf '%s\n' "$installed"
-  else
-    printf '%s\n' "$installed"
-  fi
+default_config() {
+  cat <<'YAML'
+# AICmd runtime config / AICmd 运行时配置
+#
+# English: This is the only user-editable model configuration file.
+# Edit model/client values here after running `aicmd-model init`.
+#
+# 中文：这是唯一需要用户编辑的模型配置文件。
+# 运行 `aicmd-model init` 后，在这里修改 model/client。
+#
+# Runtime config path / 运行时配置路径：
+#   ~/.aicmd/config.yaml
+#   Override / 显式指定: AICMD_CONFIG_DIR=/path/to/config-dir
+
+# Select the default model / 选择默认模型
+# Format / 格式: <client-name>:<model-name>
+model: openai:gpt-4o
+
+temperature: null
+top_p: null
+
+# Command workflow behavior / 命令工作流行为
+save: true
+wrap: no
+highlight: true
+save_shell_history: true
+
+# File loaders used by `aicmd -f <file> ...`.
+# `aicmd -f <文件> ...` 使用的文件加载器。
+document_loaders:
+  pdf: 'pdftotext $1 -'
+  docx: 'pandoc --to plain $1'
+
+# Model providers / 模型服务配置
+clients:
+  # OpenAI / OpenAI 示例
+  - type: openai
+    # name defaults to "openai" when omitted.
+    # 省略 name 时默认是 "openai"。
+    api_base: https://api.openai.com/v1
+    api_key: sk-xxxx
+    models:
+      - name: gpt-4o
+        max_input_tokens: 128000
+
+  # DeepSeek / DeepSeek 示例
+  - type: openai-compatible
+    name: deepseek
+    api_base: https://api.deepseek.com
+    api_key: sk-xxxx
+    models:
+      - name: deepseek-chat
+        max_input_tokens: 64000
+
+  # Local OpenAI-compatible provider, such as Ollama.
+  # 本地 OpenAI-compatible provider，例如 Ollama。
+  - type: openai-compatible
+    name: ollama
+    api_base: http://localhost:11434/v1
+    api_key: xxx
+    models:
+      - name: llama3.1
+        max_input_tokens: 128000
+YAML
 }
 
 init_config() {
-  local force path template
+  local force path
   force="${1:-false}"
   path="$(config_path)"
-  template="$(template_path)"
-  if [[ ! -f "$template" ]]; then
-    echo "template not found: $template" >&2
-    exit 1
-  fi
   if [[ -f "$path" && "$force" != "true" ]]; then
     echo "config already exists: $path" >&2
     echo "use 'aicmd-model init --force' to overwrite it" >&2
     exit 1
   fi
   mkdir -p "$(dirname "$path")"
-  cp "$template" "$path"
+  default_config > "$path"
   chmod 600 "$path" 2>/dev/null || true
   echo "created config: $path"
   echo "edit it with: aicmd-model edit"
@@ -98,13 +143,11 @@ case "$cmd" in
     config_path ;;
   dir)
     config_dir ;;
-  template)
-    template_path ;;
   show)
     path="$(config_path)"
     if [[ ! -f "$path" ]]; then
       echo "config not found: $path" >&2
-      echo "run 'aicmd-model init' to create it from: $(template_path)" >&2
+      echo "run 'aicmd-model init' to create it" >&2
       exit 1
     fi
     cat "$path" ;;

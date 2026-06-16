@@ -238,12 +238,6 @@ impl ModelData {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderModels {
-    pub provider: String,
-    pub models: Vec<ModelData>,
-}
-
 fn default_model_type() -> String {
     "chat".into()
 }

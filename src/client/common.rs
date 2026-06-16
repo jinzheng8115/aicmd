@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::{
-    config::{Config, GlobalConfig, Input},
+    config::{GlobalConfig, Input},
     function::{eval_tool_calls, ToolCall, ToolResult},
     render::render_stream,
     utils::*,
@@ -19,14 +19,6 @@ use serde_json::{json, Value};
 use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
-
-const MODELS_YAML: &str = include_str!("../../models.yaml");
-
-pub static ALL_PROVIDER_MODELS: LazyLock<Vec<ProviderModels>> = LazyLock::new(|| {
-    Config::loal_models_override()
-        .ok()
-        .unwrap_or_else(|| serde_yaml::from_str(MODELS_YAML).unwrap())
-});
 
 static ESCAPE_SLASH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?<!\\)/").unwrap());
 
@@ -445,16 +437,6 @@ pub fn json_str_from_map<'a>(
 }
 
 async fn set_client_models_config(client_config: &mut Value, client: &str) -> Result<String> {
-    if let Some(provider) = ALL_PROVIDER_MODELS.iter().find(|v| v.provider == client) {
-        let models: Vec<String> = provider
-            .models
-            .iter()
-            .filter(|v| v.model_type == "chat")
-            .map(|v| v.name.clone())
-            .collect();
-        let model_name = select_model(models)?;
-        return Ok(format!("{client}:{model_name}"));
-    }
     let mut model_names = vec![];
     if let (Some(true), Some(api_base), api_key) = (
         client_config["type"]

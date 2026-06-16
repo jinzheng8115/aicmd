@@ -32,15 +32,15 @@ English:
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary, copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin`, and installs the model template to `~/.local/share/aicmd/model-config.example.yaml` by default.
+The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin` by default.
 
-安装脚本会构建 Rust 二进制，默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`，并把模型模板安装到 `~/.local/share/aicmd/model-config.example.yaml`。
+安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`。
 
 ## Config / 配置
 
-English: Install AICmd first, then run `aicmd-model init` and `aicmd-model edit` to create and edit `~/.aicmd/config.yaml`. Use `model-config.example.yaml` as the single customer-facing model template. `models.yaml` is only a small internal fallback registry for maintainers and is not synced into `config.yaml`.
+English: Install AICmd first, then run `aicmd-model init` and `aicmd-model edit` to create and edit `~/.aicmd/config.yaml`. There is no separate public model template or `models.yaml`; `config.yaml` is the only user-editable model configuration file.
 
-中文：先安装 AICmd，然后运行 `aicmd-model init` 和 `aicmd-model edit` 创建并编辑 `~/.aicmd/config.yaml`。统一使用 `model-config.example.yaml` 作为唯一面向客户的模型模板。`models.yaml` 只是给维护者使用的小型内部兜底模型目录，不会同步到 `config.yaml`。
+中文：先安装 AICmd，然后运行 `aicmd-model init` 和 `aicmd-model edit` 创建并编辑 `~/.aicmd/config.yaml`。不再提供单独的公开模型模板或 `models.yaml`；`config.yaml` 是唯一需要用户编辑的模型配置文件。
 
 ## Detailed usage / 详细使用文档
 

@@ -8,7 +8,7 @@ use self::session::Session;
 
 use crate::client::{
     create_client_config, list_client_types, list_models, ClientConfig, Model, ModelType,
-    ProviderModels, OPENAI_COMPATIBLE_PROVIDERS,
+    OPENAI_COMPATIBLE_PROVIDERS,
 };
 use crate::render::{MarkdownRender, RenderOptions};
 use crate::utils::*;
@@ -16,7 +16,7 @@ use crate::utils::*;
 use anyhow::{anyhow, bail, Context, Result};
 use inquire::{Confirm, Select};
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use simplelog::LevelFilter;
 use std::collections::HashMap;
@@ -193,10 +193,6 @@ impl Config {
             Some((dir, name)) => self.sessions_dir().join(dir).join(format!("{name}.yaml")),
             None => self.sessions_dir().join(format!("{name}.yaml")),
         }
-    }
-
-    pub fn models_override_file() -> PathBuf {
-        Self::local_path("models-override.yaml")
     }
 
     fn legacy_config_dirs() -> Vec<PathBuf> {
@@ -404,22 +400,6 @@ impl Config {
 
     pub fn list_sessions(&self) -> Vec<String> {
         list_file_names(self.sessions_dir(), ".yaml")
-    }
-
-    pub fn loal_models_override() -> Result<Vec<ProviderModels>> {
-        let model_override_path = Self::models_override_file();
-        let err = || {
-            format!(
-                "Failed to load models at '{}'",
-                model_override_path.display()
-            )
-        };
-        let content = read_to_string(&model_override_path).with_context(err)?;
-        let models_override: ModelsOverride = serde_yaml::from_str(&content).with_context(err)?;
-        if models_override.version != env!("CARGO_PKG_VERSION") {
-            bail!("Incompatible version")
-        }
-        Ok(models_override.list)
     }
 
     pub fn light_theme(&self) -> bool {
@@ -659,12 +639,6 @@ pub fn load_env_file() -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelsOverride {
-    pub version: String,
-    pub list: Vec<ProviderModels>,
-}
-
 #[derive(Debug, Clone)]
 pub struct LastMessage {
     pub input: Input,
@@ -698,9 +672,6 @@ async fn create_config_file(config_path: &Path) -> Result<()> {
     config[CLIENTS_FIELD] = clients_config;
 
     let config_data = serde_yaml::to_string(&config).with_context(|| "Failed to create config")?;
-    let config_data =
-        format!("# see model-config.example.yaml for AICmd model setup\n\n{config_data}");
-
     ensure_parent_exists(config_path)?;
     std::fs::write(config_path, config_data)
         .with_context(|| format!("Failed to write to '{}'", config_path.display()))?;

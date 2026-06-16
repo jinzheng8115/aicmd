@@ -296,7 +296,7 @@ Recommended setup order:
 # 1. Install AICmd / 先安装 AICmd
 contrib/aicmd/install.sh
 
-# 2. Create runtime config from the template / 从模板创建运行时配置
+# 2. Create runtime config / 创建运行时配置
 aicmd-model init
 
 # 3. Edit model and API key / 编辑模型和 API key
@@ -306,17 +306,17 @@ aicmd-model edit
 aicmd 当前目录下有多少文件
 ```
 
-The single customer-facing template is:
+The single user-editable model config file is:
 
-唯一面向客户的模板是：
+唯一需要用户编辑的模型配置文件是：
 
 ```text
-model-config.example.yaml
+~/.aicmd/config.yaml
 ```
 
-`models.yaml` is a small internal fallback model registry for AICmd maintainers. It is intentionally not a full public model catalog and is not synced into runtime `config.yaml`. Customers should not edit `models.yaml` to add models. Add or switch models in runtime `~/.aicmd/config.yaml`, using `model-config.example.yaml` as the template.
+AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`.
 
-`models.yaml` 是给 AICmd 维护者使用的内部小型兜底模型目录，刻意不再作为完整公开模型库维护，也不会同步到运行时 `config.yaml`。客户不应该通过修改 `models.yaml` 来新增模型。新增或切换模型时，请编辑运行时 `~/.aicmd/config.yaml`，并以 `model-config.example.yaml` 作为模板。
+AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，直接编辑运行时 `~/.aicmd/config.yaml`。
 
 Important config fields:
 
@@ -341,6 +341,9 @@ clients:
   - type: openai
     api_base: https://api.openai.com/v1
     api_key: xxx
+    models:
+      - name: gpt-4o
+        max_input_tokens: 128000
 ```
 
 OpenAI-compatible example:
@@ -373,9 +376,9 @@ Other explicit overrides also follow the `AICMD_...` environment naming pattern.
 
 ## 9. Helper command: aicmd-model / 辅助命令：aicmd-model
 
-`aicmd-model` helps users find and edit the runtime model config. It does not sync `models.yaml` into `config.yaml`; it points users to the single runtime config file that should be edited. After installation, the template is available at `~/.local/share/aicmd/model-config.example.yaml`.
+`aicmd-model` helps users create, find, show, and edit the runtime model config. AICmd has no separate public model template or `models.yaml`; `~/.aicmd/config.yaml` is the only user-editable model configuration file.
 
-`aicmd-model` 用于帮助用户定位和编辑运行时模型配置。它不会把 `models.yaml` 同步到 `config.yaml`；它只是指向用户应该编辑的唯一运行时配置文件。安装后，模板位于 `~/.local/share/aicmd/model-config.example.yaml`。
+`aicmd-model` 用于创建、定位、查看和编辑运行时模型配置。AICmd 不再提供单独的公开模型模板或 `models.yaml`；`~/.aicmd/config.yaml` 是唯一需要用户编辑的模型配置文件。
 
 Usage:
 
@@ -386,7 +389,6 @@ aicmd-model init
 aicmd-model path
 aicmd-model show
 EDITOR=vim aicmd-model edit
-aicmd-model template
 ```
 
 Typical flow after installation:
@@ -403,7 +405,6 @@ Typical flow to add another model later:
 之后新增其他模型的典型流程：
 
 ```bash
-aicmd-model template
 EDITOR=vim aicmd-model edit
 ```
 

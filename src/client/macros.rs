@@ -51,18 +51,7 @@ macro_rules! register_client {
 
                 pub fn list_models(local_config: &$config) -> Vec<Model> {
                     let client_name = Self::name(local_config);
-                    if local_config.models.is_empty() {
-                        if let Some(v) = $crate::client::ALL_PROVIDER_MODELS.iter().find(|v| {
-                            v.provider == $name ||
-                                ($name == OpenAICompatibleClient::NAME
-                                    && local_config.name.as_ref().map(|name| name.starts_with(&v.provider)).unwrap_or_default())
-                        }) {
-                            return Model::from_config(client_name, &v.models);
-                        }
-                        vec![]
-                    } else {
-                        Model::from_config(client_name, &local_config.models)
-                    }
+                    Model::from_config(client_name, &local_config.models)
                 }
 
                 pub fn name(local_config: &$config) -> &str {
