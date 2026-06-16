@@ -17,7 +17,6 @@ use crate::client::{
 use crate::function::{FunctionDeclaration, Functions, ToolResult};
 use crate::rag::Rag;
 use crate::render::{MarkdownRender, RenderOptions};
-use crate::repl::{run_repl_command, split_args_text};
 use crate::utils::*;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -2469,43 +2468,6 @@ impl WorkingMode {
     pub fn is_serve(&self) -> bool {
         *self == WorkingMode::Serve
     }
-}
-
-#[async_recursion::async_recursion]
-pub async fn macro_execute(
-    config: &GlobalConfig,
-    name: &str,
-    args: Option<&str>,
-    abort_signal: AbortSignal,
-) -> Result<()> {
-    let macro_value = Config::load_macro(name)?;
-    let (mut new_args, text) = split_args_text(args.unwrap_or_default(), cfg!(windows));
-    if !text.is_empty() {
-        new_args.push(text.to_string());
-    }
-    let variables = macro_value
-        .resolve_variables(&new_args)
-        .map_err(|err| anyhow!("{err}. Usage: {}", macro_value.usage(name)))?;
-    let role = config.read().extract_role();
-    let mut config = config.read().clone();
-    config.temperature = role.temperature();
-    config.top_p = role.top_p();
-    config.use_tools = role.use_tools().clone();
-    config.macro_flag = true;
-    config.model = role.model().clone();
-    config.role = None;
-    config.session = None;
-    config.rag = None;
-    config.agent = None;
-    config.discontinuous_last_message();
-    let config = Arc::new(RwLock::new(config));
-    config.write().macro_flag = true;
-    for step in &macro_value.steps {
-        let command = Macro::interpolate_command(step, &variables);
-        println!(">> {}", multiline_text(&command));
-        run_repl_command(&config, abort_signal.clone(), &command).await?;
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize)]

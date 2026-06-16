@@ -18,13 +18,10 @@ dirs = "6.0.0"
 futures-util = "0.3.29"
 inquire = "0.7.0"
 is-terminal = "0.4.9"
-reedline = "0.40.0"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = { version = "1.0.93", features = ["preserve_order"] }
 serde_yaml = "0.9.17"
 tokio = { version = "1.34.0", features = ["rt", "time", "macros", "signal", "rt-multi-thread"] }
-tokio-graceful = "0.2.2"
-tokio-stream = { version = "0.1.15", default-features = false, features = ["sync"] }
 crossterm = "0.28.1"
 chrono = "0.4.23"
 bincode = { version = "2.0.0", features = ["serde", "std"], default-features = false }
@@ -42,10 +39,6 @@ shell-words = "1.1.0"
 sha2 = "0.10.8"
 unicode-width = "0.2.0"
 async-recursion = "1.1.1"
-http = "1.1.0"
-http-body-util = "0.1"
-hyper = { version = "1.0", features = ["full"] }
-hyper-util = { version = "0.1", features = ["server-auto", "client-legacy"] }
 time = { version = "0.3.36", features = ["macros"] }
 indexmap = { version = "2.2.6", features = ["serde"] }
 hmac = "0.12.1"
@@ -61,13 +54,14 @@ uuid = { version = "1.9.1", features = ["v4"] }
 scraper = { version = "0.23.1", default-features = false, features = ["deterministic"] }
 sys-locale = "0.3.1"
 html_to_markdown = "0.1.0"
-rust-embed = "8.5.0"
 os_info = { version = "3.8.2", default-features = false }
 bm25 = { version = "2.0.1", features = ["parallelism"] }
 which = "8.0.0"
-fuzzy-matcher = "0.3.7"
-terminal-colorsaurus = "0.4.8"
 duct = "1.0.0"
+terminal-colorsaurus = "0.4.8"
+fuzzy-matcher = "0.3.7"
+rust-embed = "8.5.0"
+http = "1.1.0"
 
 [dependencies.reqwest]
 version = "0.12.0"

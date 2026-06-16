@@ -4,7 +4,6 @@ mod config;
 mod function;
 mod rag;
 mod render;
-mod repl;
 #[macro_use]
 mod utils;
 
