@@ -76,8 +76,6 @@ pub struct Config {
     pub clients: Vec<ClientConfig>,
 
     #[serde(skip)]
-    pub macro_flag: bool,
-    #[serde(skip)]
     pub info_flag: bool,
     #[serde(skip)]
     pub model: Model,
@@ -114,7 +112,6 @@ impl Default for Config {
 
             clients: vec![],
 
-            macro_flag: false,
             info_flag: false,
             model: Default::default(),
             last_message: None,
