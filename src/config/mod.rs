@@ -45,9 +45,6 @@ const MESSAGES_FILE_NAME: &str = "messages.md";
 const SESSIONS_DIR_NAME: &str = "sessions";
 const CLIENTS_FIELD: &str = "clients";
 
-const SYNC_MODELS_URL: &str =
-    "https://raw.githubusercontent.com/sigoden/aichat/refs/heads/main/models.yaml";
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -71,7 +68,6 @@ pub struct Config {
 
     pub user_agent: Option<String>,
     pub save_shell_history: bool,
-    pub sync_models_url: Option<String>,
 
     pub clients: Vec<ClientConfig>,
 
@@ -108,7 +104,6 @@ impl Default for Config {
 
             user_agent: None,
             save_shell_history: true,
-            sync_models_url: None,
 
             clients: vec![],
 
@@ -490,34 +485,6 @@ impl Config {
         list_file_names(self.sessions_dir(), ".yaml")
     }
 
-    pub fn sync_models_url(&self) -> String {
-        self.sync_models_url
-            .clone()
-            .unwrap_or_else(|| SYNC_MODELS_URL.into())
-    }
-
-    pub async fn sync_models(url: &str, abort_signal: AbortSignal) -> Result<()> {
-        let content = abortable_run_with_spinner(fetch(url), "Fetching models.yaml", abort_signal)
-            .await
-            .with_context(|| format!("Failed to fetch '{url}'"))?;
-        println!("✓ Fetched '{url}'");
-        let list = serde_yaml::from_str::<Vec<ProviderModels>>(&content)
-            .with_context(|| "Failed to parse models.yaml")?;
-        let models_override = ModelsOverride {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            list,
-        };
-        let models_override_data =
-            serde_yaml::to_string(&models_override).with_context(|| "Failed to serde {}")?;
-
-        let model_override_path = Self::models_override_file();
-        ensure_parent_exists(&model_override_path)?;
-        std::fs::write(&model_override_path, models_override_data)
-            .with_context(|| format!("Failed to write to '{}'", model_override_path.display()))?;
-        println!("✓ Updated '{}'", model_override_path.display());
-        Ok(())
-    }
-
     pub fn loal_models_override() -> Result<Vec<ProviderModels>> {
         let model_override_path = Self::models_override_file();
         let err = || {
@@ -754,9 +721,6 @@ impl Config {
         }
         if let Some(Some(v)) = read_env_bool(&get_env_name("save_shell_history")) {
             self.save_shell_history = v;
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("sync_models_url")) {
-            self.sync_models_url = v;
         }
     }
 

@@ -17,16 +17,6 @@ static CLIENT: LazyLock<Result<reqwest::Client>> = LazyLock::new(|| {
     Ok(client)
 });
 
-pub async fn fetch(url: &str) -> Result<String> {
-    let client = match *CLIENT {
-        Ok(ref client) => client,
-        Err(ref err) => bail!("{err}"),
-    };
-    let res = client.get(url).send().await?;
-    let output = res.text().await?;
-    Ok(output)
-}
-
 pub async fn fetch_with_loaders(
     loaders: &HashMap<String, String>,
     path: &str,
