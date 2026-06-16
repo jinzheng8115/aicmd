@@ -10,7 +10,7 @@ mod utils;
 extern crate log;
 
 use crate::cli::Cli;
-use crate::client::{call_chat_completions, call_chat_completions_streaming, list_models, ModelType};
+use crate::client::{call_chat_completions, call_chat_completions_streaming};
 use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, EXPLAIN_SHELL_ROLE,
     SHELL_ROLE,
@@ -31,7 +31,6 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let text = cli.text()?;
     let info_flag = cli.info
-        || cli.list_models
         || cli.list_roles
         || cli.list_agents
         || cli.list_rags
@@ -49,12 +48,6 @@ async fn main() -> Result<()> {
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
     let abort_signal = create_abort_signal();
 
-    if cli.list_models {
-        for model in list_models(&config.read(), ModelType::Chat) {
-            println!("{}", model.id());
-        }
-        return Ok(());
-    }
     if cli.dry_run {
         config.write().dry_run = true;
     }
@@ -232,7 +225,8 @@ fn setup_logger() -> Result<()> {
         return Ok(());
     }
     let crate_name = env!("CARGO_CRATE_NAME");
-    let log_filter = std::env::var(get_env_name("log_filter")).unwrap_or_else(|_| crate_name.into());
+    let log_filter =
+        std::env::var(get_env_name("log_filter")).unwrap_or_else(|_| crate_name.into());
     let config = ConfigBuilder::new()
         .add_filter_allow(log_filter)
         .set_time_format_custom(format_description!(

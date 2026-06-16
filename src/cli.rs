@@ -54,9 +54,6 @@ pub struct Cli {
     /// Display information
     #[clap(long)]
     pub info: bool,
-    /// List all available chat models
-    #[clap(long)]
-    pub list_models: bool,
     /// Unsupported in AICmd focused command workflow
     #[clap(long, hide = true)]
     pub list_roles: bool,
@@ -96,8 +93,10 @@ impl Cli {
             if stdin_text.is_empty() {
                 Ok(Some(text))
             } else {
-                Ok(Some(format!("{text}
-{stdin_text}")))
+                Ok(Some(format!(
+                    "{text}
+{stdin_text}"
+                )))
             }
         }
     }
