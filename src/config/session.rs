@@ -5,16 +5,12 @@ use crate::client::{Message, MessageContent, MessageRole};
 use crate::render::MarkdownRender;
 
 use anyhow::{bail, Context, Result};
-use fancy_regex::Regex;
 use inquire::{validator::Validation, Confirm, Text};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{read_to_string, write};
 use std::path::Path;
-use std::sync::LazyLock;
-
-static RE_AUTONAME_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d{8}T\d{6}-").unwrap());
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Session {
@@ -52,10 +48,6 @@ pub struct Session {
     #[serde(skip)]
     save_session_this_time: bool,
     #[serde(skip)]
-    compressing: bool,
-    #[serde(skip)]
-    autoname: Option<AutoName>,
-    #[serde(skip)]
     tokens: usize,
 }
 
@@ -80,16 +72,8 @@ impl Session {
 
         session.model = Model::retrieve_model(config, &session.model_id, ModelType::Chat)?;
 
-        if let Some(autoname) = name.strip_prefix("_/") {
-            session.name = TEMP_SESSION_NAME.to_string();
-            session.path = None;
-            if let Ok(true) = RE_AUTONAME_PREFIX.is_match(autoname) {
-                session.autoname = Some(AutoName::new(autoname[16..].to_string()));
-            }
-        } else {
-            session.name = name.to_string();
-            session.path = Some(path.display().to_string());
-        }
+        session.name = name.to_string();
+        session.path = Some(path.display().to_string());
 
         if let Some(role_name) = &session.role_name {
             if let Ok(role) = config.retrieve_role(role_name) {
@@ -175,10 +159,6 @@ impl Session {
 
         if let Some(path) = &self.path {
             items.push(("path", path.to_string()));
-        }
-
-        if let Some(autoname) = self.autoname() {
-            items.push(("autoname", autoname.to_string()));
         }
 
         items.push(("model", self.model().id()));
@@ -293,72 +273,6 @@ impl Session {
         }
     }
 
-    pub fn need_compress(&self, global_compress_threshold: usize) -> bool {
-        if self.compressing {
-            return false;
-        }
-        let threshold = self.compress_threshold.unwrap_or(global_compress_threshold);
-        if threshold < 1 {
-            return false;
-        }
-        self.tokens() > threshold
-    }
-
-    pub fn compressing(&self) -> bool {
-        self.compressing
-    }
-
-    pub fn set_compressing(&mut self, compressing: bool) {
-        self.compressing = compressing;
-    }
-
-    pub fn compress(&mut self, mut prompt: String) {
-        if let Some(system_prompt) = self.messages.first().and_then(|v| {
-            if MessageRole::System == v.role {
-                let content = v.content.to_text();
-                if !content.is_empty() {
-                    return Some(content);
-                }
-            }
-            None
-        }) {
-            prompt = format!("{system_prompt}\n\n{prompt}",);
-        }
-        self.compressed_messages.append(&mut self.messages);
-        self.messages.push(Message::new(
-            MessageRole::System,
-            MessageContent::Text(prompt),
-        ));
-        self.dirty = true;
-        self.update_tokens();
-    }
-
-    pub fn need_autoname(&self) -> bool {
-        self.autoname.as_ref().map(|v| v.need()).unwrap_or_default()
-    }
-
-    pub fn set_autonaming(&mut self, naming: bool) {
-        if let Some(v) = self.autoname.as_mut() {
-            v.naming = naming;
-        }
-    }
-
-    pub fn chat_history_for_autonaming(&self) -> Option<String> {
-        self.autoname.as_ref().and_then(|v| v.chat_history.clone())
-    }
-
-    pub fn autoname(&self) -> Option<&str> {
-        self.autoname.as_ref().and_then(|v| v.name.as_deref())
-    }
-
-    pub fn set_autoname(&mut self, value: &str) {
-        let name = value
-            .chars()
-            .map(|v| if v.is_alphanumeric() { v } else { '-' })
-            .collect();
-        self.autoname = Some(AutoName::new(name));
-    }
-
     pub fn exit(&mut self, session_dir: &Path, is_repl: bool) -> Result<()> {
         let mut save_session = self.save_session();
         if self.save_session_this_time {
@@ -397,9 +311,6 @@ impl Session {
 
                 let now = chrono::Local::now();
                 session_name = now.format("%Y%m%dT%H%M%S").to_string();
-                if let Some(autoname) = self.autoname() {
-                    session_name = format!("{session_name}-{autoname}")
-                }
             }
             let session_path = session_dir.join(format!("{session_name}.yaml"));
             self.save(&session_name, &session_path, is_repl)?;
@@ -457,11 +368,6 @@ impl Session {
             }
         } else {
             if self.messages.is_empty() {
-                if self.name == TEMP_SESSION_NAME && self.save_session == Some(true) {
-                    let raw_input = input.raw();
-                    let chat_history = format!("USER: {raw_input}\nASSISTANT: {output}\n");
-                    self.autoname = Some(AutoName::new_from_chat_history(chat_history));
-                }
                 self.messages.extend(input.role().build_messages(input));
             } else {
                 self.messages
@@ -488,7 +394,6 @@ impl Session {
         self.messages.clear();
         self.compressed_messages.clear();
         self.data_urls.clear();
-        self.autoname = None;
         self.dirty = true;
         self.update_tokens();
     }
@@ -585,30 +490,5 @@ impl RoleLike for Session {
             self.use_tools = value;
             self.dirty = true;
         }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct AutoName {
-    naming: bool,
-    chat_history: Option<String>,
-    name: Option<String>,
-}
-
-impl AutoName {
-    pub fn new(name: String) -> Self {
-        Self {
-            name: Some(name),
-            ..Default::default()
-        }
-    }
-    pub fn new_from_chat_history(chat_history: String) -> Self {
-        Self {
-            chat_history: Some(chat_history),
-            ..Default::default()
-        }
-    }
-    pub fn need(&self) -> bool {
-        !self.naming && self.chat_history.is_some() && self.name.is_none()
     }
 }

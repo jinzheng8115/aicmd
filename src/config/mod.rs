@@ -4,7 +4,7 @@ mod session;
 
 pub use self::input::Input;
 pub use self::role::{
-    Role, RoleLike, CODE_ROLE, CREATE_TITLE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE,
+    Role, RoleLike, CODE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE,
 };
 use self::session::Session;
 
@@ -60,10 +60,6 @@ const SERVE_ADDR: &str = "127.0.0.1:8000";
 const SYNC_MODELS_URL: &str =
     "https://raw.githubusercontent.com/sigoden/aichat/refs/heads/main/models.yaml";
 
-const SUMMARIZE_PROMPT: &str =
-    "Summarize the discussion briefly in 200 words or less to use as a prompt for future context.";
-const SUMMARY_PROMPT: &str = "This is a summary of the chat history as a recap: ";
-
 const LEFT_PROMPT: &str = "{color.green}{?session }{session}{?role /}}{!session }}{role}{color.cyan}{?session )}{!session >}{color.reset} ";
 const RIGHT_PROMPT: &str = "{color.purple}{?session {?consume_tokens {consume_tokens}({consume_percent}%)}{!consume_tokens {consume_tokens}}}{color.reset}";
 
@@ -94,9 +90,6 @@ pub struct Config {
     pub cmd_prelude: Option<String>,
     pub save_session: Option<bool>,
     pub compress_threshold: usize,
-    pub summarize_prompt: Option<String>,
-    pub summary_prompt: Option<String>,
-
     #[serde(default)]
     pub document_loaders: HashMap<String, String>,
 
@@ -154,9 +147,6 @@ impl Default for Config {
             cmd_prelude: None,
             save_session: None,
             compress_threshold: 4000,
-            summarize_prompt: None,
-            summary_prompt: None,
-
             document_loaders: Default::default(),
 
             highlight: true,
@@ -959,10 +949,7 @@ impl Config {
         let session_name = match &self.session {
             Some(session) => match name {
                 Some(v) => v.to_string(),
-                None => session
-                    .autoname()
-                    .unwrap_or_else(|| session.name())
-                    .to_string(),
+                None => session.name().to_string(),
             },
             None => bail!("No session"),
         };
@@ -1013,126 +1000,6 @@ impl Config {
 
     pub fn list_sessions(&self) -> Vec<String> {
         list_file_names(self.sessions_dir(), ".yaml")
-    }
-
-    pub fn list_autoname_sessions(&self) -> Vec<String> {
-        list_file_names(self.sessions_dir().join("_"), ".yaml")
-    }
-
-    pub fn maybe_compress_session(config: GlobalConfig) {
-        let mut need_compress = false;
-        {
-            let mut config = config.write();
-            let compress_threshold = config.compress_threshold;
-            if let Some(session) = config.session.as_mut() {
-                if session.need_compress(compress_threshold) {
-                    session.set_compressing(true);
-                    need_compress = true;
-                }
-            }
-        };
-        if !need_compress {
-            return;
-        }
-        let color = if config.read().light_theme() {
-            nu_ansi_term::Color::LightGray
-        } else {
-            nu_ansi_term::Color::DarkGray
-        };
-        print!(
-            "\n📢 {}\n",
-            color.italic().paint("Compressing the session."),
-        );
-        tokio::spawn(async move {
-            if let Err(err) = Config::compress_session(&config).await {
-                warn!("Failed to compress the session: {err}");
-            }
-            if let Some(session) = config.write().session.as_mut() {
-                session.set_compressing(false);
-            }
-        });
-    }
-
-    pub async fn compress_session(config: &GlobalConfig) -> Result<()> {
-        match config.read().session.as_ref() {
-            Some(session) => {
-                if !session.has_user_messages() {
-                    bail!("No need to compress since there are no messages in the session")
-                }
-            }
-            None => bail!("No session"),
-        }
-
-        let prompt = config
-            .read()
-            .summarize_prompt
-            .clone()
-            .unwrap_or_else(|| SUMMARIZE_PROMPT.into());
-        let input = Input::from_str(config, &prompt, None);
-        let summary = input.fetch_chat_text().await?;
-        let summary_prompt = config
-            .read()
-            .summary_prompt
-            .clone()
-            .unwrap_or_else(|| SUMMARY_PROMPT.into());
-        if let Some(session) = config.write().session.as_mut() {
-            session.compress(format!("{summary_prompt}{summary}"));
-        }
-        config.write().discontinuous_last_message();
-        Ok(())
-    }
-
-    pub fn is_compressing_session(&self) -> bool {
-        self.session
-            .as_ref()
-            .map(|v| v.compressing())
-            .unwrap_or_default()
-    }
-
-    pub fn maybe_autoname_session(config: GlobalConfig) {
-        let mut need_autoname = false;
-        if let Some(session) = config.write().session.as_mut() {
-            if session.need_autoname() {
-                session.set_autonaming(true);
-                need_autoname = true;
-            }
-        }
-        if !need_autoname {
-            return;
-        }
-        let color = if config.read().light_theme() {
-            nu_ansi_term::Color::LightGray
-        } else {
-            nu_ansi_term::Color::DarkGray
-        };
-        print!("\n📢 {}\n", color.italic().paint("Autonaming the session."),);
-        tokio::spawn(async move {
-            if let Err(err) = Config::autoname_session(&config).await {
-                warn!("Failed to autonaming the session: {err}");
-            }
-            if let Some(session) = config.write().session.as_mut() {
-                session.set_autonaming(false);
-            }
-        });
-    }
-
-    pub async fn autoname_session(config: &GlobalConfig) -> Result<()> {
-        let text = match config
-            .read()
-            .session
-            .as_ref()
-            .and_then(|v| v.chat_history_for_autonaming())
-        {
-            Some(v) => v,
-            None => bail!("No chat history"),
-        };
-        let role = config.read().retrieve_role(CREATE_TITLE_ROLE)?;
-        let input = Input::from_str(config, &text, Some(role));
-        let text = input.fetch_chat_text().await?;
-        if let Some(session) = config.write().session.as_mut() {
-            session.set_autoname(&text);
-        }
-        Ok(())
     }
 
     pub fn apply_prelude(&mut self) -> Result<()> {
@@ -1386,9 +1253,6 @@ impl Config {
         }
         if let Some(session) = &self.session {
             output.insert("session", session.name().to_string());
-            if let Some(autoname) = session.autoname() {
-                output.insert("session_autoname", autoname.to_string());
-            }
             output.insert("dirty", session.dirty().to_string());
             let (tokens, percent) = session.tokens_usage();
             output.insert("consume_tokens", tokens.to_string());
@@ -1612,13 +1476,6 @@ impl Config {
         if let Some(Some(v)) = read_env_value::<usize>(&get_env_name("compress_threshold")) {
             self.compress_threshold = v;
         }
-        if let Some(v) = read_env_value::<String>(&get_env_name("summarize_prompt")) {
-            self.summarize_prompt = v;
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("summary_prompt")) {
-            self.summary_prompt = v;
-        }
-
         if let Ok(v) = env::var(get_env_name("document_loaders")) {
             if let Ok(v) = serde_json::from_str(&v) {
                 self.document_loaders = v;
