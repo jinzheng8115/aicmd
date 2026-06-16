@@ -26,7 +26,6 @@ pub use self::variables::*;
 
 use anyhow::{Context, Result};
 use fancy_regex::Regex;
-use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 use is_terminal::IsTerminal;
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -106,22 +105,6 @@ pub fn convert_option_string(value: &str) -> Option<String> {
     } else {
         Some(value.to_string())
     }
-}
-
-pub fn fuzzy_filter<T, F>(values: Vec<T>, get: F, pattern: &str) -> Vec<T>
-where
-    F: Fn(&T) -> &str,
-{
-    let matcher = SkimMatcherV2::default();
-    let mut list: Vec<(T, i64)> = values
-        .into_iter()
-        .filter_map(|v| {
-            let score = matcher.fuzzy_match(get(&v), pattern)?;
-            Some((v, score))
-        })
-        .collect();
-    list.sort_unstable_by(|a, b| b.1.cmp(&a.1));
-    list.into_iter().map(|(v, _)| v).collect()
 }
 
 pub fn pretty_error(err: &anyhow::Error) -> String {

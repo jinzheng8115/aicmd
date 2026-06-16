@@ -3,7 +3,7 @@ mod input;
 mod role;
 mod session;
 
-pub use self::agent::{complete_agent_variables, list_agents, Agent, AgentVariables};
+pub use self::agent::{Agent, AgentVariables};
 pub use self::input::Input;
 pub use self::role::{
     Role, RoleLike, CODE_ROLE, CREATE_TITLE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE,
@@ -50,7 +50,6 @@ const LIGHT_THEME: &[u8] = include_bytes!("../../assets/monokai-extended-light.t
 
 const CONFIG_FILE_NAME: &str = "config.yaml";
 const ROLES_DIR_NAME: &str = "roles";
-const MACROS_DIR_NAME: &str = "macros";
 const ENV_FILE_NAME: &str = ".env";
 const MESSAGES_FILE_NAME: &str = "messages.md";
 const SESSIONS_DIR_NAME: &str = "sessions";
@@ -330,17 +329,6 @@ impl Config {
 
     pub fn role_file(name: &str) -> PathBuf {
         Self::roles_dir().join(format!("{name}.md"))
-    }
-
-    pub fn macros_dir() -> PathBuf {
-        match env::var(get_env_name("macros_dir")) {
-            Ok(value) => PathBuf::from(value),
-            Err(_) => Self::local_path(MACROS_DIR_NAME),
-        }
-    }
-
-    pub fn macro_file(name: &str) -> PathBuf {
-        Self::macros_dir().join(format!("{name}.yaml"))
     }
 
     pub fn env_file() -> PathBuf {
@@ -624,7 +612,6 @@ impl Config {
             ("roles_dir", display_path(&Self::roles_dir())),
             ("sessions_dir", display_path(&self.sessions_dir())),
             ("rags_dir", display_path(&Self::rags_dir())),
-            ("macros_dir", display_path(&Self::macros_dir())),
             ("functions_dir", display_path(&Self::functions_dir())),
             ("messages_file", display_path(&self.messages_file())),
         ];
@@ -712,7 +699,6 @@ impl Config {
             "role" => (Self::roles_dir(), Some(".md")),
             "session" => (config.read().sessions_dir(), Some(".yaml")),
             "rag" => (Self::rags_dir(), Some(".yaml")),
-            "macro" => (Self::macros_dir(), Some(".yaml")),
             "agent-data" => (Self::agents_data_dir(), None),
             _ => bail!("Unknown kind '{kind}'"),
         };
@@ -1587,41 +1573,6 @@ impl Config {
         Ok(())
     }
 
-    pub fn list_macros() -> Vec<String> {
-        list_file_names(Self::macros_dir(), ".yaml")
-    }
-
-    pub fn load_macro(name: &str) -> Result<Macro> {
-        let path = Self::macro_file(name);
-        let err = || format!("Failed to load macro '{name}' at '{}'", path.display());
-        let content = read_to_string(&path).with_context(err)?;
-        let value: Macro = serde_yaml::from_str(&content).with_context(err)?;
-        Ok(value)
-    }
-
-    pub fn has_macro(name: &str) -> bool {
-        let names = Self::list_macros();
-        names.contains(&name.to_string())
-    }
-
-    pub fn new_macro(&mut self, name: &str) -> Result<()> {
-        if self.macro_flag {
-            bail!("No macro");
-        }
-        let ans = Confirm::new("Create a new macro?")
-            .with_default(true)
-            .prompt()?;
-        if ans {
-            let macro_path = Self::macro_file(name);
-            ensure_parent_exists(&macro_path)?;
-            let editor = self.editor()?;
-            edit_file(&editor, &macro_path)?;
-        } else {
-            bail!("No macro");
-        }
-        Ok(())
-    }
-
     pub fn apply_prelude(&mut self) -> Result<()> {
         if self.macro_flag || !self.state().is_empty() {
             return Ok(());
@@ -1746,131 +1697,6 @@ impl Config {
         })
         .clone()
         .ok_or_else(|| anyhow!("Editor not found. Please add the `editor` configuration or set the $EDITOR or $VISUAL environment variable."))
-    }
-
-    pub fn repl_complete(
-        &self,
-        cmd: &str,
-        args: &[&str],
-        _line: &str,
-    ) -> Vec<(String, Option<String>)> {
-        let mut values: Vec<(String, Option<String>)> = vec![];
-        let filter = args.last().unwrap_or(&"");
-        if args.len() == 1 {
-            values = match cmd {
-                ".role" => map_completion_values(Self::list_roles(true)),
-                ".model" => list_models(self, ModelType::Chat)
-                    .into_iter()
-                    .map(|v| (v.id(), Some(v.description())))
-                    .collect(),
-                ".session" => {
-                    if args[0].starts_with("_/") {
-                        map_completion_values(
-                            self.list_autoname_sessions()
-                                .iter()
-                                .rev()
-                                .map(|v| format!("_/{v}"))
-                                .collect::<Vec<String>>(),
-                        )
-                    } else {
-                        map_completion_values(self.list_sessions())
-                    }
-                }
-                ".rag" => map_completion_values(Self::list_rags()),
-                ".agent" => map_completion_values(list_agents()),
-                ".macro" => map_completion_values(Self::list_macros()),
-                ".starter" => match &self.agent {
-                    Some(agent) => agent
-                        .conversation_staters()
-                        .iter()
-                        .enumerate()
-                        .map(|(i, v)| ((i + 1).to_string(), Some(v.to_string())))
-                        .collect(),
-                    None => vec![],
-                },
-                ".set" => {
-                    let mut values = vec![
-                        "temperature",
-                        "top_p",
-                        "use_tools",
-                        "save_session",
-                        "compress_threshold",
-                        "rag_reranker_model",
-                        "rag_top_k",
-                        "max_output_tokens",
-                        "dry_run",
-                        "function_calling",
-                        "stream",
-                        "save",
-                        "highlight",
-                    ];
-                    values.sort_unstable();
-                    values
-                        .into_iter()
-                        .map(|v| (format!("{v} "), None))
-                        .collect()
-                }
-                ".delete" => {
-                    map_completion_values(vec!["role", "session", "rag", "macro", "agent-data"])
-                }
-                _ => vec![],
-            };
-        } else if cmd == ".set" && args.len() == 2 {
-            let candidates = match args[0] {
-                "max_output_tokens" => match self.current_model().max_output_tokens() {
-                    Some(v) => vec![v.to_string()],
-                    None => vec![],
-                },
-                "dry_run" => complete_bool(self.dry_run),
-                "stream" => complete_bool(self.stream),
-                "save" => complete_bool(self.save),
-                "function_calling" => complete_bool(self.function_calling),
-                "use_tools" => {
-                    let mut prefix = String::new();
-                    let mut ignores = HashSet::new();
-                    if let Some((v, _)) = args[1].rsplit_once(',') {
-                        ignores = v.split(',').collect();
-                        prefix = format!("{v},");
-                    }
-                    let mut values = vec![];
-                    if prefix.is_empty() {
-                        values.push("all".to_string());
-                    }
-                    values.extend(self.functions.declarations().iter().map(|v| v.name.clone()));
-                    values.extend(self.mapping_tools.keys().map(|v| v.to_string()));
-                    values
-                        .into_iter()
-                        .filter(|v| !ignores.contains(v.as_str()))
-                        .map(|v| format!("{prefix}{v}"))
-                        .collect()
-                }
-                "save_session" => {
-                    let save_session = if let Some(session) = &self.session {
-                        session.save_session()
-                    } else {
-                        self.save_session
-                    };
-                    complete_option_bool(save_session)
-                }
-                "rag_reranker_model" => list_models(self, ModelType::Reranker)
-                    .iter()
-                    .map(|v| v.id())
-                    .collect(),
-                "highlight" => complete_bool(self.highlight),
-                _ => vec![],
-            };
-            values = candidates.into_iter().map(|v| (v, None)).collect();
-        } else if cmd == ".agent" {
-            if args.len() == 2 {
-                let dir = Self::agent_data_dir(args[0]).join(SESSIONS_DIR_NAME);
-                values = list_file_names(dir, ".yaml")
-                    .into_iter()
-                    .map(|v| (v, None))
-                    .collect();
-            }
-            values.extend(complete_agent_variables(args[0]));
-        };
-        fuzzy_filter(values, |v| v.0.as_str(), filter)
     }
 
     pub fn sync_models_url(&self) -> String {
@@ -2470,69 +2296,6 @@ impl WorkingMode {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Macro {
-    #[serde(default)]
-    pub variables: Vec<MacroVariable>,
-    pub steps: Vec<String>,
-}
-
-impl Macro {
-    pub fn resolve_variables(&self, args: &[String]) -> Result<IndexMap<String, String>> {
-        let mut output = IndexMap::new();
-        for (i, variable) in self.variables.iter().enumerate() {
-            let value = if variable.rest && i == self.variables.len() - 1 {
-                if args.len() > i {
-                    Some(args[i..].join(" "))
-                } else {
-                    variable.default.clone()
-                }
-            } else {
-                args.get(i)
-                    .map(|v| v.to_string())
-                    .or_else(|| variable.default.clone())
-            };
-            let value =
-                value.ok_or_else(|| anyhow!("Missing value for variable '{}'", variable.name))?;
-            output.insert(variable.name.clone(), value);
-        }
-        Ok(output)
-    }
-
-    pub fn usage(&self, name: &str) -> String {
-        let mut parts = vec![name.to_string()];
-        for (i, variable) in self.variables.iter().enumerate() {
-            let part = match (
-                variable.rest && i == self.variables.len() - 1,
-                variable.default.is_some(),
-            ) {
-                (true, true) => format!("[{}]...", variable.name),
-                (true, false) => format!("<{}>...", variable.name),
-                (false, true) => format!("[{}]", variable.name),
-                (false, false) => format!("<{}>", variable.name),
-            };
-            parts.push(part);
-        }
-        parts.join(" ")
-    }
-
-    pub fn interpolate_command(command: &str, variables: &IndexMap<String, String>) -> String {
-        let mut output = command.to_string();
-        for (key, value) in variables {
-            output = output.replace(&format!("{{{{{key}}}}}"), value);
-        }
-        output
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct MacroVariable {
-    pub name: String,
-    #[serde(default)]
-    pub rest: bool,
-    pub default: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelsOverride {
     pub version: String,
@@ -2678,22 +2441,6 @@ where
 fn read_env_bool(key: &str) -> Option<Option<bool>> {
     let value = env::var(key).ok()?;
     Some(parse_bool(&value))
-}
-
-fn complete_bool(value: bool) -> Vec<String> {
-    vec![(!value).to_string()]
-}
-
-fn complete_option_bool(value: Option<bool>) -> Vec<String> {
-    match value {
-        Some(true) => vec!["false".to_string(), "null".to_string()],
-        Some(false) => vec!["true".to_string(), "null".to_string()],
-        None => vec!["true".to_string(), "false".to_string()],
-    }
-}
-
-fn map_completion_values<T: ToString>(value: Vec<T>) -> Vec<(String, Option<String>)> {
-    value.into_iter().map(|v| (v.to_string(), None)).collect()
 }
 
 fn update_rag<F>(config: &GlobalConfig, f: F) -> Result<()>
