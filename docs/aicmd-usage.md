@@ -304,9 +304,9 @@ model-config.example.yaml
 ```
 
 
-`models.yaml` is an internal built-in model registry for AICmd maintainers. Customers should normally edit runtime `config.yaml`, using `model-config.example.yaml` as the template.
+`models.yaml` is a small internal fallback model registry for AICmd maintainers. It is intentionally not a full public model catalog. Customers should normally edit runtime `config.yaml`, using `model-config.example.yaml` as the template.
 
-`models.yaml` 是给 AICmd 维护者使用的内部内置模型目录。客户通常只需要编辑运行时 `config.yaml`，并以 `model-config.example.yaml` 作为模板。
+`models.yaml` 是给 AICmd 维护者使用的内部小型兜底模型目录，刻意不再作为完整公开模型库维护。客户通常只需要编辑运行时 `config.yaml`，并以 `model-config.example.yaml` 作为模板。
 
 Important config fields:
 

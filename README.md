@@ -37,9 +37,9 @@ The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, and `aicmd-
 
 ## Config / 配置
 
-English: Use `model-config.example.yaml` as the single customer-facing template for model setup. Runtime configuration is stored in `config.yaml` under the AICmd config directory.
+English: Use `model-config.example.yaml` as the single customer-facing template for model setup. Runtime configuration is stored in `config.yaml` under the AICmd config directory. `models.yaml` is only a small internal fallback registry for maintainers.
 
-中文：统一使用 `model-config.example.yaml` 作为唯一面向客户的模型配置模板。运行时配置保存在 AICmd 配置目录下的 `config.yaml`。
+中文：统一使用 `model-config.example.yaml` 作为唯一面向客户的模型配置模板。运行时配置保存在 AICmd 配置目录下的 `config.yaml`。`models.yaml` 只是给维护者使用的小型内部兜底模型目录。
 
 ## Detailed usage / 详细使用文档
 
