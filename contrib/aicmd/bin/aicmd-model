@@ -206,6 +206,19 @@ clients:
 YAML
 }
 
+confirm_init() {
+  local path="$1" source_desc="$2"
+  echo "About to write AICmd config: $path" >&2
+  echo "Source: $source_desc" >&2
+  printf 'Continue? [y/N] ' >&2
+  local answer
+  read -r answer
+  case "$answer" in
+    y|Y|yes|YES) ;;
+    *) echo "cancelled" >&2; exit 1 ;;
+  esac
+}
+
 init_config() {
   local force="$1" from_env="$2" path env_file
   path="$(config_path)"
@@ -215,9 +228,10 @@ init_config() {
     exit 1
   fi
 
-  mkdir -p "$(dirname "$path")"
   env_file="$(find_env_file || true)"
   if [[ -n "$env_file" ]]; then
+    confirm_init "$path" "$env_file"
+    mkdir -p "$(dirname "$path")"
     load_model_env "$env_file"
     config_from_env > "$path"
     echo "created config from env: $path"
@@ -226,6 +240,8 @@ init_config() {
     echo "env file not found. Copy .env.example to .env and fill it first." >&2
     exit 1
   else
+    confirm_init "$path" "built-in starter config"
+    mkdir -p "$(dirname "$path")"
     default_config > "$path"
     echo "created starter config: $path"
   fi

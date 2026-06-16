@@ -23,7 +23,7 @@ use clap::{CommandFactory, Parser};
 use inquire::Text;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
-use std::{env, process, sync::Arc};
+use std::{env, fs::OpenOptions, io::{self, BufRead, BufReader, Write}, process, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -38,6 +38,24 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn confirm_action(message: &str) -> Result<bool> {
+    if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
+        let mut tty_reader = BufReader::new(tty.try_clone()?);
+        let mut tty_writer = tty;
+        write!(tty_writer, "{message} [y/N] ")?;
+        tty_writer.flush()?;
+        let mut answer = String::new();
+        tty_reader.read_line(&mut answer)?;
+        return Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "YES"));
+    }
+
+    eprint!("{message} [y/N] ");
+    io::stderr().flush()?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "YES"))
 }
 
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
@@ -67,6 +85,13 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         config.write().set_model(model_id)?;
     }
     if cli.empty_session {
+        let target = session_name.unwrap_or("temporary");
+        if !confirm_action(&format!(
+            "Clear all history in session '{target}'? / 确认清空会话 '{target}' 的全部历史记录？"
+        ))? {
+            println!("cancelled / 已取消");
+            return Ok(());
+        }
         config.write().empty_session()?;
     }
     if text.is_none() && cli.file.is_empty() {

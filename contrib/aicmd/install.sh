@@ -24,12 +24,7 @@ rmdir "$LEGACY_SHARE_DIR" 2>/dev/null || true
 CONFIG_PATH="$("$BIN_DIR/aicmd-model" path)"
 CONFIG_STATUS="Existing config kept: $CONFIG_PATH"
 if [[ -f "$ROOT_DIR/.env" && ! -f "$CONFIG_PATH" ]]; then
-  if AICMD_MODEL_ENV="$ROOT_DIR/.env" "$BIN_DIR/aicmd-model" init --from-env; then
-    CONFIG_STATUS="Generated config from $ROOT_DIR/.env"
-  else
-    echo "Failed to generate config from $ROOT_DIR/.env" >&2
-    exit 1
-  fi
+  CONFIG_STATUS="Found $ROOT_DIR/.env. Run: aicmd-model init --from-env"
 elif [[ -f "$ROOT_DIR/.env" && -f "$CONFIG_PATH" ]]; then
   CONFIG_STATUS="Existing config kept: $CONFIG_PATH. To overwrite from .env, run: aicmd-model init --from-env --force"
 elif [[ ! -f "$CONFIG_PATH" ]]; then
