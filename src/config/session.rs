@@ -18,8 +18,6 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    use_tools: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     role_name: Option<String>,
     messages: Vec<Message>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -102,9 +100,6 @@ impl Session {
         if let Some(top_p) = self.top_p() {
             data["top_p"] = top_p.into();
         }
-        if let Some(use_tools) = self.use_tools() {
-            data["use_tools"] = use_tools.into();
-        }
         let (tokens, percent) = self.tokens_usage();
         data["total_tokens"] = tokens.into();
         if let Some(max_input_tokens) = self.model().max_input_tokens() {
@@ -137,7 +132,6 @@ impl Session {
         self.model_id = role.model().id();
         self.temperature = role.temperature();
         self.top_p = role.top_p();
-        self.use_tools = role.use_tools();
         self.model = role.model().clone();
         self.role_name = convert_option_string(role.name());
         self.role_prompt = role.prompt().to_string();
@@ -248,10 +242,6 @@ impl RoleLike for Session {
         self.top_p
     }
 
-    fn use_tools(&self) -> Option<String> {
-        self.use_tools.clone()
-    }
-
     fn set_model(&mut self, model: Model) {
         if self.model().id() != model.id() {
             self.model_id = model.id();
@@ -271,13 +261,6 @@ impl RoleLike for Session {
     fn set_top_p(&mut self, value: Option<f64>) {
         if self.top_p != value {
             self.top_p = value;
-            self.dirty = true;
-        }
-    }
-
-    fn set_use_tools(&mut self, value: Option<String>) {
-        if self.use_tools != value {
-            self.use_tools = value;
             self.dirty = true;
         }
     }

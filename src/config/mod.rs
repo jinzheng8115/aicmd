@@ -299,7 +299,6 @@ impl Config {
                 &self.model,
                 self.temperature,
                 self.top_p,
-                None,
             );
             role
         }
