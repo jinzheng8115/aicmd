@@ -3,30 +3,27 @@ set -euo pipefail
 
 usage() {
   cat <<HELP
-Usage: aicmd-do [--yes] [--dry-run] [--output PATH] <task>
+Usage: aicmd-do [--dry-run] [--output PATH] <task>
 
-Generate a local shell script for a file/data task with aicmd, save it, then optionally run it after confirmation.
+Ask AICmd to generate shell commands that create a script for a local file/data task, then run it after AICmd's normal confirmation flow.
 
-用法：aicmd-do [--yes] [--dry-run] [--output PATH] <任务>
+用法：aicmd-do [--dry-run] [--output PATH] <任务>
 
-让 aicmd 生成一个本地 shell 脚本，保存到文件，然后确认后执行。
+让 AICmd 生成 shell 命令：创建一个本地脚本处理文件/数据任务，并通过 AICmd 正常确认流程执行。
 
 Examples:
-  aicmd-do "写个脚本，统计 data.csv 每列的空值数量"
-  aicmd-do --output scripts/clean-data.sh "写个脚本清洗 input.csv，输出 cleaned.csv"
-  aicmd-do --yes "写个脚本处理 logs/*.log，提取 ERROR 行到 errors.txt"
+  aicmd-do "统计 data.csv 每列的空值数量"
+  aicmd-do --output scripts/clean-data.sh "清洗 input.csv，输出 cleaned.csv"
+  aicmd-do --dry-run "处理 logs/*.log，提取 ERROR 行到 errors.txt"
 HELP
 }
 
-yes=false
 dry_run=false
 output=""
 task_parts=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -y|--yes)
-      yes=true; shift ;;
     --dry-run)
       dry_run=true; shift ;;
     -o|--output)
@@ -48,55 +45,17 @@ if [[ ${#task_parts[@]} -eq 0 ]]; then
 fi
 
 task="${task_parts[*]}"
-if [[ -z "$output" ]]; then
-  mkdir -p .aicmd
-  output=".aicmd/task-$(date +%Y%m%d-%H%M%S).sh"
-fi
-mkdir -p "$(dirname "$output")"
-
-prompt="You are generating a local automation script for the user's terminal. Output only a complete zsh script. Do not use Markdown, explanations, or code fences.
-
-Requirements:
-- Start with #!/usr/bin/env zsh and set -euo pipefail.
-- Prefer safe inspection and validation before modifying files.
-- If processing files, check that input files exist and create output directories as needed.
-- Avoid deleting or overwriting originals unless the user explicitly asks for it.
-- Print clear progress messages.
-- Make the script runnable from the current working directory: $(pwd).
-- The user task is: $task"
-
-script="$(aicmd "$prompt")"
-# Remove accidental Markdown fences if the model produced them anyway.
-script="$(printf '%s\n' "$script" | sed '/^```[a-zA-Z0-9_-]*[[:space:]]*$/d; /^```[[:space:]]*$/d')"
-
-if ! printf '%s\n' "$script" | head -n 1 | grep -q '^#!'; then
-  script="#!/usr/bin/env zsh
-set -euo pipefail
-
-$script"
+if [[ -n "$output" ]]; then
+  script_path="$output"
+else
+  script_path=".aicmd/task-$(date +%Y%m%d-%H%M%S).sh"
 fi
 
-printf '%s\n' "$script" > "$output"
-chmod +x "$output"
+prompt="创建一个 zsh 脚本 ${script_path} 来完成这个任务: ${task}。要求：先检查输入文件是否存在；必要时创建输出目录；不要删除或覆盖原始文件，除非任务明确要求；脚本写入后 chmod +x；最后执行这个脚本。"
 
-echo "[aicmd-do script] $output"
-echo "----- script begin -----"
-sed -n '1,220p' "$output"
-echo "----- script end -----"
-
+args=()
 if [[ "$dry_run" == "true" ]]; then
-  echo "[aicmd-do] dry-run only; script was not executed"
-  exit 0
+  args+=(--dry-run)
 fi
 
-if [[ "$yes" != "true" ]]; then
-  printf 'Run this script now? [y/N] '
-  read -r answer
-  case "$answer" in
-    y|Y|yes|YES) ;;
-    *) echo "[aicmd-do] not executed"; exit 0 ;;
-  esac
-fi
-
-echo "[aicmd-do] running $output"
-"$output"
+exec aicmd "${args[@]}" "$prompt"

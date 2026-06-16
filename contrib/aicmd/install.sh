@@ -1,32 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN_DIR="${AICMD_INSTALL_BIN_DIR:-$HOME/.local/bin}"
-AICHAT_DIR="${AICHAT_CONFIG_DIR:-$HOME/Library/Application Support/aichat}"
-FUNCTIONS_DIR="$AICHAT_DIR/functions"
+CARGO_BIN="${CARGO:-$HOME/.cargo/bin/cargo}"
 
-mkdir -p "$BIN_DIR" "$FUNCTIONS_DIR/tools" "$AICHAT_DIR/roles"
-install -m 0755 "$ROOT_DIR/bin/aicmd" "$BIN_DIR/aicmd"
-install -m 0755 "$ROOT_DIR/bin/aicmd-chat" "$BIN_DIR/aicmd-chat"
-install -m 0755 "$ROOT_DIR/bin/aicmd-mem" "$BIN_DIR/aicmd-mem"
-install -m 0755 "$ROOT_DIR/bin/aicmd-mem-search" "$BIN_DIR/aicmd-mem-search"
-install -m 0755 "$ROOT_DIR/bin/aicmd-err" "$BIN_DIR/aicmd-err"
-install -m 0755 "$ROOT_DIR/bin/aicmd-do" "$BIN_DIR/aicmd-do"
-install -m 0644 "$ROOT_DIR/functions/tools/tavily_mcp_search.mjs" "$FUNCTIONS_DIR/tools/tavily_mcp_search.mjs"
-install -m 0644 "$ROOT_DIR/roles/auto.md" "$AICHAT_DIR/roles/auto.md"
+mkdir -p "$BIN_DIR"
 
-if command -v npm >/dev/null 2>&1; then
-  cp "$ROOT_DIR/functions/tools/package.json" "$FUNCTIONS_DIR/tools/package.json"
-  (cd "$FUNCTIONS_DIR/tools" && npm install --omit=dev >/dev/null)
-else
-  echo "npm not found. Install Node.js/npm, then run: cd '$FUNCTIONS_DIR/tools' && npm install --omit=dev" >&2
+if [[ ! -x "$CARGO_BIN" ]]; then
+  echo "cargo not found at $CARGO_BIN. Install Rust or set CARGO=/path/to/cargo." >&2
+  exit 127
 fi
 
+(cd "$ROOT_DIR" && "$CARGO_BIN" build --release)
+install -m 0755 "$ROOT_DIR/target/release/aicmd" "$BIN_DIR/aicmd"
+install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-do" "$BIN_DIR/aicmd-do"
+install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-err" "$BIN_DIR/aicmd-err"
+
 cat <<MSG
-Installed aicmd helpers to: $BIN_DIR
-Installed aichat role/tool files to: $AICHAT_DIR
+Installed AICmd to: $BIN_DIR/aicmd
+Installed helpers:
+  $BIN_DIR/aicmd-do
+  $BIN_DIR/aicmd-err
 
 Make sure $BIN_DIR is in PATH, then run:
-  aicmd hello
+  aicmd 列出当前目录最大的 10 个文件
 MSG

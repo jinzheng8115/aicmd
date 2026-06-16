@@ -5,7 +5,6 @@ mod function;
 mod rag;
 mod render;
 mod repl;
-mod serve;
 #[macro_use]
 mod utils;
 
@@ -13,19 +12,16 @@ mod utils;
 extern crate log;
 
 use crate::cli::Cli;
-use crate::client::{
-    call_chat_completions, call_chat_completions_streaming, list_models, ModelType,
-};
+use crate::client::{call_chat_completions, call_chat_completions_streaming, list_models, ModelType};
 use crate::config::{
-    ensure_parent_exists, list_agents, load_env_file, macro_execute, Config, GlobalConfig, Input,
-    WorkingMode, CODE_ROLE, EXPLAIN_SHELL_ROLE, SHELL_ROLE, TEMP_SESSION_NAME,
+    ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, WorkingMode, CODE_ROLE,
+    EXPLAIN_SHELL_ROLE, SHELL_ROLE,
 };
 use crate::render::render_error;
-use crate::repl::Repl;
 use crate::utils::*;
 
 use anyhow::{bail, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use inquire::Text;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
@@ -36,13 +32,7 @@ async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
     let text = cli.text()?;
-    let working_mode = if cli.serve.is_some() {
-        WorkingMode::Serve
-    } else if text.is_none() && cli.file.is_empty() {
-        WorkingMode::Repl
-    } else {
-        WorkingMode::Cmd
-    };
+    let working_mode = WorkingMode::Cmd;
     let info_flag = cli.info
         || cli.sync_models
         || cli.list_models
@@ -79,62 +69,40 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         println!("{roles}");
         return Ok(());
     }
-    if cli.list_agents {
-        let agents = list_agents().join("\n");
-        println!("{agents}");
-        return Ok(());
-    }
-    if cli.list_rags {
-        let rags = Config::list_rags().join("\n");
-        println!("{rags}");
-        return Ok(());
-    }
-    if cli.list_macros {
-        let macros = Config::list_macros().join("\n");
-        println!("{macros}");
-        return Ok(());
-    }
-
     if cli.dry_run {
         config.write().dry_run = true;
     }
 
-    if let Some(agent) = &cli.agent {
-        let session = cli.session.as_ref().map(|v| match v {
-            Some(v) => v.as_str(),
-            None => TEMP_SESSION_NAME,
-        });
-        if !cli.agent_variable.is_empty() {
-            config.write().agent_variables = Some(
-                cli.agent_variable
-                    .chunks(2)
-                    .map(|v| (v[0].to_string(), v[1].to_string()))
-                    .collect(),
-            );
-        }
-
-        let ret = Config::use_agent(&config, agent, session, abort_signal.clone()).await;
-        config.write().agent_variables = None;
-        ret?;
-    } else {
-        if let Some(prompt) = &cli.prompt {
-            config.write().use_prompt(prompt)?;
-        } else if let Some(name) = &cli.role {
-            config.write().use_role(name)?;
-        } else if cli.execute {
-            config.write().use_role(SHELL_ROLE)?;
-        } else if cli.code {
-            config.write().use_role(CODE_ROLE)?;
-        }
-        if let Some(session) = &cli.session {
-            config
-                .write()
-                .use_session(session.as_ref().map(|v| v.as_str()))?;
-        }
-        if let Some(rag) = &cli.rag {
-            Config::use_rag(&config, Some(rag), abort_signal.clone()).await?;
-        }
+    if cli.agent.is_some()
+        || cli.rag.is_some()
+        || cli.macro_name.is_some()
+        || cli.serve.is_some()
+        || cli.list_agents
+        || cli.list_rags
+        || cli.list_macros
+    {
+        bail!("This AICmd build focuses on natural-language terminal commands. Agents, RAG, macros, and server mode are intentionally hidden.");
     }
+
+    if let Some(prompt) = &cli.prompt {
+        config.write().use_prompt(prompt)?;
+    } else if let Some(name) = &cli.role {
+        config.write().use_role(name)?;
+    } else if cli.code {
+        config.write().use_role(CODE_ROLE)?;
+    } else {
+        config.write().use_role(SHELL_ROLE)?;
+    }
+    let default_session;
+    let session_name = if let Some(session) = &cli.session {
+        session.as_ref().map(|v| v.as_str())
+    } else {
+        let beijing = chrono::Utc::now()
+            .with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).expect("valid timezone"));
+        default_session = format!("cmd-{}", beijing.format("%Y%m%d"));
+        Some(default_session.as_str())
+    };
+    config.write().use_session(session_name)?;
     if cli.list_sessions {
         let sessions = config.read().list_sessions().join("\n");
         println!("{sessions}");
@@ -157,84 +125,17 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         println!("{info}");
         return Ok(());
     }
-    if let Some(addr) = cli.serve {
-        return serve::run(config, addr).await;
-    }
-    let is_repl = config.read().working_mode.is_repl();
     if cli.rebuild_rag {
-        Config::rebuild_rag(&config, abort_signal.clone()).await?;
-        if is_repl {
-            return Ok(());
-        }
+        bail!("RAG rebuild is outside the focused AICmd command workflow");
     }
-    if let Some(name) = &cli.macro_name {
-        macro_execute(&config, name, text.as_deref(), abort_signal.clone()).await?;
+    if text.is_none() && cli.file.is_empty() {
+        Cli::command().print_help()?;
+        println!();
         return Ok(());
     }
-    if cli.execute && !is_repl {
-        let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
-        shell_execute(&config, &SHELL, input, abort_signal.clone()).await?;
-        return Ok(());
-    }
-    config.write().apply_prelude()?;
-    match is_repl {
-        false => {
-            let mut input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
-            input.use_embeddings(abort_signal.clone()).await?;
-            start_directive(&config, input, cli.code, abort_signal).await
-        }
-        true => {
-            if !*IS_STDOUT_TERMINAL {
-                bail!("No TTY for REPL")
-            }
-            start_interactive(&config).await
-        }
-    }
-}
-
-#[async_recursion::async_recursion]
-async fn start_directive(
-    config: &GlobalConfig,
-    input: Input,
-    code_mode: bool,
-    abort_signal: AbortSignal,
-) -> Result<()> {
-    let client = input.create_client()?;
-    let extract_code = !*IS_STDOUT_TERMINAL && code_mode;
-    config.write().before_chat_completion(&input)?;
-    let (output, tool_results) = if !input.stream() || extract_code {
-        call_chat_completions(
-            &input,
-            true,
-            extract_code,
-            client.as_ref(),
-            abort_signal.clone(),
-        )
-        .await?
-    } else {
-        call_chat_completions_streaming(&input, client.as_ref(), abort_signal.clone()).await?
-    };
-    config
-        .write()
-        .after_chat_completion(&input, &output, &tool_results)?;
-
-    if !tool_results.is_empty() {
-        start_directive(
-            config,
-            input.merge_tool_results(output, tool_results),
-            code_mode,
-            abort_signal,
-        )
-        .await?;
-    }
-
-    config.write().exit_session()?;
+    let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
+    shell_execute(&config, &SHELL, input, abort_signal.clone()).await?;
     Ok(())
-}
-
-async fn start_interactive(config: &GlobalConfig) -> Result<()> {
-    let mut repl: Repl = Repl::init(config)?;
-    repl.run().await
 }
 
 #[async_recursion::async_recursion]

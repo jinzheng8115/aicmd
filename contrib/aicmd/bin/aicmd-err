@@ -7,11 +7,7 @@ Usage:
   aicmd-err -- <command> [args...]
   aicmd-err <command> [args...]
 
-Run a command, capture stdout/stderr/exit code, then send the report to aicmd for debugging analysis.
-Examples:
-  aicmd-err -- pnpm test
-  aicmd-err -- npm run build
-  some-command 2>&1 | aicmd "分析这个报错"
+Run a command, capture stdout/stderr/exit code, then ask AICmd to generate diagnostic or fix commands.
 HELP
   exit 0
 fi
@@ -35,8 +31,8 @@ set +e
 status=$?
 set -e
 
-{
-  printf '请分析下面这条命令的执行结果，说明根因、排查步骤和修复建议。\n'
+report="$({
+  printf '下面这条命令执行失败或需要检查。请生成安全的 zsh 诊断/修复命令，不要直接删除数据。\n'
   printf 'Command: '
   printf '%q ' "$@"
   printf '\nExit code: %s\n\n' "$status"
@@ -45,6 +41,7 @@ set -e
   printf '\n\nSTDERR:\n'
   cat "$tmp_err"
   printf '\n'
-} | aicmd "分析这个命令报错"
+})"
 
+aicmd "$report"
 exit 0

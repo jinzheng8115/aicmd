@@ -1,14 +1,14 @@
 [package]
-name = "aichat"
+name = "aicmd"
 version = "0.30.0"
 edition = "2021"
 authors = ["sigoden <sigoden@gmail.com>"]
-description = "All-in-one LLM CLI Tool"
+description = "Natural language terminal command runner"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/sigoden/aichat"
-repository = "https://github.com/sigoden/aichat"
+homepage = "https://github.com/jinzheng8115/aicmd"
+repository = "https://github.com/jinzheng8115/aicmd"
 categories = ["command-line-utilities"]
-keywords = ["chatgpt", "llm", "cli", "ai", "repl"]
+keywords = ["terminal", "shell", "llm", "cli", "ai"]
 
 [dependencies]
 anyhow = "1.0.69"

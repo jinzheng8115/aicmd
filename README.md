@@ -10,40 +10,30 @@ License / 许可证：MIT OR Apache-2.0, following upstream licensing.
 ## Focus / 项目聚焦
 
 English:
-- Default command mode: `aicmd 列出当前目录最大的 10 个文件` generates a shell command and asks before running it.
-- Safe review loop: generated commands are shown before execution by upstream AIChat shell assistant behavior.
+- The Rust binary is now `aicmd`.
+- Default workflow: `aicmd 列出当前目录最大的 10 个文件` generates a shell command and asks before running it.
 - Daily command session: plain `aicmd` uses `cmd-YYYYMMDD` by default.
-- Script workflow: `aicmd-do` generates a script, saves it, prints it for review, and runs only after confirmation.
-- Optional chat fallback: use `aicmd chat ...` or `aicmd-chat ...` only when you need explanation instead of command execution.
+- Script workflow: `aicmd-do` asks AICmd to generate commands that create and run a task script through the normal confirmation flow.
+- Error workflow: `aicmd-err -- <command>` captures command output and asks AICmd to analyze it.
+- Broad upstream features such as REPL, RAG, agents, macros, and server mode are intentionally hidden from the main CLI flow.
 
 中文：
-- 默认命令模式：`aicmd 列出当前目录最大的 10 个文件` 会生成 shell 命令，并在执行前让你确认。
-- 安全确认流程：沿用上游 AIChat shell assistant 的执行前确认机制。
+- Rust 二进制现在叫 `aicmd`。
+- 默认工作流：`aicmd 列出当前目录最大的 10 个文件` 会生成 shell 命令，并在执行前让你确认。
 - 每日命令会话：普通 `aicmd` 默认使用 `cmd-YYYYMMDD`。
-- 脚本工作流：`aicmd-do` 会生成脚本、保存脚本、打印检查，并只在确认后执行。
-- 可选聊天回退：只有需要解释而不是执行命令时，使用 `aicmd chat ...` 或 `aicmd-chat ...`。
+- 脚本工作流：`aicmd-do` 会让 AICmd 生成“创建并运行任务脚本”的命令，并走正常确认流程。
+- 报错工作流：`aicmd-err -- <command>` 捕获命令输出，并让 AICmd 分析。
+- REPL、RAG、agents、macros、server mode 等上游宽功能已从主 CLI 流程中隐藏。
 
 ## Install / 安装
 
-Build or install the upstream-compatible binary first, then install the AICmd helper commands:
-
-先构建或安装兼容上游的二进制，然后安装 AICmd 辅助命令：
-
 ```bash
-# If you use the upstream Homebrew binary:
-brew install aichat
-
-# Install AICmd shell helpers from this repo:
 contrib/aicmd/install.sh
 ```
 
-If the real binary is not named `aichat` or is not on PATH, set:
+The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, and `aicmd-err` to `~/.local/bin` by default.
 
-如果真实二进制不叫 `aichat` 或不在 PATH 中，请设置：
-
-```bash
-export AICMD_REAL_AICHAT=/path/to/aichat
-```
+安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err` 复制到 `~/.local/bin`。
 
 ## Usage / 使用
 
@@ -53,34 +43,19 @@ aicmd 列出当前目录最大的 10 个文件
 aicmd 把当前目录下的 png 图片压缩到 dist/images
 aicmd -s dev 运行测试并修复明显问题
 
-# Explicit execute mode still works / 显式 -e 仍然可用
-aicmd -e 列出当前目录文件
-
-# Chat only / 仅聊天解释
-aicmd chat 解释一下 tar 和 gzip 的区别
-aicmd-chat 解释一下 chmod 755 是什么意思
-
 # Generate a script, review it, then run after confirmation / 生成脚本、检查、确认后执行
-aicmd-do "写个脚本处理 input.csv，输出 cleaned.csv"
-aicmd-do --dry-run "写个脚本统计 logs/*.log 里的 ERROR 数量"
+aicmd-do "处理 input.csv，输出 cleaned.csv"
+aicmd-do --dry-run "统计 logs/*.log 里的 ERROR 数量"
 
 # Debug a failing command / 分析报错命令
 aicmd-err -- pnpm test
 ```
 
-## What was intentionally de-emphasized / 有意弱化的上游功能
+## Compatibility / 兼容性
 
-AICmd still keeps much of the upstream codebase for compatibility, but the product surface is intentionally narrowed. General chat, REPL, RAG, agents, macros, built-in server, and broad LLM playground features are no longer the main workflow. They may still exist internally while the project is being reduced, but new documentation and helper commands focus on natural-language terminal execution.
+AICmd still reuses upstream AIChat internals for model providers, config loading, sessions, roles, and shell execution. To avoid breaking existing setups, config lookup prefers `AICMD_CONFIG_DIR`, then `AICHAT_CONFIG_DIR`, then an existing `aichat` config directory if present.
 
-AICmd 目前仍保留大量上游代码以维持兼容，但产品入口已经收窄。通用聊天、REPL、RAG、agents、macros、内置 server 和 LLM playground 不再是主工作流。在项目继续瘦身期间，它们可能仍然存在于内部代码里，但新的文档和辅助命令只聚焦自然语言终端执行。
-
-## Command helpers / 命令辅助
-
-- `aicmd`: default natural-language command execution.
-- `aicmd-chat`: explicit chat/explanation mode.
-- `aicmd-do`: generate a task script, print it, then run after confirmation.
-- `aicmd-err`: run a command, capture stdout/stderr/exit code, and ask AICmd to analyze it.
-- `aicmd-mem` and `aicmd-mem-search`: optional agentmemory helpers.
+AICmd 仍复用上游 AIChat 的 provider、配置加载、session、role 和 shell 执行内部能力。为了避免破坏现有配置，配置目录查找顺序为：`AICMD_CONFIG_DIR`、`AICHAT_CONFIG_DIR`、已有的 `aichat` 配置目录。
 
 ## Upstream reference / 上游参考
 

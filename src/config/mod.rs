@@ -289,11 +289,25 @@ impl Config {
     pub fn config_dir() -> PathBuf {
         if let Ok(v) = env::var(get_env_name("config_dir")) {
             PathBuf::from(v)
+        } else if let Ok(v) = env::var("AICHAT_CONFIG_DIR") {
+            PathBuf::from(v)
         } else if let Ok(v) = env::var("XDG_CONFIG_HOME") {
-            PathBuf::from(v).join(env!("CARGO_CRATE_NAME"))
+            let aicmd_dir = PathBuf::from(&v).join(env!("CARGO_CRATE_NAME"));
+            let aichat_dir = PathBuf::from(v).join("aichat");
+            if aicmd_dir.exists() || !aichat_dir.exists() {
+                aicmd_dir
+            } else {
+                aichat_dir
+            }
         } else {
             let dir = dirs::config_dir().expect("No user's config directory");
-            dir.join(env!("CARGO_CRATE_NAME"))
+            let aicmd_dir = dir.join(env!("CARGO_CRATE_NAME"));
+            let aichat_dir = dir.join("aichat");
+            if aicmd_dir.exists() || !aichat_dir.exists() {
+                aicmd_dir
+            } else {
+                aichat_dir
+            }
         }
     }
 
