@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+query=""; limit="1"; project="${AICMD_MEMORY_PROJECT:-memory}"; mode="readable"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --query) query="$2"; shift 2 ;;
+    --query=*) query="${1#--query=}"; shift ;;
+    --limit) limit="$2"; shift 2 ;;
+    --limit=*) limit="${1#--limit=}"; shift ;;
+    --project) project="$2"; shift 2 ;;
+    --project=*) project="${1#--project=}"; shift ;;
+    --compact) mode="compact"; shift ;;
+    --full) mode="full"; shift ;;
+    -h|--help)
+      cat <<HELP
+Usage: aicmd-mem-search <query words...>
+Default output shows the single best readable memory match. Use --limit N to show more.
+Options: --compact, --full, --limit N, --project P
+HELP
+      exit 0 ;;
+    --*) echo "Unknown option: $1" >&2; exit 2 ;;
+    *) query="${query:+$query }$1"; shift ;;
+  esac
+done
+[[ -n "$query" ]] || { echo "Usage: aicmd-mem-search <query>" >&2; exit 2; }
+python3 - "$query" "$limit" "$project" "$mode" <<'PY'
+import json, sys, urllib.request
+query, limit, project, mode = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+base=__import__('os').environ.get('AICMD_AGENTMEMORY_URL','http://localhost:3111')
+def call(name,args):
+    req=urllib.request.Request(base+'/agentmemory/mcp/call', data=json.dumps({'name':name,'arguments':args}).encode(), headers={'content-type':'application/json'}, method='POST')
+    with urllib.request.urlopen(req, timeout=10) as res: data=json.loads(res.read().decode())
+    c=data.get('content')
+    if isinstance(c,list): return '\n'.join(str(i.get('text','')) for i in c if isinstance(i,dict)).strip()
+    return json.dumps(data,ensure_ascii=False,indent=2)
+if mode=='compact':
+    args={'query':query,'limit':limit};
+    if project: args['project']=project
+    print(call('memory_smart_search',args)); raise SystemExit
+if mode=='full':
+    args={'query':query,'limit':limit,'format':'full'}
+    if project: args['project']=project
+    print(call('memory_recall',args)); raise SystemExit
+args={'query':query,'limit':max(limit*4,12),'format':'full'}
+if project: args['project']=project
+raw=call('memory_recall',args)
+try: data=json.loads(raw)
+except Exception:
+    print(raw); raise SystemExit
+pairs=data.get('results') or []
+mem=[]; other=[]
+query_l = query.lower()
+for pair in pairs:
+    obs=pair.get('observation') if isinstance(pair,dict) else None
+    if not isinstance(obs,dict): continue
+    oid=str(obs.get('id','')); sid=str(obs.get('sessionId','')); typ=str(obs.get('type',''))
+    haystack='\n'.join([
+        str(obs.get('title','')),
+        str(obs.get('narrative','')),
+        ' '.join(map(str, obs.get('facts') or [])),
+        ' '.join(map(str, obs.get('concepts') or [])),
+        ' '.join(map(str, obs.get('files') or [])),
+    ]).lower()
+    # Hide tool-maintenance memories unless the user is explicitly asking about the helper itself.
+    if 'aicmd-mem-search' not in query_l and 'aicmd-mem-search' in haystack:
+        continue
+    if sid=='memory' or oid.startswith('mem_'): mem.append(obs)
+    elif typ not in ('command_run','conversation'): other.append(obs)
+selected=(mem or other)[:limit]
+if not selected:
+    print(f'No agentmemory matches found for: {query}'); raise SystemExit
+for i,obs in enumerate(selected,1):
+    title=str(obs.get('title') or obs.get('id') or '').strip()
+    content=str(obs.get('narrative') or '\n'.join(obs.get('facts') or []) or '').strip()
+    print(f'{i}. {title}')
+    print(f'id: {obs.get("id","")}')
+    print(f'type: {obs.get("type","")}')
+    if obs.get('timestamp'): print(f'time: {obs.get("timestamp")}')
+    concepts=obs.get('concepts') or []
+    files=obs.get('files') or []
+    if concepts: print('concepts: '+', '.join(map(str,concepts[:8])))
+    if files: print('files: '+', '.join(map(str,files[:6])))
+    print(); print(content or '(no content)'); print()
+PY

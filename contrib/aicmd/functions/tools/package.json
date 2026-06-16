@@ -1,0 +1,8 @@
+{
+  "name": "aicmd-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.0"
+  }
+}

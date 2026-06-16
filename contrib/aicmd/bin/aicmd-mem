@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_DIR="${AICMD_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/aichat}"
+LAST_OUTPUT_FILE="$STATE_DIR/last-output.txt"
+AGENTMEMORY_URL="${AICMD_AGENTMEMORY_URL:-${AGENTMEMORY_URL:-http://localhost:3111}}"
+
+type="fact"
+project="${AICMD_MEMORY_PROJECT:-memory}"
+concepts="aicmd,last-output"
+files=""
+content=""
+positional_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --type)
+      type="$2"; shift 2 ;;
+    --type=*)
+      type="${1#--type=}"; shift ;;
+    --project)
+      project="$2"; shift 2 ;;
+    --project=*)
+      project="${1#--project=}"; shift ;;
+    --concepts)
+      concepts="$2"; shift 2 ;;
+    --concepts=*)
+      concepts="${1#--concepts=}"; shift ;;
+    --files)
+      files="$2"; shift 2 ;;
+    --files=*)
+      files="${1#--files=}"; shift ;;
+    --content)
+      content="$2"; shift 2 ;;
+    --content=*)
+      content="${1#--content=}"; shift ;;
+    -h|--help)
+      cat <<HELP
+Usage: aicmd-mem [--type fact|workflow|preference|pattern|architecture|bug] [--project memory] [--concepts tags] [--files paths]
+Save the previous aicmd output to agentmemory. Use --content to override the saved content.
+
+用法：aicmd-mem 记录一下
+默认把上一条 aicmd 输出写入 agentmemory。可用 --content 保存指定内容。
+HELP
+      exit 0 ;;
+    --*)
+      echo "Unknown option: $1" >&2; exit 2 ;;
+    *)
+      positional_args+=("$1"); shift ;;
+  esac
+done
+
+# Positional words such as "记录一下" are treated as a natural-language save command.
+# They do not override the previous aicmd output; use --content to save custom text.
+if [[ ${#positional_args[@]} -gt 0 ]]; then
+  concepts="$concepts,natural-command"
+fi
+
+if [[ -z "$content" ]]; then
+  if [[ ! -s "$LAST_OUTPUT_FILE" ]]; then
+    echo "No previous aicmd output found at $LAST_OUTPUT_FILE" >&2
+    exit 1
+  fi
+  content="$(cat "$LAST_OUTPUT_FILE")"
+fi
+
+python3 - "$AGENTMEMORY_URL" "$content" "$type" "$concepts" "$files" "$project" <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+base, content, mem_type, concepts, files, project = sys.argv[1:7]
+base = base.rstrip("/")
+args = {"content": content}
+if mem_type:
+    args["type"] = mem_type
+if concepts:
+    args["concepts"] = concepts
+if files:
+    args["files"] = files
+if project:
+    args["project"] = project
+payload = {"name": "memory_save", "arguments": args}
+req = urllib.request.Request(
+    f"{base}/agentmemory/mcp/call",
+    data=json.dumps(payload).encode("utf-8"),
+    headers={"content-type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(req, timeout=15) as res:
+        data = json.loads(res.read().decode("utf-8"))
+except urllib.error.HTTPError as exc:
+    detail = exc.read().decode("utf-8", errors="replace")
+    print(f"agentmemory memory_save failed: HTTP {exc.code} {detail}", file=sys.stderr)
+    raise SystemExit(1)
+except Exception as exc:
+    print(f"agentmemory memory_save failed: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+content_items = data.get("content")
+if isinstance(content_items, list):
+    text = "\n".join(str(item.get("text", "")) for item in content_items if isinstance(item, dict)).strip()
+    if text:
+        print(text)
+        raise SystemExit(0)
+print(json.dumps(data, ensure_ascii=False, indent=2))
+PY

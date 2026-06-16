@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+  cat <<HELP
+Usage:
+  aicmd-err -- <command> [args...]
+  aicmd-err <command> [args...]
+
+Run a command, capture stdout/stderr/exit code, then send the report to aicmd for debugging analysis.
+Examples:
+  aicmd-err -- pnpm test
+  aicmd-err -- npm run build
+  some-command 2>&1 | aicmd "分析这个报错"
+HELP
+  exit 0
+fi
+
+if [[ "$1" == "--" ]]; then
+  shift
+fi
+
+if [[ $# -eq 0 ]]; then
+  echo "aicmd-err: missing command" >&2
+  exit 2
+fi
+
+tmp_out="$(mktemp)"
+tmp_err="$(mktemp)"
+cleanup() { rm -f "$tmp_out" "$tmp_err"; }
+trap cleanup EXIT
+
+set +e
+"$@" >"$tmp_out" 2>"$tmp_err"
+status=$?
+set -e
+
+{
+  printf '请分析下面这条命令的执行结果，说明根因、排查步骤和修复建议。\n'
+  printf 'Command: '
+  printf '%q ' "$@"
+  printf '\nExit code: %s\n\n' "$status"
+  printf 'STDOUT:\n'
+  cat "$tmp_out"
+  printf '\n\nSTDERR:\n'
+  cat "$tmp_err"
+  printf '\n'
+} | aicmd "分析这个命令报错"
+
+exit 0
