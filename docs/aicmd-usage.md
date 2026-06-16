@@ -317,14 +317,15 @@ AICMD_MODEL_NAME       model display/client name / 模型标识
 AICMD_MODEL_PROVIDER   openai | anthropic | google / 接口种类
 AICMD_MODEL_API_BASE   API base URL / API 地址
 AICMD_MODEL_API_KEY    API key
-AICMD_MODEL_ID         provider model id / 模型 ID
-AICMD_DEFAULT_MODEL    optional default model; default is name:id / 可选默认模型；默认是 name:id
+AICMD_MODEL_IDS        comma-separated provider model ids / 逗号分隔的模型 ID
+AICMD_MODEL_ID         backward-compatible single model id / 兼容旧版的单模型 ID
+AICMD_DEFAULT_MODEL    optional default model; default is name:first-id / 可选默认模型；默认是 name:第一个模型 ID
 AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
 ```
 
-When `.env` is converted to `config.yaml`, the generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:AICMD_MODEL_ID`.
+When `.env` is converted to `config.yaml`, `AICMD_MODEL_IDS=gpt-4o,gpt-4.1` becomes multiple entries under `clients[].models`. The generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:first-id-in-AICMD_MODEL_IDS`.
 
-`.env` 转成 `config.yaml` 时，顶部 `model:` 如果设置了 `AICMD_DEFAULT_MODEL` 就使用它；否则使用 `AICMD_MODEL_NAME:AICMD_MODEL_ID`。
+`.env` 转成 `config.yaml` 时，`AICMD_MODEL_IDS=gpt-4o,gpt-4.1` 会变成 `clients[].models` 下的多个模型。顶部 `model:` 如果设置了 `AICMD_DEFAULT_MODEL` 就使用它；否则使用 `AICMD_MODEL_NAME:AICMD_MODEL_IDS 中的第一个模型 ID`。
 
 After installation, the single user-editable model config file is:
 

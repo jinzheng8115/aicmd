@@ -90,13 +90,19 @@ yaml_escape() {
 }
 
 config_from_env() {
-  local provider name api_base api_key model_id default_model openai_api_style client_type
+  local provider name api_base api_key model_ids first_model_id default_model openai_api_style client_type
   provider="$(required_env AICMD_MODEL_PROVIDER)"
   name="$(required_env AICMD_MODEL_NAME)"
   api_base="$(required_env AICMD_MODEL_API_BASE)"
   api_key="$(required_env AICMD_MODEL_API_KEY)"
-  model_id="$(required_env AICMD_MODEL_ID)"
-  default_model="${AICMD_DEFAULT_MODEL:-${name}:${model_id}}"
+  model_ids="${AICMD_MODEL_IDS:-${AICMD_MODEL_ID:-}}"
+  if [[ -z "$model_ids" ]]; then
+    echo "missing required env: AICMD_MODEL_IDS or AICMD_MODEL_ID" >&2
+    exit 1
+  fi
+  first_model_id="${model_ids%%,*}"
+  first_model_id="$(printf '%s' "$first_model_id" | xargs)"
+  default_model="${AICMD_DEFAULT_MODEL:-${name}:${first_model_id}}"
   openai_api_style="${AICMD_OPENAI_API_STYLE:-chat}"
 
   case "$provider" in
@@ -150,8 +156,20 @@ YAML
 
   cat <<YAML
     models:
-      - name: $(printf '%s' "$model_id" | yaml_escape)
 YAML
+
+  local old_ifs model_id
+  old_ifs="$IFS"
+  IFS=','
+  for model_id in $model_ids; do
+    IFS="$old_ifs"
+    model_id="$(printf '%s' "$model_id" | xargs)"
+    if [[ -n "$model_id" ]]; then
+      printf '      - name: %s\n' "$(printf '%s' "$model_id" | yaml_escape)"
+    fi
+    IFS=','
+  done
+  IFS="$old_ifs"
 }
 
 default_config() {
