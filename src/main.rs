@@ -55,11 +55,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         }
         return Ok(());
     }
-    if cli.list_roles {
-        let roles = Config::list_roles(true).join("\n");
-        println!("{roles}");
-        return Ok(());
-    }
     if cli.dry_run {
         config.write().dry_run = true;
     }
@@ -71,6 +66,9 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         || cli.macro_name.is_some()
         || cli.serve.is_some()
         || cli.code
+        || cli.prompt.is_some()
+        || cli.role.is_some()
+        || cli.list_roles
         || cli.list_agents
         || cli.list_rags
         || cli.list_macros
@@ -78,13 +76,7 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         bail!("This AICmd build focuses on natural-language terminal commands. Agents, RAG, macros, and server mode are intentionally hidden.");
     }
 
-    if let Some(prompt) = &cli.prompt {
-        config.write().use_prompt(prompt)?;
-    } else if let Some(name) = &cli.role {
-        config.write().use_role(name)?;
-    } else {
-        config.write().use_role(SHELL_ROLE)?;
-    }
+    config.write().use_role(SHELL_ROLE)?;
     let default_session;
     let session_name = if let Some(session) = &cli.session {
         session.as_ref().map(|v| v.as_str())

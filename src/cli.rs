@@ -9,11 +9,11 @@ pub struct Cli {
     /// Select a LLM model
     #[clap(short, long)]
     pub model: Option<String>,
-    /// Use the system prompt
-    #[clap(long)]
+    /// Unsupported in AICmd focused command workflow
+    #[clap(long, hide = true)]
     pub prompt: Option<String>,
-    /// Select a role
-    #[clap(short, long)]
+    /// Unsupported in AICmd focused command workflow
+    #[clap(short, long, hide = true)]
     pub role: Option<String>,
     /// Start or join a session
     #[clap(short = 's', long)]
@@ -60,8 +60,8 @@ pub struct Cli {
     /// List all available chat models
     #[clap(long)]
     pub list_models: bool,
-    /// List all roles
-    #[clap(long)]
+    /// Unsupported in AICmd focused command workflow
+    #[clap(long, hide = true)]
     pub list_roles: bool,
     /// List all sessions
     #[clap(long)]

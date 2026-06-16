@@ -30,7 +30,6 @@ use std::{
 use syntect::highlighting::ThemeSet;
 use terminal_colorsaurus::{color_scheme, ColorScheme, QueryOptions};
 
-pub const TEMP_ROLE_NAME: &str = "%%";
 pub const TEMP_SESSION_NAME: &str = "temp";
 
 /// Monokai Extended
@@ -355,12 +354,6 @@ impl Config {
             }
         }
         Ok(())
-    }
-
-    pub fn use_prompt(&mut self, prompt: &str) -> Result<()> {
-        let mut role = Role::new(TEMP_ROLE_NAME, prompt);
-        role.set_model(self.current_model().clone());
-        self.use_role_obj(role)
     }
 
     pub fn use_role(&mut self, name: &str) -> Result<()> {
