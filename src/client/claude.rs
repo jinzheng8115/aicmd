@@ -159,7 +159,6 @@ pub fn claude_build_chat_completions_body(
         mut messages,
         temperature,
         top_p,
-        functions,
         stream,
     } = data;
 
@@ -279,18 +278,6 @@ pub fn claude_build_chat_completions_body(
     }
     if stream {
         body["stream"] = true.into();
-    }
-    if let Some(functions) = functions {
-        body["tools"] = functions
-            .iter()
-            .map(|v| {
-                json!({
-                    "name": v.name,
-                    "description": v.description,
-                    "input_schema": v.parameters,
-                })
-            })
-            .collect();
     }
     Ok(body)
 }

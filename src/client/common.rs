@@ -2,7 +2,7 @@ use super::*;
 
 use crate::{
     config::{Config, GlobalConfig, Input},
-    function::{eval_tool_calls, FunctionDeclaration, ToolCall, ToolResult},
+    function::{eval_tool_calls, ToolCall, ToolResult},
     render::render_stream,
     utils::*,
 };
@@ -246,7 +246,6 @@ pub struct ChatCompletionsData {
     pub messages: Vec<Message>,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
-    pub functions: Option<Vec<FunctionDeclaration>>,
     pub stream: bool,
 }
 

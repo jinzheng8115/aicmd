@@ -243,7 +243,6 @@ pub fn gemini_build_chat_completions_body(
         mut messages,
         temperature,
         top_p,
-        functions,
         stream: _,
     } = data;
 
@@ -330,24 +329,6 @@ pub fn gemini_build_chat_completions_body(
     }
     if let Some(v) = top_p {
         body["generationConfig"]["topP"] = v.into();
-    }
-
-    if let Some(functions) = functions {
-        // Gemini doesn't support functions with parameters that have empty properties, so we need to patch it.
-        let function_declarations: Vec<_> = functions
-            .into_iter()
-            .map(|function| {
-                if function.parameters.is_empty_properties() {
-                    json!({
-                        "name": function.name,
-                        "description": function.description,
-                    })
-                } else {
-                    json!(function)
-                }
-            })
-            .collect();
-        body["tools"] = json!([{ "functionDeclarations": function_declarations }]);
     }
 
     Ok(body)

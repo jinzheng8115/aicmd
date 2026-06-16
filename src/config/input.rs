@@ -170,7 +170,6 @@ impl Input {
             messages,
             temperature,
             top_p,
-            functions: None,
             stream,
         })
     }

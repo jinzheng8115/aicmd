@@ -181,7 +181,6 @@ pub fn openai_build_chat_completions_body(data: ChatCompletionsData, model: &Mod
         messages,
         temperature,
         top_p,
-        functions,
         stream,
     } = data;
 
@@ -281,17 +280,6 @@ pub fn openai_build_chat_completions_body(data: ChatCompletionsData, model: &Mod
     }
     if stream {
         body["stream"] = true.into();
-    }
-    if let Some(functions) = functions {
-        body["tools"] = functions
-            .iter()
-            .map(|v| {
-                json!({
-                    "type": "function",
-                    "function": v,
-                })
-            })
-            .collect();
     }
     body
 }

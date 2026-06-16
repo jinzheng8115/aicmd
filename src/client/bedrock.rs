@@ -245,7 +245,6 @@ fn build_chat_completions_body(data: ChatCompletionsData, model: &Model) -> Resu
         mut messages,
         temperature,
         top_p,
-        functions,
         stream: _,
     } = data;
 
@@ -376,25 +375,6 @@ fn build_chat_completions_body(data: ChatCompletionsData, model: &Model) -> Resu
     }
     if let Some(v) = top_p {
         body["inferenceConfig"]["topP"] = v.into();
-    }
-    if let Some(functions) = functions {
-        let tools: Vec<_> = functions
-            .iter()
-            .map(|v| {
-                json!({
-                    "toolSpec": {
-                        "name": v.name,
-                        "description": v.description,
-                        "inputSchema": {
-                            "json": v.parameters,
-                        },
-                    }
-                })
-            })
-            .collect();
-        body["toolConfig"] = json!({
-            "tools": tools,
-        })
     }
     Ok(body)
 }
