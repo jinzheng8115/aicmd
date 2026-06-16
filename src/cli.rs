@@ -24,9 +24,6 @@ pub struct Cli {
     /// Display the message without sending it
     #[clap(long)]
     pub dry_run: bool,
-    /// Display information
-    #[clap(long)]
-    pub info: bool,
     /// List all sessions
     #[clap(long)]
     pub list_sessions: bool,

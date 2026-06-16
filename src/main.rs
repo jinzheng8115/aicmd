@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
     let text = cli.text()?;
-    let info_flag = cli.info || cli.list_sessions;
+    let info_flag = cli.list_sessions;
     setup_logger()?;
     let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
     if let Err(err) = run(config, cli, text).await {
@@ -71,11 +71,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     }
     if cli.empty_session {
         config.write().empty_session()?;
-    }
-    if cli.info {
-        let info = config.read().info()?;
-        println!("{info}");
-        return Ok(());
     }
     if text.is_none() && cli.file.is_empty() {
         Cli::command().print_help()?;
