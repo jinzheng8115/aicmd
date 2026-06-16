@@ -41,6 +41,12 @@ English: Start from `config.aicmd.example.yaml` for AICmd's focused terminal-com
 
 中文：AICmd 聚焦终端命令工作流，建议从 `config.aicmd.example.yaml` 开始配置。旧的 `config.example.yaml` 仍作为兼容上游 provider 配置的参考，但其中包含 AICmd 不暴露的工作流选项。
 
+## Detailed usage / 详细使用文档
+
+English: See `docs/aicmd-usage.md` for the full current usage guide.
+
+中文：完整的当前使用文档见 `docs/aicmd-usage.md`。
+
 ## Usage / 使用
 
 ```bash
