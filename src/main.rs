@@ -12,7 +12,7 @@ extern crate log;
 use crate::cli::Cli;
 use crate::client::{call_chat_completions, call_chat_completions_streaming, list_models, ModelType};
 use crate::config::{
-    ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, WorkingMode, CODE_ROLE,
+    ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, CODE_ROLE,
     EXPLAIN_SHELL_ROLE, SHELL_ROLE,
 };
 use crate::render::render_error;
@@ -30,7 +30,6 @@ async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
     let text = cli.text()?;
-    let working_mode = WorkingMode::Cmd;
     let info_flag = cli.info
         || cli.sync_models
         || cli.list_models
@@ -39,8 +38,8 @@ async fn main() -> Result<()> {
         || cli.list_rags
         || cli.list_macros
         || cli.list_sessions;
-    setup_logger(working_mode.is_serve())?;
-    let config = Arc::new(RwLock::new(Config::init(working_mode, info_flag).await?));
+    setup_logger()?;
+    let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
     if let Err(err) = run(config, cli, text).await {
         render_error(err);
         std::process::exit(1);
@@ -244,19 +243,13 @@ async fn create_input(
     Ok(input)
 }
 
-fn setup_logger(is_serve: bool) -> Result<()> {
-    let (log_level, log_path) = Config::log_config(is_serve)?;
+fn setup_logger() -> Result<()> {
+    let (log_level, log_path) = Config::log_config()?;
     if log_level == LevelFilter::Off {
         return Ok(());
     }
     let crate_name = env!("CARGO_CRATE_NAME");
-    let log_filter = match std::env::var(get_env_name("log_filter")) {
-        Ok(v) => v,
-        Err(_) => match is_serve {
-            true => format!("{crate_name}::serve"),
-            false => crate_name.into(),
-        },
-    };
+    let log_filter = std::env::var(get_env_name("log_filter")).unwrap_or_else(|_| crate_name.into());
     let config = ConfigBuilder::new()
         .add_filter_allow(log_filter)
         .set_time_format_custom(format_description!(

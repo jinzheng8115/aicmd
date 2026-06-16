@@ -94,8 +94,6 @@ pub struct Config {
     #[serde(skip)]
     pub functions: Functions,
     #[serde(skip)]
-    pub working_mode: WorkingMode,
-    #[serde(skip)]
     pub last_message: Option<LastMessage>,
 
     #[serde(skip)]
@@ -136,7 +134,6 @@ impl Default for Config {
             info_flag: false,
             model: Default::default(),
             functions: Default::default(),
-            working_mode: WorkingMode::Cmd,
             last_message: None,
 
             role: None,
@@ -148,7 +145,7 @@ impl Default for Config {
 pub type GlobalConfig = Arc<RwLock<Config>>;
 
 impl Config {
-    pub async fn init(working_mode: WorkingMode, info_flag: bool) -> Result<Self> {
+    pub async fn init(info_flag: bool) -> Result<Self> {
         let config_path = Self::config_file();
         let mut config = if !config_path.exists() {
             match env::var(get_env_name("provider"))
@@ -167,7 +164,6 @@ impl Config {
             Self::load_from_file(&config_path)?
         };
 
-        config.working_mode = working_mode;
         config.info_flag = info_flag;
 
         let setup = |config: &mut Self| -> Result<()> {
@@ -284,32 +280,23 @@ impl Config {
     pub fn models_override_file() -> PathBuf {
         Self::local_path("models-override.yaml")
     }
-    pub fn log_config(is_serve: bool) -> Result<(LevelFilter, Option<PathBuf>)> {
+    pub fn log_config() -> Result<(LevelFilter, Option<PathBuf>)> {
         let log_level = env::var(get_env_name("log_level"))
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(match cfg!(debug_assertions) {
                 true => LevelFilter::Debug,
-                false => {
-                    if is_serve {
-                        LevelFilter::Info
-                    } else {
-                        LevelFilter::Off
-                    }
-                }
+                false => LevelFilter::Off,
             });
         if log_level == LevelFilter::Off {
             return Ok((log_level, None));
         }
         let log_path = match env::var(get_env_name("log_path")) {
             Ok(v) => Some(PathBuf::from(v)),
-            Err(_) => match is_serve {
-                true => None,
-                false => Some(Config::local_path(&format!(
-                    "{}.log",
-                    env!("CARGO_CRATE_NAME")
-                ))),
-            },
+            Err(_) => Some(Config::local_path(&format!(
+                "{}.log",
+                env!("CARGO_CRATE_NAME")
+            ))),
         };
         Ok((log_level, log_path))
     }
@@ -395,7 +382,7 @@ impl Config {
             ("functions_dir", display_path(&Self::functions_dir())),
             ("messages_file", display_path(&self.messages_file())),
         ];
-        if let Ok((_, Some(log_path))) = Self::log_config(self.working_mode.is_serve()) {
+        if let Ok((_, Some(log_path))) = Self::log_config() {
             items.push(("log_path", display_path(&log_path)));
         }
         let output = items
@@ -940,18 +927,6 @@ pub fn load_env_file() -> Result<()> {
         }
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum WorkingMode {
-    Cmd,
-    Serve,
-}
-
-impl WorkingMode {
-    pub fn is_serve(&self) -> bool {
-        *self == WorkingMode::Serve
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
