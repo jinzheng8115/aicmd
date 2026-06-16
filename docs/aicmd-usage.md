@@ -288,18 +288,35 @@ AICmd 默认使用一个用户可见的配置目录：
 ~/.aicmd
 ```
 
-Use the single model config template as the starting point:
+Recommended setup order:
 
-建议从统一的模型配置模板开始：
+推荐设置顺序：
+
+```bash
+# 1. Install AICmd / 先安装 AICmd
+contrib/aicmd/install.sh
+
+# 2. Create runtime config from the template / 从模板创建运行时配置
+aicmd-model init
+
+# 3. Edit model and API key / 编辑模型和 API key
+aicmd-model edit
+
+# 4. Test / 测试
+aicmd 当前目录下有多少文件
+```
+
+The single customer-facing template is:
+
+唯一面向客户的模板是：
 
 ```text
 model-config.example.yaml
 ```
 
+`models.yaml` is a small internal fallback model registry for AICmd maintainers. It is intentionally not a full public model catalog and is not synced into runtime `config.yaml`. Customers should not edit `models.yaml` to add models. Add or switch models in runtime `~/.aicmd/config.yaml`, using `model-config.example.yaml` as the template.
 
-`models.yaml` is a small internal fallback model registry for AICmd maintainers. It is intentionally not a full public model catalog and is not synced into runtime `config.yaml`. Customers should add or switch models in runtime `config.yaml`, using `model-config.example.yaml` as the template.
-
-`models.yaml` 是给 AICmd 维护者使用的内部小型兜底模型目录，刻意不再作为完整公开模型库维护，也不会同步到运行时 `config.yaml`。客户新增或切换模型时，应编辑运行时 `config.yaml`，并以 `model-config.example.yaml` 作为模板。
+`models.yaml` 是给 AICmd 维护者使用的内部小型兜底模型目录，刻意不再作为完整公开模型库维护，也不会同步到运行时 `config.yaml`。客户不应该通过修改 `models.yaml` 来新增模型。新增或切换模型时，请编辑运行时 `~/.aicmd/config.yaml`，并以 `model-config.example.yaml` 作为模板。
 
 Important config fields:
 
@@ -365,18 +382,27 @@ Usage:
 用法：
 
 ```bash
+aicmd-model init
 aicmd-model path
 aicmd-model show
 EDITOR=vim aicmd-model edit
 aicmd-model template
 ```
 
-Typical flow to add a model:
+Typical flow after installation:
 
-新增模型的典型流程：
+安装后的典型流程：
 
 ```bash
-aicmd-model path
+aicmd-model init
+EDITOR=vim aicmd-model edit
+```
+
+Typical flow to add another model later:
+
+之后新增其他模型的典型流程：
+
+```bash
 aicmd-model template
 EDITOR=vim aicmd-model edit
 ```

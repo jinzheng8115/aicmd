@@ -36,6 +36,7 @@ aicmd 把当前目录下的 png 图片压缩到 dist/images
 aicmd -s dev 运行测试并修复明显问题
 aicmd-do "处理 input.csv，输出 cleaned.csv"
 aicmd-err -- pnpm test
+aicmd-model init
 aicmd-model show
 ```
 
