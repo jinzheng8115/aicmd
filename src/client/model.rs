@@ -225,10 +225,6 @@ pub struct ModelData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_input_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_price: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_price: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub patch: Option<Value>,
 
     // chat-only properties
@@ -237,23 +233,11 @@ pub struct ModelData {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub require_max_tokens: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub supports_vision: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub supports_function_calling: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     no_stream: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     no_system_message: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     system_prompt_prefix: Option<String>,
-
-    // embedding-only properties
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens_per_chunk: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_chunk_size: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_batch_size: Option<usize>,
 }
 
 impl ModelData {

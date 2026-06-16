@@ -517,16 +517,9 @@ async fn set_client_models_config(client_config: &mut Value, client: &str) -> Re
     let models: Vec<Value> = model_names
         .iter()
         .map(|v| {
-            if v.contains("vision") {
-                json!({
-                    "name": v,
-                    "supports_vision": true
-                })
-            } else {
-                json!({
-                    "name": v,
-                })
-            }
+            json!({
+                "name": v,
+            })
         })
         .collect();
     client_config["models"] = models.into();
