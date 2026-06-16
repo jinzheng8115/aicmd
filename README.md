@@ -6,6 +6,17 @@
 
 AIChat is an all-in-one LLM CLI tool featuring Shell Assistant, CMD & REPL Mode, RAG, AI Tools & Agents, and More. 
 
+
+## aicmd Terminal Workflow / aicmd 终端工作流
+
+This fork includes an optional companion workflow in `contrib/aicmd/`. It keeps the upstream `aichat` command intact and adds `aicmd` for daily terminal sessions, auto role selection, Tavily MCP pre-search, an evidence protocol, plain terminal output, and agentmemory helpers.
+
+这个 fork 在 `contrib/aicmd/` 中加入了可选的伴随工作流。它保留上游 `aichat` 命令不变，新增 `aicmd`，用于每日终端会话、自动角色、Tavily MCP 预搜索、证据协议、终端纯文本输出和 agentmemory 辅助命令。
+
+See `contrib/aicmd/README.md` for installation and usage.
+
+安装和使用说明见 `contrib/aicmd/README.md`。
+
 ## Install
 
 ### Package Managers

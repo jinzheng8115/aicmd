@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_AICHAT="${AICMD_REAL_AICHAT:-}"
+if [[ -z "$REAL_AICHAT" ]]; then
+  REAL_AICHAT="$(command -v aichat || true)"
+fi
+if [[ -z "$REAL_AICHAT" || ! -x "$REAL_AICHAT" ]]; then
+  echo "aicmd: cannot find executable aichat. Set AICMD_REAL_AICHAT=/path/to/aichat" >&2
+  exit 127
+fi
+
+AICHAT_DIR="${AICHAT_CONFIG_DIR:-$HOME/Library/Application Support/aichat}"
+FUNCTIONS_DIR="$AICHAT_DIR/functions"
+WEB_SEARCH_TOOL="${AICMD_TAVILY_TOOL:-$FUNCTIONS_DIR/tools/tavily_mcp_search.mjs}"
+STATE_DIR="${AICMD_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/aichat}"
+CURRENT_SESSION_FILE="$STATE_DIR/current-session"
+LAST_OUTPUT_FILE="$STATE_DIR/last-output.txt"
+DEFAULT_ROLE="${AICMD_DEFAULT_ROLE:-auto}"
+
+mkdir -p "$STATE_DIR"
+
+# Allow bypassing the wrapper when needed:
+#   AICHAT_NO_DEFAULT_SESSION=1 aicmd ...
+if [[ "${AICHAT_NO_DEFAULT_SESSION:-}" == "1" ]]; then
+  exec "$REAL_AICHAT" "$@"
+fi
+
+has_explicit_session=false
+explicit_session_name=""
+has_explicit_role=false
+has_execute=false
+pass_through=false
+has_dry_run=false
+text_args=()
+
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  arg="${args[$i]}"
+  case "$arg" in
+    -s|--session)
+      has_explicit_session=true
+      next="${args[$((i + 1))]:-}"
+      if [[ -n "$next" && "$next" != -* ]]; then
+        explicit_session_name="$next"
+        ((i++)) || true
+      fi
+      ;;
+    --session=*)
+      has_explicit_session=true
+      explicit_session_name="${arg#--session=}"
+      ;;
+    -r|--role)
+      has_explicit_role=true
+      ((i++)) || true
+      ;;
+    --role=*)
+      has_explicit_role=true
+      ;;
+    -e|--execute)
+      has_execute=true
+      ;;
+    --prompt|--agent|--rag|--macro|--serve|-m|--model|-f|--file)
+      ((i++)) || true
+      ;;
+    --prompt=*|--agent=*|--rag=*|--macro=*|--serve=*|--model=*|--file=*)
+      ;;
+    -h|--help|-V|--version|--info|--list-models|--list-roles|--list-sessions|--list-agents|--list-rags|--list-macros|--sync-models)
+      pass_through=true
+      ;;
+    --dry-run)
+      has_dry_run=true
+      ;;
+    -S|--no-stream|-c|--code|--save-session|--empty-session)
+      ;;
+    -* )
+      ;;
+    *)
+      text_args+=("$arg")
+      ;;
+  esac
+done
+
+if [[ "$pass_through" == "true" ]]; then
+  exec "$REAL_AICHAT" "$@"
+fi
+
+extra_args=()
+
+if [[ "$has_explicit_session" == "true" ]]; then
+  if [[ -n "$explicit_session_name" ]]; then
+    printf '[aicmd session] %s\n' "$explicit_session_name" >&2
+  fi
+else
+  session_name="main-$(TZ=Asia/Shanghai date +%Y%m%d)"
+  printf '%s\n' "$session_name" > "$CURRENT_SESSION_FILE"
+  printf '[aicmd session] %s\n' "$session_name" >&2
+  extra_args+=("-s" "$session_name")
+fi
+
+# Default to auto role for normal chat. Do not inject it into -e/--execute,
+# because aichat's execute mode relies on its own command-only system prompt.
+if [[ "$has_explicit_role" == "false" && "$has_execute" == "false" ]]; then
+  printf '[aicmd role] %s\n' "$DEFAULT_ROLE" >&2
+  extra_args+=("-r" "$DEFAULT_ROLE")
+fi
+
+joined_text="${text_args[*]:-}"
+should_presearch=false
+if [[ "$has_execute" == "false" && -n "$joined_text" ]]; then
+  if [[ "$joined_text" =~ (查询|搜索|查一下|搜一下|帮我查|查查|搜搜|今天|今日|今年|本年|最新|当前|最近|实时|比分|赛果|结果|赛程|排名|冠军|总冠军|天气|价格|发布|版本|search|Search|look[[:space:]]+up|Look[[:space:]]+up|check|Check|latest|Latest|today|Today|this[[:space:]]+year|This[[:space:]]+year|current|Current|recent|Recent|score|Score|result|Result|schedule|Schedule|standings|Standings|champion|Champion|champions|Champions|winner|Winner|weather|Weather|price|Price|release|Release|version|Version) ]]; then
+    should_presearch=true
+  fi
+fi
+
+clean_terminal_output() {
+  sed -E 's/\*\*([^*]+)\*\*/\1/g; s/^#{1,6}[[:space:]]*(.+)$/\1:/'
+}
+
+run_real_aichat_clean() {
+  local output status retry_prompt
+  if [[ "${has_dry_run:-false}" == "true" ]]; then
+    exec "$REAL_AICHAT" "$@"
+  fi
+  set +e
+  output="$($REAL_AICHAT "$@" 2>&1)"
+  status=$?
+  set -e
+  if [[ $status -eq 0 && "$output" =~ \<web_search\>|\<tool_call\>|DSML.*tool_calls ]]; then
+    retry_prompt="The previous response contained fake/raw tool-call markup instead of a user-facing answer. Convert it into a normal plain-text terminal answer. Do not claim that a live search was performed unless actual search results are present. If the answer needs live verification, label it 未确认 / unconfirmed or 可推断 / inferred. Previous response: $output"
+    exec "$REAL_AICHAT" "$@" "$retry_prompt"
+  fi
+  if [[ $status -eq 0 ]]; then
+    output="$(printf '%s\n' "$output" | clean_terminal_output)"
+  fi
+  printf '%s\n' "$output" > "$LAST_OUTPUT_FILE"
+  printf '%s\n' "$output"
+  exit $status
+}
+
+run_real_aichat_capture() {
+  local output status
+  if [[ "${has_dry_run:-false}" == "true" ]]; then
+    exec "$REAL_AICHAT" "$@"
+  fi
+  set +e
+  output="$($REAL_AICHAT "$@" 2>&1)"
+  status=$?
+  set -e
+  if [[ $status -eq 0 ]]; then
+    output="$(printf '%s\n' "$output" | clean_terminal_output)"
+  fi
+  printf '%s\n' "$output" > "$LAST_OUTPUT_FILE"
+  printf '%s\n' "$output"
+  exit $status
+}
+
+if [[ "$should_presearch" == "true" ]]; then
+  printf '[aicmd presearch] tavily_mcp\n' >&2
+  search_output=""
+  if [[ "${has_dry_run:-false}" == "true" ]]; then
+    search_output="dry-run: Tavily MCP presearch would run for: $joined_text"
+  elif [[ -f "$WEB_SEARCH_TOOL" ]]; then
+    set +e
+    set -a
+    [[ -f "$AICHAT_DIR/.env" ]] && . "$AICHAT_DIR/.env"
+    [[ -f "$FUNCTIONS_DIR/.env" ]] && . "$FUNCTIONS_DIR/.env"
+    set +a
+    export LLM_TOOL_CACHE_DIR="$STATE_DIR/tool-cache"
+    mkdir -p "$LLM_TOOL_CACHE_DIR"
+    search_query="Current date/time: $(TZ=Asia/Shanghai date '+%F %T %Z') (Beijing time / 北京时间, UTC+8). Interpret user words like 今天/今日/today using Beijing time unless the user says otherwise. Query: $joined_text"
+    search_output="$({ node "$WEB_SEARCH_TOOL" "$search_query"; } 2>&1)"
+    status=$?
+    set -e
+    if [[ $status -ne 0 ]]; then
+      search_output="web_search failed with exit code $status. Output: $search_output"
+    fi
+  else
+    search_output="web_search tool not found at $WEB_SEARCH_TOOL"
+  fi
+
+  prompt="Current date/time: $(TZ=Asia/Shanghai date '+%F %T %Z') (Beijing time / 北京时间, UTC+8). The user asked a query/search or time-sensitive question. Interpret 今天/今日/today using Beijing time unless the user says otherwise. If the user explicitly specified another timezone, use the user's timezone instead. A shell-level Tavily MCP search was executed before this answer.
+
+Use this general Evidence Protocol / 通用证据协议:
+- Identify what the user is asking for: fact, status, result, time, price, version, policy, weather, schedule, or another time-sensitive claim.
+- Extract direct evidence, indirect evidence, conflicting evidence, direct source URLs / 直接来源, and the time basis from the search result.
+- Direct evidence is preferred. Indirect evidence may be used only when clearly labeled as 可推断 / inferred.
+- Every conclusion must be labeled as one of: 已确认 / confirmed, 可推断 / inferred, or 未确认 / unconfirmed.
+- If sources conflict or the search result conflicts with the current Beijing date/time, explain the conflict and do not present uncertain content as confirmed.
+- Do not emit raw tool-call markup. Do not use Markdown formatting because the output is for a terminal.
+
+Answer in plain terminal-friendly text, not Markdown. Do not use Markdown headings, tables, bullet symbols, bold markers, or code fences. Use exactly these plain-text section labels when possible:
+结论 / Conclusion:
+证据 / Evidence:
+时间 / Time:
+
+web_search result:
+$search_output"
+  run_real_aichat_capture "${extra_args[@]}" "$@" "$prompt"
+fi
+
+run_real_aichat_clean "${extra_args[@]}" "$@"
