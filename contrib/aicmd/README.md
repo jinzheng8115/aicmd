@@ -24,9 +24,9 @@ English:
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin` by default.
+The installer builds the Rust binary, copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin`, and installs the model template to `~/.local/share/aicmd/model-config.example.yaml` by default.
 
-安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`。
+安装脚本会构建 Rust 二进制，默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`，并把模型模板安装到 `~/.local/share/aicmd/model-config.example.yaml`。
 
 ## Examples / 示例
 

@@ -49,13 +49,16 @@ config_path() {
 }
 
 template_path() {
-  local script_dir root
+  local script_dir root installed
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   root="$(cd "$script_dir/../../.." && pwd)"
+  installed="${AICMD_MODEL_TEMPLATE:-$HOME/.local/share/aicmd/model-config.example.yaml}"
   if [[ -f "$root/model-config.example.yaml" ]]; then
     printf '%s/model-config.example.yaml\n' "$root"
+  elif [[ -f "$installed" ]]; then
+    printf '%s\n' "$installed"
   else
-    printf 'model-config.example.yaml\n'
+    printf '%s\n' "$installed"
   fi
 }
 

@@ -373,9 +373,9 @@ Other explicit overrides also follow the `AICMD_...` environment naming pattern.
 
 ## 9. Helper command: aicmd-model / 辅助命令：aicmd-model
 
-`aicmd-model` helps users find and edit the runtime model config. It does not sync `models.yaml` into `config.yaml`; it points users to the single runtime config file that should be edited.
+`aicmd-model` helps users find and edit the runtime model config. It does not sync `models.yaml` into `config.yaml`; it points users to the single runtime config file that should be edited. After installation, the template is available at `~/.local/share/aicmd/model-config.example.yaml`.
 
-`aicmd-model` 用于帮助用户定位和编辑运行时模型配置。它不会把 `models.yaml` 同步到 `config.yaml`；它只是指向用户应该编辑的唯一运行时配置文件。
+`aicmd-model` 用于帮助用户定位和编辑运行时模型配置。它不会把 `models.yaml` 同步到 `config.yaml`；它只是指向用户应该编辑的唯一运行时配置文件。安装后，模板位于 `~/.local/share/aicmd/model-config.example.yaml`。
 
 Usage:
 
