@@ -10,12 +10,11 @@ use crate::client::{
     create_client_config, list_client_types, list_models, ClientConfig,
     Model, ModelType, ProviderModels, OPENAI_COMPATIBLE_PROVIDERS,
 };
-use crate::function::{FunctionDeclaration, Functions, ToolResult};
+use crate::function::ToolResult;
 use crate::render::{MarkdownRender, RenderOptions};
 use crate::utils::*;
 
 use anyhow::{anyhow, bail, Context, Result};
-use indexmap::IndexMap;
 use inquire::{Confirm, Select};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -45,10 +44,6 @@ const ROLES_DIR_NAME: &str = "roles";
 const ENV_FILE_NAME: &str = ".env";
 const MESSAGES_FILE_NAME: &str = "messages.md";
 const SESSIONS_DIR_NAME: &str = "sessions";
-const FUNCTIONS_DIR_NAME: &str = "functions";
-const FUNCTIONS_FILE_NAME: &str = "functions.json";
-const FUNCTIONS_BIN_DIR_NAME: &str = "bin";
-
 const CLIENTS_FIELD: &str = "clients";
 
 const SYNC_MODELS_URL: &str =
@@ -69,10 +64,6 @@ pub struct Config {
     pub wrap: Option<String>,
     pub wrap_code: bool,
 
-    pub function_calling: bool,
-    pub mapping_tools: IndexMap<String, String>,
-    pub use_tools: Option<String>,
-
     #[serde(default)]
     pub document_loaders: HashMap<String, String>,
 
@@ -91,8 +82,6 @@ pub struct Config {
     pub info_flag: bool,
     #[serde(skip)]
     pub model: Model,
-    #[serde(skip)]
-    pub functions: Functions,
     #[serde(skip)]
     pub last_message: Option<LastMessage>,
 
@@ -115,10 +104,6 @@ impl Default for Config {
             wrap: None,
             wrap_code: false,
 
-            function_calling: true,
-            mapping_tools: Default::default(),
-            use_tools: None,
-
             document_loaders: Default::default(),
 
             highlight: true,
@@ -133,7 +118,6 @@ impl Default for Config {
             macro_flag: false,
             info_flag: false,
             model: Default::default(),
-            functions: Default::default(),
             last_message: None,
 
             role: None,
@@ -172,8 +156,6 @@ impl Config {
             if let Some(wrap) = config.wrap.clone() {
                 config.set_wrap(&wrap)?;
             }
-
-            config.load_functions()?;
 
             config.setup_model()?;
             config.setup_document_loaders();
@@ -255,21 +237,6 @@ impl Config {
         }
     }
 
-    pub fn functions_dir() -> PathBuf {
-        match env::var(get_env_name("functions_dir")) {
-            Ok(value) => PathBuf::from(value),
-            Err(_) => Self::local_path(FUNCTIONS_DIR_NAME),
-        }
-    }
-
-    pub fn functions_file() -> PathBuf {
-        Self::functions_dir().join(FUNCTIONS_FILE_NAME)
-    }
-
-    pub fn functions_bin_dir() -> PathBuf {
-        Self::functions_dir().join(FUNCTIONS_BIN_DIR_NAME)
-    }
-
     pub fn session_file(&self, name: &str) -> PathBuf {
         match name.split_once("/") {
             Some((dir, name)) => self.sessions_dir().join(dir).join(format!("{name}.yaml")),
@@ -332,7 +299,7 @@ impl Config {
                 &self.model,
                 self.temperature,
                 self.top_p,
-                self.use_tools.clone(),
+                None,
             );
             role
         }
@@ -359,7 +326,6 @@ impl Config {
             ("model", role.model().id()),
             ("temperature", format_option_value(&role.temperature())),
             ("top_p", format_option_value(&role.top_p())),
-            ("use_tools", format_option_value(&role.use_tools())),
             (
                 "max_output_tokens",
                 role.model()
@@ -368,7 +334,6 @@ impl Config {
                     .unwrap_or_else(|| "null".into()),
             ),
             ("dry_run", self.dry_run.to_string()),
-            ("function_calling", self.function_calling.to_string()),
             ("stream", self.stream.to_string()),
             ("save", self.save.to_string()),
             ("wrap", wrap),
@@ -379,7 +344,6 @@ impl Config {
             ("env_file", display_path(&Self::env_file())),
             ("roles_dir", display_path(&Self::roles_dir())),
             ("sessions_dir", display_path(&self.sessions_dir())),
-            ("functions_dir", display_path(&Self::functions_dir())),
             ("messages_file", display_path(&self.messages_file())),
         ];
         if let Ok((_, Some(log_path))) = Self::log_config() {
@@ -529,55 +493,6 @@ impl Config {
 
     pub fn list_sessions(&self) -> Vec<String> {
         list_file_names(self.sessions_dir(), ".yaml")
-    }
-
-    pub fn select_functions(&self, role: &Role) -> Option<Vec<FunctionDeclaration>> {
-        let mut functions = vec![];
-        if self.function_calling {
-            if let Some(use_tools) = role.use_tools() {
-                let mut tool_names: HashSet<String> = Default::default();
-                let declaration_names: HashSet<String> = self
-                    .functions
-                    .declarations()
-                    .iter()
-                    .map(|v| v.name.to_string())
-                    .collect();
-                if use_tools == "all" {
-                    tool_names.extend(declaration_names);
-                } else {
-                    for item in use_tools.split(',') {
-                        let item = item.trim();
-                        if let Some(values) = self.mapping_tools.get(item) {
-                            tool_names.extend(
-                                values
-                                    .split(',')
-                                    .map(|v| v.to_string())
-                                    .filter(|v| declaration_names.contains(v)),
-                            )
-                        } else if declaration_names.contains(item) {
-                            tool_names.insert(item.to_string());
-                        }
-                    }
-                }
-                functions = self
-                    .functions
-                    .declarations()
-                    .iter()
-                    .filter_map(|v| {
-                        if tool_names.contains(&v.name) {
-                            Some(v.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-            }
-        };
-        if functions.is_empty() {
-            None
-        } else {
-            Some(functions)
-        }
     }
 
     pub fn sync_models_url(&self) -> String {
@@ -822,18 +737,6 @@ impl Config {
             self.wrap_code = v;
         }
 
-        if let Some(Some(v)) = read_env_bool(&get_env_name("function_calling")) {
-            self.function_calling = v;
-        }
-        if let Ok(v) = env::var(get_env_name("mapping_tools")) {
-            if let Ok(v) = serde_json::from_str(&v) {
-                self.mapping_tools = v;
-            }
-        }
-        if let Some(v) = read_env_value::<String>(&get_env_name("use_tools")) {
-            self.use_tools = v;
-        }
-
         if let Ok(v) = env::var(get_env_name("document_loaders")) {
             if let Ok(v) = serde_json::from_str(&v) {
                 self.document_loaders = v;
@@ -869,11 +772,6 @@ impl Config {
         if let Some(v) = read_env_value::<String>(&get_env_name("sync_models_url")) {
             self.sync_models_url = v;
         }
-    }
-
-    fn load_functions(&mut self) -> Result<()> {
-        self.functions = Functions::init(&Self::functions_file())?;
-        Ok(())
     }
 
     fn setup_model(&mut self) -> Result<()> {

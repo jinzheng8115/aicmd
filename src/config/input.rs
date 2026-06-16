@@ -166,12 +166,11 @@ impl Input {
         patch_messages(&mut messages, model);
         model.guard_max_input_tokens(&messages)?;
         let (temperature, top_p) = (self.role().temperature(), self.role().top_p());
-        let functions = self.config.read().select_functions(self.role());
         Ok(ChatCompletionsData {
             messages,
             temperature,
             top_p,
-            functions,
+            functions: None,
             stream,
         })
     }
