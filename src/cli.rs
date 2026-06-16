@@ -21,9 +21,6 @@ pub struct Cli {
     /// Ensure the session is empty
     #[clap(long)]
     pub empty_session: bool,
-    /// Ensure the new conversation is saved to the session
-    #[clap(long)]
-    pub save_session: bool,
     /// Unsupported in AICmd focused command workflow
     #[clap(short = 'a', long, hide = true)]
     pub agent: Option<String>,

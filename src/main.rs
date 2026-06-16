@@ -115,9 +115,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     if cli.empty_session {
         config.write().empty_session()?;
     }
-    if cli.save_session {
-        config.write().set_save_session_this_time()?;
-    }
     if cli.info {
         let info = config.read().info()?;
         println!("{info}");

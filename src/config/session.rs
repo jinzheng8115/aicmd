@@ -20,8 +20,6 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
     use_tools: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    save_session: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     compress_threshold: Option<usize>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,8 +41,6 @@ pub struct Session {
     #[serde(skip)]
     dirty: bool,
     #[serde(skip)]
-    save_session_this_time: bool,
-    #[serde(skip)]
     tokens: usize,
 }
 
@@ -53,7 +49,6 @@ impl Session {
         let role = config.extract_role();
         let mut session = Self {
             name: name.to_string(),
-            save_session: config.save_session,
             ..Default::default()
         };
         session.set_role(role);
@@ -91,12 +86,6 @@ impl Session {
         &self.name
     }
 
-
-
-    pub fn save_session(&self) -> Option<bool> {
-        self.save_session
-    }
-
     pub fn tokens(&self) -> usize {
         self.tokens
     }
@@ -120,9 +109,6 @@ impl Session {
         }
         if let Some(use_tools) = self.use_tools() {
             data["use_tools"] = use_tools.into();
-        }
-        if let Some(save_session) = self.save_session() {
-            data["save_session"] = save_session.into();
         }
         let (tokens, percent) = self.tokens_usage();
         data["total_tokens"] = tokens.into();
@@ -166,13 +152,7 @@ impl Session {
 
 
 
-    pub fn set_save_session_this_time(&mut self) {
-        self.save_session_this_time = true;
-    }
-
-
-
-    pub fn save(&mut self, session_name: &str, session_path: &Path, is_repl: bool) -> Result<()> {
+    pub fn save(&mut self, session_name: &str, session_path: &Path) -> Result<()> {
         ensure_parent_exists(session_path)?;
 
         self.path = Some(session_path.display().to_string());
@@ -187,9 +167,6 @@ impl Session {
             )
         })?;
 
-        if is_repl {
-            println!("✓ Saved the session to '{}'.", session_path.display());
-        }
 
         if self.name() != session_name {
             self.name = session_name.to_string()
@@ -202,7 +179,7 @@ impl Session {
 
     pub fn persist(&mut self, session_path: &Path) -> Result<()> {
         let session_name = self.name.clone();
-        self.save(&session_name, session_path, false)
+        self.save(&session_name, session_path)
     }
 
     pub fn guard_empty(&self) -> Result<()> {
@@ -214,12 +191,12 @@ impl Session {
 
     pub fn add_message(&mut self, input: &Input, output: &str) -> Result<()> {
         if self.messages.is_empty() {
-                self.messages.extend(input.role().build_messages(input));
-            } else {
-                self.messages
-                    .push(Message::new(MessageRole::User, input.message_content()));
-            }
-            self.data_urls.extend(input.data_urls());
+            self.messages.extend(input.role().build_messages(input));
+        } else {
+            self.messages
+                .push(Message::new(MessageRole::User, input.message_content()));
+        }
+        self.data_urls.extend(input.data_urls());
         self.messages.push(Message::new(
             MessageRole::Assistant,
             MessageContent::Text(output.to_string()),

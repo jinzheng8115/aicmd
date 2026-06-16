@@ -73,7 +73,6 @@ pub struct Config {
     pub mapping_tools: IndexMap<String, String>,
     pub use_tools: Option<String>,
 
-    pub save_session: Option<bool>,
     pub compress_threshold: usize,
     #[serde(default)]
     pub document_loaders: HashMap<String, String>,
@@ -123,7 +122,6 @@ impl Default for Config {
             mapping_tools: Default::default(),
             use_tools: None,
 
-            save_session: None,
             compress_threshold: 4000,
             document_loaders: Default::default(),
 
@@ -384,7 +382,6 @@ impl Config {
                     .map(|v| format!("{v} (current model)"))
                     .unwrap_or_else(|| "null".into()),
             ),
-            ("save_session", format_option_value(&self.save_session)),
             ("compress_threshold", self.compress_threshold.to_string()),
             ("dry_run", self.dry_run.to_string()),
             ("function_calling", self.function_calling.to_string()),
@@ -513,7 +510,7 @@ impl Config {
                 "Already in a session, please run '.exit session' first to exit the current session."
             );
         }
-        let mut session;
+        let session;
         match session_name {
             None | Some(TEMP_SESSION_NAME) => {
                 let session_file = self.session_file(TEMP_SESSION_NAME);
@@ -533,27 +530,6 @@ impl Config {
                 }
             }
         }
-        if let Some(session) = session.as_mut() {
-            if session.is_empty() {
-                if let Some(LastMessage {
-                    input,
-                    output,
-                    continuous,
-                }) = &self.last_message
-                {
-                    if *continuous && !output.is_empty() {
-                        let ans = Confirm::new(
-                            "Start a session that incorporates the last question and answer?",
-                        )
-                        .with_default(false)
-                        .prompt()?;
-                        if ans {
-                            session.add_message(input, output)?;
-                        }
-                    }
-                }
-            }
-        }
         self.session = session;
         Ok(())
     }
@@ -564,15 +540,6 @@ impl Config {
             bail!("No session")
         }
         self.discontinuous_last_message();
-        Ok(())
-    }
-
-    pub fn set_save_session_this_time(&mut self) -> Result<()> {
-        if let Some(session) = self.session.as_mut() {
-            session.set_save_session_this_time();
-        } else {
-            bail!("No session")
-        }
         Ok(())
     }
 
@@ -883,9 +850,6 @@ impl Config {
             self.use_tools = v;
         }
 
-        if let Some(v) = read_env_bool(&get_env_name("save_session")) {
-            self.save_session = v;
-        }
         if let Some(Some(v)) = read_env_value::<usize>(&get_env_name("compress_threshold")) {
             self.compress_threshold = v;
         }
