@@ -12,8 +12,8 @@ extern crate log;
 use crate::cli::Cli;
 use crate::client::{call_chat_completions, call_chat_completions_streaming, list_models, ModelType};
 use crate::config::{
-    ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, CODE_ROLE,
-    EXPLAIN_SHELL_ROLE, SHELL_ROLE,
+    ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, EXPLAIN_SHELL_ROLE,
+    SHELL_ROLE,
 };
 use crate::render::render_error;
 use crate::utils::*;
@@ -70,6 +70,7 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         || cli.rebuild_rag
         || cli.macro_name.is_some()
         || cli.serve.is_some()
+        || cli.code
         || cli.list_agents
         || cli.list_rags
         || cli.list_macros
@@ -81,8 +82,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         config.write().use_prompt(prompt)?;
     } else if let Some(name) = &cli.role {
         config.write().use_role(name)?;
-    } else if cli.code {
-        config.write().use_role(CODE_ROLE)?;
     } else {
         config.write().use_role(SHELL_ROLE)?;
     }

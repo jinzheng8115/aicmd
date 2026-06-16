@@ -42,8 +42,8 @@ pub struct Cli {
     /// Execute commands in natural language (default when text is provided)
     #[clap(short = 'e', long)]
     pub execute: bool,
-    /// Output code only
-    #[clap(short = 'c', long)]
+    /// Unsupported in AICmd focused command workflow
+    #[clap(short = 'c', long, hide = true)]
     pub code: bool,
     /// Include files, directories, or URLs
     #[clap(short = 'f', long, value_name = "FILE")]
