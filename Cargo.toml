@@ -51,7 +51,6 @@ uuid = { version = "1.9.1", features = ["v4"] }
 sys-locale = "0.3.1"
 html_to_markdown = "0.1.0"
 os_info = { version = "3.8.2", default-features = false }
-which = "8.0.0"
 duct = "1.0.0"
 terminal-colorsaurus = "0.4.8"
 rust-embed = "8.5.0"
