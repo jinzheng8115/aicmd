@@ -8,6 +8,7 @@ FUNCTIONS_DIR="$AICHAT_DIR/functions"
 
 mkdir -p "$BIN_DIR" "$FUNCTIONS_DIR/tools" "$AICHAT_DIR/roles"
 install -m 0755 "$ROOT_DIR/bin/aicmd" "$BIN_DIR/aicmd"
+install -m 0755 "$ROOT_DIR/bin/aicmd-chat" "$BIN_DIR/aicmd-chat"
 install -m 0755 "$ROOT_DIR/bin/aicmd-mem" "$BIN_DIR/aicmd-mem"
 install -m 0755 "$ROOT_DIR/bin/aicmd-mem-search" "$BIN_DIR/aicmd-mem-search"
 install -m 0755 "$ROOT_DIR/bin/aicmd-err" "$BIN_DIR/aicmd-err"

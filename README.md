@@ -1,191 +1,89 @@
-# AICmd: AIChat-based Terminal Workflow
+# AICmd: Natural Language Terminal Commands
 
-AICmd is an open-source terminal AI workflow derived from [sigoden/aichat](https://github.com/sigoden/aichat). It keeps AIChat's all-in-one LLM CLI foundation and adds an optional `aicmd` workflow for daily sessions, auto role selection, Tavily MCP pre-search, an evidence protocol, terminal-friendly output, and agentmemory helpers.
+AICmd turns natural language into terminal commands. It is derived from [sigoden/aichat](https://github.com/sigoden/aichat), but this project focuses on one workflow: describe what you want in plain language, review the generated shell command, then run it.
 
-AICmd 是一个基于 [sigoden/aichat](https://github.com/sigoden/aichat) 改造的开源终端 AI 工作流项目。它保留 AIChat 的一体化 LLM CLI 基础能力，并新增可选的 `aicmd` 工作流，用于每日会话、自动角色、Tavily MCP 预搜索、证据协议、终端友好输出和 agentmemory 辅助命令。
+AICmd 用自然语言运行终端命令。它基于 [sigoden/aichat](https://github.com/sigoden/aichat) 改造，但本项目聚焦一个工作流：用自然语言描述你要做的事，检查生成的 shell 命令，然后执行。
 
 Original upstream / 原始上游：sigoden/aichat
-License / 许可证：Apache-2.0 and MIT, following upstream licensing.
+License / 许可证：MIT OR Apache-2.0, following upstream licensing.
 
+## Focus / 项目聚焦
 
-[![CI](https://github.com/sigoden/aichat/actions/workflows/ci.yaml/badge.svg)](https://github.com/sigoden/aichat/actions/workflows/ci.yaml)
-[![Crates](https://img.shields.io/crates/v/aichat.svg)](https://crates.io/crates/aichat)
-[![Discord](https://img.shields.io/discord/1226737085453701222?label=Discord)](https://discord.gg/mr3ZZUB9hG)
+English:
+- Default command mode: `aicmd 列出当前目录最大的 10 个文件` generates a shell command and asks before running it.
+- Safe review loop: generated commands are shown before execution by upstream AIChat shell assistant behavior.
+- Daily command session: plain `aicmd` uses `cmd-YYYYMMDD` by default.
+- Script workflow: `aicmd-do` generates a script, saves it, prints it for review, and runs only after confirmation.
+- Optional chat fallback: use `aicmd chat ...` or `aicmd-chat ...` only when you need explanation instead of command execution.
 
-AIChat is an all-in-one LLM CLI tool featuring Shell Assistant, CMD & REPL Mode, RAG, AI Tools & Agents, and More. 
+中文：
+- 默认命令模式：`aicmd 列出当前目录最大的 10 个文件` 会生成 shell 命令，并在执行前让你确认。
+- 安全确认流程：沿用上游 AIChat shell assistant 的执行前确认机制。
+- 每日命令会话：普通 `aicmd` 默认使用 `cmd-YYYYMMDD`。
+- 脚本工作流：`aicmd-do` 会生成脚本、保存脚本、打印检查，并只在确认后执行。
+- 可选聊天回退：只有需要解释而不是执行命令时，使用 `aicmd chat ...` 或 `aicmd-chat ...`。
 
+## Install / 安装
 
-## Included aicmd Workflow / 内置 aicmd 工作流
+Build or install the upstream-compatible binary first, then install the AICmd helper commands:
 
-This fork includes an optional companion workflow in `contrib/aicmd/`. It keeps the upstream `aichat` command intact and adds `aicmd` for daily terminal sessions, auto role selection, Tavily MCP pre-search, an evidence protocol, plain terminal output, and agentmemory helpers.
+先构建或安装兼容上游的二进制，然后安装 AICmd 辅助命令：
 
-这个 fork 在 `contrib/aicmd/` 中加入了可选的伴随工作流。它保留上游 `aichat` 命令不变，新增 `aicmd`，用于每日终端会话、自动角色、Tavily MCP 预搜索、证据协议、终端纯文本输出和 agentmemory 辅助命令。
+```bash
+# If you use the upstream Homebrew binary:
+brew install aichat
 
-See `contrib/aicmd/README.md` for installation and usage.
-
-安装和使用说明见 `contrib/aicmd/README.md`。
-
-## Install
-
-### Package Managers
-
-- **Rust Developers:** `cargo install aichat`
-- **Homebrew/Linuxbrew Users:** `brew install aichat`
-- **Pacman Users**: `pacman -S aichat`
-- **Windows Scoop Users:** `scoop install aichat`
-- **Android Termux Users:** `pkg install aichat`
-
-### Pre-built Binaries
-
-Download pre-built binaries for macOS, Linux, and Windows from [GitHub Releases](https://github.com/sigoden/aichat/releases), extract them, and add the `aichat` binary to your `$PATH`.
-
-## Features
-
-### Multi-Providers
-
-Integrate seamlessly with over 20 leading LLM providers through a unified interface. Supported providers include OpenAI, Claude, Gemini (Google AI Studio), Ollama, Groq, Azure-OpenAI, VertexAI, Bedrock, Github Models, Mistral, Deepseek, AI21, XAI Grok, Cohere, Perplexity, Cloudflare, OpenRouter, Ernie, Qianwen, Moonshot, ZhipuAI, MiniMax, Deepinfra, VoyageAI, any OpenAI-Compatible API provider.
-
-### CMD Mode
-
-Explore powerful command-line functionalities with AIChat's CMD mode.
-
-![aichat-cmd](https://github.com/user-attachments/assets/6c58c549-1564-43cf-b772-e1c9fe91d19c)
-
-### REPL Mode
-
-Experience an interactive Chat-REPL with features like tab autocompletion, multi-line input support, history search, configurable keybindings, and custom REPL prompts.
-
-![aichat-repl](https://github.com/user-attachments/assets/218fab08-cdae-4c3b-bcf8-39b6651f1362)
-
-### Shell Assistant
-
-Elevate your command-line efficiency. Describe your tasks in natural language, and let AIChat transform them into precise shell commands. AIChat intelligently adjusts to your OS and shell environment.
-
-![aichat-execute](https://github.com/user-attachments/assets/0c77e901-0da2-4151-aefc-a2af96bbb004)
-
-### Multi-Form Input
-
-Accept diverse input forms such as stdin, local files and directories, and remote URLs, allowing flexibility in data handling.
-
-| Input             | CMD                                  | REPL                             |
-| ----------------- | ------------------------------------ | -------------------------------- |
-| CMD               | `aichat hello`                       |                                  |
-| STDIN             | `cat data.txt \| aichat`             |                                  |
-| Last Reply        |                                      | `.file %%`                       |
-| Local files       | `aichat -f image.png -f data.txt`    | `.file image.png data.txt`       |
-| Local directories | `aichat -f dir/`                     | `.file dir/`                     |
-| Remote URLs       | `aichat -f https://example.com`      | `.file https://example.com`      |
-| External commands | ```aichat -f '`git diff`'```         | ```.file `git diff` ```          |
-| Combine Inputs    | `aichat -f dir/ -f data.txt explain` | `.file dir/ data.txt -- explain` |
-
-### Role
-
-Customize roles to tailor LLM behavior, enhancing interaction efficiency and boosting productivity.
-
-![aichat-role](https://github.com/user-attachments/assets/023df6d2-409c-40bd-ac93-4174fd72f030)
-
-> The role consists of a prompt and model configuration.
-
-### Session
-
-Maintain context-aware conversations through sessions, ensuring continuity in interactions.
-
-![aichat-session](https://github.com/user-attachments/assets/56583566-0f43-435f-95b3-730ae55df031)
-
-> The left side uses a session, while the right side does not use a session.
-
-### Macro
-
-Streamline repetitive tasks by combining a series of REPL commands into a custom macro.
-
-![aichat-macro](https://github.com/user-attachments/assets/23c2a08f-5bd7-4bf3-817c-c484aa74a651)
-
-### RAG
-
-Integrate external documents into your LLM conversations for more accurate and contextually relevant responses.
-
-![aichat-rag](https://github.com/user-attachments/assets/359f0cb8-ee37-432f-a89f-96a2ebab01f6)
-
-### Function Calling
-
-Function calling supercharges LLMs by connecting them to external tools and data sources. This unlocks a world of possibilities, enabling LLMs to go beyond their core capabilities and tackle a wider range of tasks.
-
-We have created a new repository [https://github.com/sigoden/llm-functions](https://github.com/sigoden/llm-functions) to help you make the most of this feature.
-
-#### AI Tools & MCP
-
-Integrate external tools to automate tasks, retrieve information, and perform actions directly within your workflow.
-
-![aichat-tool](https://github.com/user-attachments/assets/7459a111-7258-4ef0-a2dd-624d0f1b4f92)
-
-#### AI Agents (CLI version of OpenAI GPTs)
-
-AI Agent = Instructions (Prompt) + Tools (Function Callings) + Documents (RAG).
-
-![aichat-agent](https://github.com/user-attachments/assets/0b7e687d-e642-4e8a-b1c1-d2d9b2da2b6b)
-
-### Local Server Capabilities
-
-AIChat includes a lightweight built-in HTTP server for easy deployment.
-
-```
-$ aichat --serve
-Chat Completions API: http://127.0.0.1:8000/v1/chat/completions
-Embeddings API:       http://127.0.0.1:8000/v1/embeddings
-Rerank API:           http://127.0.0.1:8000/v1/rerank
-LLM Playground:       http://127.0.0.1:8000/playground
-LLM Arena:            http://127.0.0.1:8000/arena?num=2
+# Install AICmd shell helpers from this repo:
+contrib/aicmd/install.sh
 ```
 
-#### Proxy LLM APIs
+If the real binary is not named `aichat` or is not on PATH, set:
 
-The LLM Arena is a web-based platform where you can compare different LLMs side-by-side. 
+如果真实二进制不叫 `aichat` 或不在 PATH 中，请设置：
 
-Test with curl:
-
-```sh
-curl -X POST -H "Content-Type: application/json" -d '{
-  "model":"claude:claude-3-5-sonnet-20240620",
-  "messages":[{"role":"user","content":"hello"}], 
-  "stream":true
-}' http://127.0.0.1:8000/v1/chat/completions
+```bash
+export AICMD_REAL_AICHAT=/path/to/aichat
 ```
 
-#### LLM Playground
+## Usage / 使用
 
-A web application to interact with supported LLMs directly from your browser.
+```bash
+# Generate and confirm a shell command / 生成并确认 shell 命令
+aicmd 列出当前目录最大的 10 个文件
+aicmd 把当前目录下的 png 图片压缩到 dist/images
+aicmd -s dev 运行测试并修复明显问题
 
-![aichat-llm-playground](https://github.com/user-attachments/assets/aab1e124-1274-4452-b703-ef15cda55439)
+# Explicit execute mode still works / 显式 -e 仍然可用
+aicmd -e 列出当前目录文件
 
-#### LLM Arena
+# Chat only / 仅聊天解释
+aicmd chat 解释一下 tar 和 gzip 的区别
+aicmd-chat 解释一下 chmod 755 是什么意思
 
-A web platform to compare different LLMs side-by-side.
+# Generate a script, review it, then run after confirmation / 生成脚本、检查、确认后执行
+aicmd-do "写个脚本处理 input.csv，输出 cleaned.csv"
+aicmd-do --dry-run "写个脚本统计 logs/*.log 里的 ERROR 数量"
 
-![aichat-llm-arena](https://github.com/user-attachments/assets/edabba53-a1ef-4817-9153-38542ffbfec6)
+# Debug a failing command / 分析报错命令
+aicmd-err -- pnpm test
+```
 
-## Custom Themes
+## What was intentionally de-emphasized / 有意弱化的上游功能
 
-AIChat supports custom dark and light themes, which highlight response text and code blocks.
+AICmd still keeps much of the upstream codebase for compatibility, but the product surface is intentionally narrowed. General chat, REPL, RAG, agents, macros, built-in server, and broad LLM playground features are no longer the main workflow. They may still exist internally while the project is being reduced, but new documentation and helper commands focus on natural-language terminal execution.
 
-![aichat-themes](https://github.com/sigoden/aichat/assets/4012553/29fa8b79-031e-405d-9caa-70d24fa0acf8)
+AICmd 目前仍保留大量上游代码以维持兼容，但产品入口已经收窄。通用聊天、REPL、RAG、agents、macros、内置 server 和 LLM playground 不再是主工作流。在项目继续瘦身期间，它们可能仍然存在于内部代码里，但新的文档和辅助命令只聚焦自然语言终端执行。
 
-## Documentation
+## Command helpers / 命令辅助
 
-- [Chat-REPL Guide](https://github.com/sigoden/aichat/wiki/Chat-REPL-Guide)
-- [Command-Line Guide](https://github.com/sigoden/aichat/wiki/Command-Line-Guide)
-- [Role Guide](https://github.com/sigoden/aichat/wiki/Role-Guide)
-- [Macro Guide](https://github.com/sigoden/aichat/wiki/Macro-Guide)
-- [RAG Guide](https://github.com/sigoden/aichat/wiki/RAG-Guide)
-- [Environment Variables](https://github.com/sigoden/aichat/wiki/Environment-Variables)
-- [Configuration Guide](https://github.com/sigoden/aichat/wiki/Configuration-Guide)
-- [Custom Theme](https://github.com/sigoden/aichat/wiki/Custom-Theme)
-- [Custom REPL Prompt](https://github.com/sigoden/aichat/wiki/Custom-REPL-Prompt)
-- [FAQ](https://github.com/sigoden/aichat/wiki/FAQ)
+- `aicmd`: default natural-language command execution.
+- `aicmd-chat`: explicit chat/explanation mode.
+- `aicmd-do`: generate a task script, print it, then run after confirmation.
+- `aicmd-err`: run a command, capture stdout/stderr/exit code, and ask AICmd to analyze it.
+- `aicmd-mem` and `aicmd-mem-search`: optional agentmemory helpers.
 
-## License
+## Upstream reference / 上游参考
 
-Copyright (c) 2023-2025 aichat-developers.
+See `docs/upstream-aichat.md` for the preserved upstream AIChat feature overview.
 
-AIChat is made available under the terms of either the MIT License or the Apache License 2.0, at your option.
-
-See the LICENSE-APACHE and LICENSE-MIT files for license details.
+上游 AIChat 原功能概览保存在 `docs/upstream-aichat.md`。
