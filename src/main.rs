@@ -143,9 +143,7 @@ async fn shell_execute(
     let (eval_str, _) =
         call_chat_completions(&input, false, true, client.as_ref(), abort_signal.clone()).await?;
 
-    config
-        .write()
-        .after_chat_completion(&input, &eval_str, &[])?;
+    config.write().after_chat_completion(&input, &eval_str)?;
     if eval_str.is_empty() {
         bail!("No command generated");
     }

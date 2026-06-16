@@ -10,7 +10,6 @@ use crate::client::{
     create_client_config, list_client_types, list_models, ClientConfig,
     Model, ModelType, ProviderModels, OPENAI_COMPATIBLE_PROVIDERS,
 };
-use crate::function::ToolResult;
 use crate::render::{MarkdownRender, RenderOptions};
 use crate::utils::*;
 
@@ -589,15 +588,7 @@ impl Config {
         Ok(())
     }
 
-    pub fn after_chat_completion(
-        &mut self,
-        input: &Input,
-        output: &str,
-        tool_results: &[ToolResult],
-    ) -> Result<()> {
-        if !tool_results.is_empty() {
-            return Ok(());
-        }
+    pub fn after_chat_completion(&mut self, input: &Input, output: &str) -> Result<()> {
         self.last_message = Some(LastMessage::new(input.clone(), output.to_string()));
         if !self.dry_run {
             self.save_message(input, output)?;
@@ -644,9 +635,8 @@ impl Config {
             Some(role) => format!(" ({role})"),
             None => String::new(),
         };
-        let tool_calls = String::new();
         let output = format!(
-            "# CHAT: {summary} [{now}]{scope}\n{raw_input}\n--------\n{tool_calls}{output}\n--------\n\n",
+            "# CHAT: {summary} [{now}]{scope}\n{raw_input}\n--------\n{output}\n--------\n\n",
         );
         file.write_all(output.as_bytes())
             .with_context(|| "Failed to save message")
