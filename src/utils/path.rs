@@ -1,34 +1,8 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{bail, Result};
 use indexmap::IndexSet;
 use path_absolutize::Absolutize;
-
-pub fn safe_join_path<T1: AsRef<Path>, T2: AsRef<Path>>(
-    base_path: T1,
-    sub_path: T2,
-) -> Option<PathBuf> {
-    let base_path = base_path.as_ref();
-    let sub_path = sub_path.as_ref();
-    if sub_path.is_absolute() {
-        return None;
-    }
-
-    let mut joined_path = PathBuf::from(base_path);
-
-    for component in sub_path.components() {
-        if Component::ParentDir == component {
-            return None;
-        }
-        joined_path.push(component);
-    }
-
-    if joined_path.starts_with(base_path) {
-        Some(joined_path)
-    } else {
-        None
-    }
-}
 
 pub async fn expand_glob_paths<T: AsRef<str>>(
     paths: &[T],

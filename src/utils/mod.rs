@@ -201,30 +201,3 @@ pub fn decode_bin<T: serde::de::DeserializeOwned>(data: &[u8]) -> Result<T> {
     let (v, _) = bincode::serde::decode_from_slice(data, bincode::config::legacy())?;
     Ok(v)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[cfg(not(target_os = "windows"))]
-    fn test_safe_join_path() {
-        assert_eq!(
-            safe_join_path("/home/user/dir1", "files/file1"),
-            Some(PathBuf::from("/home/user/dir1/files/file1"))
-        );
-        assert!(safe_join_path("/home/user/dir1", "/files/file1").is_none());
-        assert!(safe_join_path("/home/user/dir1", "../file1").is_none());
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn test_safe_join_path() {
-        assert_eq!(
-            safe_join_path("C:\\Users\\user\\dir1", "files/file1"),
-            Some(PathBuf::from("C:\\Users\\user\\dir1\\files\\file1"))
-        );
-        assert!(safe_join_path("C:\\Users\\user\\dir1", "/files/file1").is_none());
-        assert!(safe_join_path("C:\\Users\\user\\dir1", "../file1").is_none());
-    }
-}
