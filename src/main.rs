@@ -72,7 +72,9 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     }
 
     if cli.agent.is_some()
+        || !cli.agent_variable.is_empty()
         || cli.rag.is_some()
+        || cli.rebuild_rag
         || cli.macro_name.is_some()
         || cli.serve.is_some()
         || cli.list_agents
@@ -119,9 +121,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         let info = config.read().info()?;
         println!("{info}");
         return Ok(());
-    }
-    if cli.rebuild_rag {
-        bail!("RAG rebuild is outside the focused AICmd command workflow");
     }
     if text.is_none() && cli.file.is_empty() {
         Cli::command().print_help()?;
