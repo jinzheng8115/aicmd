@@ -30,12 +30,7 @@ async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
     let text = cli.text()?;
-    let info_flag = cli.info
-        || cli.list_roles
-        || cli.list_agents
-        || cli.list_rags
-        || cli.list_macros
-        || cli.list_sessions;
+    let info_flag = cli.info || cli.list_sessions;
     setup_logger()?;
     let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
     if let Err(err) = run(config, cli, text).await {
@@ -50,23 +45,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
 
     if cli.dry_run {
         config.write().dry_run = true;
-    }
-
-    if cli.agent.is_some()
-        || !cli.agent_variable.is_empty()
-        || cli.rag.is_some()
-        || cli.rebuild_rag
-        || cli.macro_name.is_some()
-        || cli.serve.is_some()
-        || cli.code
-        || cli.prompt.is_some()
-        || cli.role.is_some()
-        || cli.list_roles
-        || cli.list_agents
-        || cli.list_rags
-        || cli.list_macros
-    {
-        bail!("This AICmd build focuses on natural-language terminal commands. Agents, RAG, macros, and server mode are intentionally hidden.");
     }
 
     config.write().use_role(SHELL_ROLE)?;
