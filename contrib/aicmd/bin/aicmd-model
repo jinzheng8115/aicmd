@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'HELP'
+Usage: aicmd-model <command>
+
+Manage AICmd model configuration. AICmd does not sync models.yaml into config.yaml.
+Customers should add or switch models in the runtime config.yaml, using model-config.example.yaml as the template.
+
+用法：aicmd-model <命令>
+
+管理 AICmd 模型配置。AICmd 不会把 models.yaml 同步到 config.yaml。
+客户应在运行时 config.yaml 中新增或切换模型，并以 model-config.example.yaml 作为模板。
+
+Commands / 命令:
+  path       Print runtime config.yaml path / 输出运行时 config.yaml 路径
+  dir        Print runtime config directory / 输出运行时配置目录
+  template   Print model-config.example.yaml path / 输出模型配置模板路径
+  show       Print runtime config.yaml / 输出运行时配置
+  edit       Open runtime config.yaml in $EDITOR / 用 $EDITOR 编辑运行时配置
+  help       Show this help / 显示帮助
+
+Examples / 示例:
+  aicmd-model path
+  aicmd-model show
+  EDITOR=vim aicmd-model edit
+HELP
+}
+
+config_dir() {
+  if [[ -n "${AICMD_CONFIG_DIR:-}" ]]; then
+    printf '%s\n' "$AICMD_CONFIG_DIR"
+  elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+    printf '%s/aicmd\n' "$XDG_CONFIG_HOME"
+  elif [[ "$(uname -s)" == "Darwin" ]]; then
+    printf '%s/Library/Application Support/aicmd\n' "$HOME"
+  else
+    printf '%s/.config/aicmd\n' "$HOME"
+  fi
+}
+
+config_path() {
+  if [[ -n "${AICMD_CONFIG_FILE:-}" ]]; then
+    printf '%s\n' "$AICMD_CONFIG_FILE"
+  else
+    printf '%s/config.yaml\n' "$(config_dir)"
+  fi
+}
+
+template_path() {
+  local script_dir root
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  root="$(cd "$script_dir/../../.." && pwd)"
+  if [[ -f "$root/model-config.example.yaml" ]]; then
+    printf '%s/model-config.example.yaml\n' "$root"
+  else
+    printf 'model-config.example.yaml\n'
+  fi
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+  path)
+    config_path ;;
+  dir)
+    config_dir ;;
+  template)
+    template_path ;;
+  show)
+    path="$(config_path)"
+    if [[ ! -f "$path" ]]; then
+      echo "config not found: $path" >&2
+      echo "run 'aicmd' once to create it, or copy from: $(template_path)" >&2
+      exit 1
+    fi
+    cat "$path" ;;
+  edit)
+    path="$(config_path)"
+    mkdir -p "$(dirname "$path")"
+    editor="${EDITOR:-vi}"
+    exec "$editor" "$path" ;;
+  help|-h|--help)
+    usage ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    usage >&2
+    exit 2 ;;
+esac

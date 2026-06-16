@@ -34,6 +34,7 @@ The installer builds the Rust binary and installs these commands to `~/.local/bi
 aicmd
 aicmd-do
 aicmd-err
+aicmd-model
 ```
 
 Make sure `~/.local/bin` is in your `PATH`.
@@ -304,9 +305,9 @@ model-config.example.yaml
 ```
 
 
-`models.yaml` is a small internal fallback model registry for AICmd maintainers. It is intentionally not a full public model catalog. Customers should normally edit runtime `config.yaml`, using `model-config.example.yaml` as the template.
+`models.yaml` is a small internal fallback model registry for AICmd maintainers. It is intentionally not a full public model catalog and is not synced into runtime `config.yaml`. Customers should add or switch models in runtime `config.yaml`, using `model-config.example.yaml` as the template.
 
-`models.yaml` 是给 AICmd 维护者使用的内部小型兜底模型目录，刻意不再作为完整公开模型库维护。客户通常只需要编辑运行时 `config.yaml`，并以 `model-config.example.yaml` 作为模板。
+`models.yaml` 是给 AICmd 维护者使用的内部小型兜底模型目录，刻意不再作为完整公开模型库维护，也不会同步到运行时 `config.yaml`。客户新增或切换模型时，应编辑运行时 `config.yaml`，并以 `model-config.example.yaml` 作为模板。
 
 Important config fields:
 
@@ -360,7 +361,39 @@ Other explicit overrides also follow the `AICMD_...` environment naming pattern.
 
 其他显式覆盖项也遵循 `AICMD_...` 环境变量命名方式。
 
-## 9. Legacy AIChat config migration / 旧 AIChat 配置迁移
+
+## 9. Helper command: aicmd-model / 辅助命令：aicmd-model
+
+`aicmd-model` helps users find and edit the runtime model config. It does not sync `models.yaml` into `config.yaml`; it points users to the single runtime config file that should be edited.
+
+`aicmd-model` 用于帮助用户定位和编辑运行时模型配置。它不会把 `models.yaml` 同步到 `config.yaml`；它只是指向用户应该编辑的唯一运行时配置文件。
+
+Usage:
+
+用法：
+
+```bash
+aicmd-model path
+aicmd-model show
+EDITOR=vim aicmd-model edit
+aicmd-model template
+```
+
+Typical flow to add a model:
+
+新增模型的典型流程：
+
+```bash
+aicmd-model path
+aicmd-model template
+EDITOR=vim aicmd-model edit
+```
+
+Then add the provider/model under `clients` and update the top-level `model` field if you want it to become the default.
+
+然后在 `clients` 下新增 provider/model；如果希望它成为默认模型，再修改顶部的 `model` 字段。
+
+## 10. Legacy AIChat config migration / 旧 AIChat 配置迁移
 
 AICmd is derived from AIChat but now defaults to its own `aicmd` config directory.
 
@@ -390,7 +423,7 @@ This keeps the new project focused while preserving provider credentials and bas
 
 这样可以保留 provider 凭据和基础模型配置，同时让新项目保持聚焦。
 
-## 10. Helper command: aicmd-do / 辅助命令：aicmd-do
+## 11. Helper command: aicmd-do / 辅助命令：aicmd-do
 
 `aicmd-do` asks AICmd to generate commands that create a local zsh script, make it executable, and run it through AICmd's normal confirmation flow.
 
@@ -446,7 +479,7 @@ Safety behavior:
 - 执行前仍然需要你确认生成的命令。
 ```
 
-## 11. Helper command: aicmd-err / 辅助命令：aicmd-err
+## 12. Helper command: aicmd-err / 辅助命令：aicmd-err
 
 `aicmd-err` runs a command, captures stdout, stderr, and exit code, then asks AICmd to generate diagnostic or fix commands.
 
@@ -481,7 +514,7 @@ aicmd-err -- npm run build
 
 `aicmd-err` 不会直接应用修复。它把失败上下文发送给 AICmd，由 AICmd 生成 shell 命令，再由你确认。
 
-## 12. Removed or unsupported upstream options / 已移除或不支持的上游选项
+## 13. Removed or unsupported upstream options / 已移除或不支持的上游选项
 
 The following broad AIChat-style workflows are not part of AICmd's public CLI:
 
@@ -522,7 +555,7 @@ aicmd -e 当前目录下有多少文件
 aicmd 当前目录下有多少文件
 ```
 
-## 13. Safety model / 安全模型
+## 14. Safety model / 安全模型
 
 AICmd is designed to keep a human in the loop.
 
@@ -564,7 +597,7 @@ Recommended habits:
 - 如果命令可能修改或删除文件，请明确说明限制。
 ```
 
-## 14. Troubleshooting / 排障
+## 15. Troubleshooting / 排障
 
 Check which AICmd is running:
 
@@ -625,7 +658,7 @@ Use an explicit config directory:
 AICMD_CONFIG_DIR=/path/to/config aicmd --help
 ```
 
-## 15. Quick reference / 快速参考
+## 16. Quick reference / 快速参考
 
 ```bash
 # Basic command generation / 基础命令生成
@@ -648,4 +681,8 @@ aicmd-do "清洗 input.csv，输出 cleaned.csv"
 
 # Analyze a failing command / 分析失败命令
 aicmd-err -- pnpm test
+
+# Show or edit model config / 查看或编辑模型配置
+aicmd-model show
+EDITOR=vim aicmd-model edit
 ```

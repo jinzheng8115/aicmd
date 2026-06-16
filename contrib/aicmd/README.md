@@ -10,11 +10,13 @@ English:
 - `aicmd ...`: generate and confirm a shell command from natural language.
 - `aicmd-do ...`: generate commands that create and run a task script through the normal confirmation flow.
 - `aicmd-err -- <command>`: capture stdout/stderr/exit code and ask AICmd to analyze the failure.
+- `aicmd-model`: locate, show, or edit the runtime model config.
 
 中文：
 - `aicmd ...`：从自然语言生成 shell 命令并确认执行。
 - `aicmd-do ...`：生成创建并运行任务脚本的命令，并走正常确认流程。
 - `aicmd-err -- <command>`：捕获 stdout/stderr/exit code，并让 AICmd 分析失败原因。
+- `aicmd-model`：定位、查看或编辑运行时模型配置。
 
 ## Install / 安装
 
@@ -22,9 +24,9 @@ English:
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, and `aicmd-err` to `~/.local/bin` by default.
+The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin` by default.
 
-安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err` 复制到 `~/.local/bin`。
+安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`。
 
 ## Examples / 示例
 
@@ -34,6 +36,7 @@ aicmd 把当前目录下的 png 图片压缩到 dist/images
 aicmd -s dev 运行测试并修复明显问题
 aicmd-do "处理 input.csv，输出 cleaned.csv"
 aicmd-err -- pnpm test
+aicmd-model show
 ```
 
 ## Design boundary / 设计边界

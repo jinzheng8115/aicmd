@@ -23,6 +23,7 @@ English:
 - 每日命令会话：普通 `aicmd` 默认使用 `cmd-YYYYMMDD`。
 - 脚本工作流：`aicmd-do` 会让 AICmd 生成“创建并运行任务脚本”的命令，并走正常确认流程。
 - 报错工作流：`aicmd-err -- <command>` 捕获命令输出，并让 AICmd 分析。
+- 模型配置辅助命令：`aicmd-model` 用于定位、查看或编辑运行时模型配置。
 - REPL、RAG、agents、macros、自定义 roles、server mode 等上游宽功能不属于 AICmd 的公开 CLI 使用面。
 
 ## Install / 安装
@@ -31,15 +32,15 @@ English:
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, and `aicmd-err` to `~/.local/bin` by default.
+The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin` by default.
 
-安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err` 复制到 `~/.local/bin`。
+安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`。
 
 ## Config / 配置
 
-English: Use `model-config.example.yaml` as the single customer-facing template for model setup. Runtime configuration is stored in `config.yaml` under the AICmd config directory. `models.yaml` is only a small internal fallback registry for maintainers.
+English: Use `model-config.example.yaml` as the single customer-facing template for model setup. Runtime configuration is stored in `config.yaml` under the AICmd config directory. Use `aicmd-model path/show/edit` to locate and edit it. `models.yaml` is only a small internal fallback registry for maintainers and is not synced into `config.yaml`.
 
-中文：统一使用 `model-config.example.yaml` 作为唯一面向客户的模型配置模板。运行时配置保存在 AICmd 配置目录下的 `config.yaml`。`models.yaml` 只是给维护者使用的小型内部兜底模型目录。
+中文：统一使用 `model-config.example.yaml` 作为唯一面向客户的模型配置模板。运行时配置保存在 AICmd 配置目录下的 `config.yaml`。可以用 `aicmd-model path/show/edit` 定位和编辑它。`models.yaml` 只是给维护者使用的小型内部兜底模型目录，不会同步到 `config.yaml`。
 
 ## Detailed usage / 详细使用文档
 

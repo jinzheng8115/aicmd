@@ -16,12 +16,14 @@ fi
 install -m 0755 "$ROOT_DIR/target/release/aicmd" "$BIN_DIR/aicmd"
 install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-do" "$BIN_DIR/aicmd-do"
 install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-err" "$BIN_DIR/aicmd-err"
+install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-model" "$BIN_DIR/aicmd-model"
 
 cat <<MSG
 Installed AICmd to: $BIN_DIR/aicmd
 Installed helpers:
   $BIN_DIR/aicmd-do
   $BIN_DIR/aicmd-err
+  $BIN_DIR/aicmd-model
 
 Make sure $BIN_DIR is in PATH, then run:
   aicmd 列出当前目录最大的 10 个文件
