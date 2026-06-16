@@ -45,10 +45,6 @@ impl AbortSignalInner {
         self.ctrld.load(Ordering::SeqCst)
     }
 
-    pub fn reset(&self) {
-        self.ctrlc.store(false, Ordering::SeqCst);
-        self.ctrld.store(false, Ordering::SeqCst);
-    }
 
     pub fn set_ctrlc(&self) {
         self.ctrlc.store(true, Ordering::SeqCst);

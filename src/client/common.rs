@@ -254,9 +254,6 @@ pub struct ChatCompletionsData {
 pub struct ChatCompletionsOutput {
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
-    pub id: Option<String>,
-    pub input_tokens: Option<u64>,
-    pub output_tokens: Option<u64>,
 }
 
 impl ChatCompletionsOutput {

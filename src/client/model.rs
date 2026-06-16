@@ -118,61 +118,8 @@ impl Model {
         }
     }
 
-    pub fn data(&self) -> &ModelData {
-        &self.data
-    }
 
-    pub fn data_mut(&mut self) -> &mut ModelData {
-        &mut self.data
-    }
 
-    pub fn description(&self) -> String {
-        match self.model_type() {
-            ModelType::Chat => {
-                let ModelData {
-                    max_input_tokens,
-                    max_output_tokens,
-                    input_price,
-                    output_price,
-                    supports_vision,
-                    supports_function_calling,
-                    ..
-                } = &self.data;
-                let max_input_tokens = stringify_option_value(max_input_tokens);
-                let max_output_tokens = stringify_option_value(max_output_tokens);
-                let input_price = stringify_option_value(input_price);
-                let output_price = stringify_option_value(output_price);
-                let mut capabilities = vec![];
-                if *supports_vision {
-                    capabilities.push('👁');
-                };
-                if *supports_function_calling {
-                    capabilities.push('⚒');
-                };
-                let capabilities: String = capabilities
-                    .into_iter()
-                    .map(|v| format!("{v} "))
-                    .collect::<Vec<String>>()
-                    .join("");
-                format!(
-                    "{max_input_tokens:>8} / {max_output_tokens:>8}  |  {input_price:>6} / {output_price:>6}  {capabilities:>6}"
-                )
-            }
-            ModelType::Embedding => {
-                let ModelData {
-                    input_price,
-                    max_tokens_per_chunk,
-                    max_batch_size,
-                    ..
-                } = &self.data;
-                let max_tokens = stringify_option_value(max_tokens_per_chunk);
-                let max_batch = stringify_option_value(max_batch_size);
-                let price = stringify_option_value(input_price);
-                format!("max-tokens:{max_tokens};max-batch:{max_batch};price:{price}")
-            }
-            ModelType::Reranker => String::new(),
-        }
-    }
 
     pub fn patch(&self) -> Option<&Value> {
         self.data.patch.as_ref()
@@ -182,9 +129,6 @@ impl Model {
         self.data.max_input_tokens
     }
 
-    pub fn max_output_tokens(&self) -> Option<isize> {
-        self.data.max_output_tokens
-    }
 
     pub fn no_stream(&self) -> bool {
         self.data.no_stream
@@ -198,17 +142,8 @@ impl Model {
         self.data.system_prompt_prefix.as_deref()
     }
 
-    pub fn max_tokens_per_chunk(&self) -> Option<usize> {
-        self.data.max_tokens_per_chunk
-    }
 
-    pub fn default_chunk_size(&self) -> usize {
-        self.data.default_chunk_size.unwrap_or(1000)
-    }
 
-    pub fn max_batch_size(&self) -> Option<usize> {
-        self.data.max_batch_size
-    }
 
     pub fn max_tokens_param(&self) -> Option<isize> {
         if self.data.require_max_tokens {
@@ -218,18 +153,6 @@ impl Model {
         }
     }
 
-    pub fn set_max_tokens(
-        &mut self,
-        max_output_tokens: Option<isize>,
-        require_max_tokens: bool,
-    ) -> &mut Self {
-        match max_output_tokens {
-            None | Some(0) => self.data.max_output_tokens = None,
-            _ => self.data.max_output_tokens = max_output_tokens,
-        }
-        self.data.require_max_tokens = require_max_tokens;
-        self
-    }
 
     pub fn messages_tokens(&self, messages: &[Message]) -> usize {
         let messages_len = messages.len();
@@ -393,15 +316,5 @@ impl ModelType {
             ModelType::Embedding => patch.embeddings.as_ref(),
             ModelType::Reranker => patch.rerank.as_ref(),
         }
-    }
-}
-
-fn stringify_option_value<T>(value: &Option<T>) -> String
-where
-    T: std::fmt::Display,
-{
-    match value {
-        Some(value) => value.to_string(),
-        None => "-".to_string(),
     }
 }

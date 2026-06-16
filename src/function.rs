@@ -78,9 +78,6 @@ impl Functions {
         Ok(Self { declarations })
     }
 
-    pub fn find(&self, name: &str) -> Option<&FunctionDeclaration> {
-        self.declarations.iter().find(|v| v.name == name)
-    }
 
     pub fn contains(&self, name: &str) -> bool {
         self.declarations.iter().any(|v| v.name == name)
@@ -90,9 +87,6 @@ impl Functions {
         &self.declarations
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.declarations.is_empty()
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,8 +94,6 @@ pub struct FunctionDeclaration {
     pub name: String,
     pub description: String,
     pub parameters: JsonSchema,
-    #[serde(skip_serializing, default)]
-    pub agent: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
