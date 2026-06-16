@@ -401,6 +401,20 @@ impl Config {
     pub fn list_sessions(&self) -> Vec<String> {
         list_file_names(self.sessions_dir(), ".yaml")
     }
+    pub fn save_current_session(&mut self) -> Result<Option<String>> {
+        let sessions_dir = self.sessions_dir();
+        if let Some(session) = self.session.as_mut() {
+            let session_name = session.name().to_string();
+            let session_path = match session_name.split_once("/") {
+                Some((dir, name)) => sessions_dir.join(dir).join(format!("{name}.yaml")),
+                None => sessions_dir.join(format!("{session_name}.yaml")),
+            };
+            session.persist(&session_path)?;
+            Ok(Some(session_name))
+        } else {
+            Ok(None)
+        }
+    }
 
     pub fn light_theme(&self) -> bool {
         matches!(self.theme.as_deref(), Some("light"))

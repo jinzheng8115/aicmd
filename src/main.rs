@@ -70,8 +70,14 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         config.write().empty_session()?;
     }
     if text.is_none() && cli.file.is_empty() {
-        Cli::command().print_help()?;
-        println!();
+        if cli.session.is_some() {
+            if let Some(name) = config.write().save_current_session()? {
+                println!("session ready: {name}");
+            }
+        } else {
+            Cli::command().print_help()?;
+            println!();
+        }
         return Ok(());
     }
     let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;

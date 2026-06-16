@@ -198,9 +198,17 @@ Example on 2026-06-16:
 cmd-20260616
 ```
 
-Use a named session:
+Create or open a named session without sending a request:
 
-使用指定会话：
+只创建或打开指定会话，不发送请求：
+
+```bash
+aicmd -s dev
+```
+
+Create or open a named session and send a request at the same time:
+
+创建或打开指定会话，并同时发送请求：
 
 ```bash
 aicmd -s dev 运行测试
