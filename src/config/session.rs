@@ -20,12 +20,7 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
     use_tools: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    compress_threshold: Option<usize>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
     role_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    compressed_messages: Vec<Message>,
     messages: Vec<Message>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     data_urls: HashMap<String, String>,
@@ -79,7 +74,7 @@ impl Session {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.messages.is_empty() && self.compressed_messages.is_empty()
+        self.messages.is_empty()
     }
 
     pub fn name(&self) -> &str {
@@ -208,7 +203,6 @@ impl Session {
 
     pub fn clear_messages(&mut self) {
         self.messages.clear();
-        self.compressed_messages.clear();
         self.data_urls.clear();
         self.dirty = true;
         self.update_tokens();
@@ -226,14 +220,6 @@ impl Session {
         if len == 0 {
             messages = input.role().build_messages(input);
             need_add_msg = false;
-        } else if len == 1 && self.compressed_messages.len() >= 2 {
-            if let Some(index) = self
-                .compressed_messages
-                .iter()
-                .rposition(|v| v.role == MessageRole::User)
-            {
-                messages.extend(self.compressed_messages[index..].to_vec());
-            }
         }
         if need_add_msg {
             messages.push(Message::new(MessageRole::User, input.message_content()));

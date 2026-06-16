@@ -73,7 +73,6 @@ pub struct Config {
     pub mapping_tools: IndexMap<String, String>,
     pub use_tools: Option<String>,
 
-    pub compress_threshold: usize,
     #[serde(default)]
     pub document_loaders: HashMap<String, String>,
 
@@ -122,7 +121,6 @@ impl Default for Config {
             mapping_tools: Default::default(),
             use_tools: None,
 
-            compress_threshold: 4000,
             document_loaders: Default::default(),
 
             highlight: true,
@@ -382,7 +380,6 @@ impl Config {
                     .map(|v| format!("{v} (current model)"))
                     .unwrap_or_else(|| "null".into()),
             ),
-            ("compress_threshold", self.compress_threshold.to_string()),
             ("dry_run", self.dry_run.to_string()),
             ("function_calling", self.function_calling.to_string()),
             ("stream", self.stream.to_string()),
@@ -850,9 +847,6 @@ impl Config {
             self.use_tools = v;
         }
 
-        if let Some(Some(v)) = read_env_value::<usize>(&get_env_name("compress_threshold")) {
-            self.compress_threshold = v;
-        }
         if let Ok(v) = env::var(get_env_name("document_loaders")) {
             if let Ok(v) = serde_json::from_str(&v) {
                 self.document_loaders = v;
