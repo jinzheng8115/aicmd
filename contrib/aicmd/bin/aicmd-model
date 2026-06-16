@@ -95,11 +95,7 @@ config_from_env() {
   name="$(required_env AICMD_MODEL_NAME)"
   api_base="$(required_env AICMD_MODEL_API_BASE)"
   api_key="$(required_env AICMD_MODEL_API_KEY)"
-  model_ids="${AICMD_MODEL_IDS:-${AICMD_MODEL_ID:-}}"
-  if [[ -z "$model_ids" ]]; then
-    echo "missing required env: AICMD_MODEL_IDS or AICMD_MODEL_ID" >&2
-    exit 1
-  fi
+  model_ids="$(required_env AICMD_MODEL_IDS)"
   first_model_id="${model_ids%%,*}"
   first_model_id="$(printf '%s' "$first_model_id" | xargs)"
   default_model="${AICMD_DEFAULT_MODEL:-${name}:${first_model_id}}"

@@ -317,8 +317,7 @@ AICMD_MODEL_NAME       model display/client name / 模型标识
 AICMD_MODEL_PROVIDER   openai | anthropic | google / 接口种类
 AICMD_MODEL_API_BASE   API base URL / API 地址
 AICMD_MODEL_API_KEY    API key
-AICMD_MODEL_IDS        comma-separated provider model ids / 逗号分隔的模型 ID
-AICMD_MODEL_ID         backward-compatible single model id / 兼容旧版的单模型 ID
+AICMD_MODEL_IDS        provider model id(s), comma-separated / 模型 ID，多个用逗号分隔
 AICMD_DEFAULT_MODEL    optional default model; default is name:first-id / 可选默认模型；默认是 name:第一个模型 ID
 AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
 ```
