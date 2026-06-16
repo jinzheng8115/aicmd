@@ -277,7 +277,7 @@ File loading can be customized through `document_loaders` in the config.
 
 文件加载方式可以通过配置文件里的 `document_loaders` 自定义。
 
-## 8. Configuration / 配置
+## 8. Model configuration / 模型配置
 
 AICmd has its own config directory by default:
 
@@ -295,13 +295,18 @@ macOS 上通常是：
 ~/Library/Application Support/aicmd
 ```
 
-Use the focused example as the starting point:
+Use the single model config template as the starting point:
 
-建议从聚焦配置示例开始：
+建议从统一的模型配置模板开始：
 
 ```text
-config.aicmd.example.yaml
+model-config.example.yaml
 ```
+
+
+`models.yaml` is an internal built-in model registry for AICmd maintainers. Customers should normally edit runtime `config.yaml`, using `model-config.example.yaml` as the template.
+
+`models.yaml` 是给 AICmd 维护者使用的内部内置模型目录。客户通常只需要编辑运行时 `config.yaml`，并以 `model-config.example.yaml` 作为模板。
 
 Important config fields:
 
