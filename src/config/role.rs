@@ -142,10 +142,6 @@ impl Role {
         }
     }
 
-    pub fn is_derived(&self) -> bool {
-        self.name.is_empty()
-    }
-
     pub fn name(&self) -> &str {
         &self.name
     }

@@ -22,8 +22,7 @@ use simplelog::LevelFilter;
 use std::collections::{HashMap, HashSet};
 use std::{
     env,
-    fs::{create_dir_all, read_dir, read_to_string, remove_file, File, OpenOptions},
-    io::Write,
+    fs::{create_dir_all, read_dir, read_to_string, remove_file},
     path::{Path, PathBuf},
     process,
     sync::Arc,
@@ -41,7 +40,6 @@ const LIGHT_THEME: &[u8] = include_bytes!("../../assets/monokai-extended-light.t
 const CONFIG_FILE_NAME: &str = "config.yaml";
 const ROLES_DIR_NAME: &str = "roles";
 const ENV_FILE_NAME: &str = ".env";
-const MESSAGES_FILE_NAME: &str = "messages.md";
 const SESSIONS_DIR_NAME: &str = "sessions";
 const CLIENTS_FIELD: &str = "clients";
 
@@ -56,7 +54,6 @@ pub struct Config {
 
     pub dry_run: bool,
     pub stream: bool,
-    pub save: bool,
     pub wrap: Option<String>,
     pub wrap_code: bool,
 
@@ -93,7 +90,6 @@ impl Default for Config {
 
             dry_run: false,
             stream: true,
-            save: false,
             wrap: None,
             wrap_code: false,
 
@@ -214,13 +210,6 @@ impl Config {
         }
     }
 
-    pub fn messages_file(&self) -> PathBuf {
-        match env::var(get_env_name("messages_file")) {
-            Ok(value) => PathBuf::from(value),
-            Err(_) => Self::local_path(MESSAGES_FILE_NAME),
-        }
-    }
-
     pub fn sessions_dir(&self) -> PathBuf {
         match env::var(get_env_name("sessions_dir")) {
             Ok(value) => PathBuf::from(value),
@@ -325,7 +314,6 @@ impl Config {
             ),
             ("dry_run", self.dry_run.to_string()),
             ("stream", self.stream.to_string()),
-            ("save", self.save.to_string()),
             ("wrap", wrap),
             ("wrap_code", self.wrap_code.to_string()),
             ("highlight", self.highlight.to_string()),
@@ -334,7 +322,6 @@ impl Config {
             ("env_file", display_path(&Self::env_file())),
             ("roles_dir", display_path(&Self::roles_dir())),
             ("sessions_dir", display_path(&self.sessions_dir())),
-            ("messages_file", display_path(&self.messages_file())),
         ];
         if let Ok((_, Some(log_path))) = Self::log_config() {
             items.push(("log_path", display_path(&log_path)));
@@ -555,7 +542,7 @@ impl Config {
     pub fn after_chat_completion(&mut self, input: &Input, output: &str) -> Result<()> {
         self.last_message = Some(LastMessage::new(input.clone(), output.to_string()));
         if !self.dry_run {
-            self.save_message(input, output)?;
+            self.save_session_message(input, output)?;
         }
         Ok(())
     }
@@ -566,7 +553,7 @@ impl Config {
         }
     }
 
-    fn save_message(&mut self, input: &Input, output: &str) -> Result<()> {
+    fn save_session_message(&mut self, input: &Input, output: &str) -> Result<()> {
         let mut input = input.clone();
         input.clear_patch();
         let sessions_dir = self.sessions_dir();
@@ -577,45 +564,9 @@ impl Config {
                 None => sessions_dir.join(format!("{}.yaml", session.name())),
             };
             session.persist(&session_path)?;
-            return Ok(());
         }
-
-        if !self.save {
-            return Ok(());
-        }
-        let mut file = self.open_message_file()?;
-        if output.is_empty() {
-            return Ok(());
-        }
-        let now = now();
-        let summary = input.summary();
-        let raw_input = input.raw();
-        let role_name = if input.role().is_derived() {
-            None
-        } else {
-            Some(input.role().name())
-        };
-        let scope = match role_name {
-            Some(role) => format!(" ({role})"),
-            None => String::new(),
-        };
-        let output = format!(
-            "# CHAT: {summary} [{now}]{scope}\n{raw_input}\n--------\n{output}\n--------\n\n",
-        );
-        file.write_all(output.as_bytes())
-            .with_context(|| "Failed to save message")
+        Ok(())
     }
-
-    fn open_message_file(&self) -> Result<File> {
-        let path = self.messages_file();
-        ensure_parent_exists(&path)?;
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .with_context(|| format!("Failed to create/append {}", path.display()))
-    }
-
     fn load_from_file(config_path: &Path) -> Result<Self> {
         let err = || format!("Failed to load config at '{}'", config_path.display());
         let content = read_to_string(config_path).with_context(err)?;
@@ -679,9 +630,6 @@ impl Config {
         }
         if let Some(Some(v)) = read_env_bool(&get_env_name("stream")) {
             self.stream = v;
-        }
-        if let Some(Some(v)) = read_env_bool(&get_env_name("save")) {
-            self.save = v;
         }
         if let Some(v) = read_env_value::<String>(&get_env_name("wrap")) {
             self.wrap = v;

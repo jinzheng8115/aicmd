@@ -9,16 +9,13 @@ use crate::utils::{base64_encode, is_loader_protocol, sha256, AbortSignal};
 use anyhow::{bail, Context, Result};
 use indexmap::IndexSet;
 use std::{collections::HashMap, fs::File, io::Read};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const IMAGE_EXTS: [&str; 5] = ["png", "jpeg", "jpg", "webp", "gif"];
-const SUMMARY_MAX_WIDTH: usize = 80;
 
 #[derive(Debug, Clone)]
 pub struct Input {
     config: GlobalConfig,
     text: String,
-    raw: (String, Vec<String>),
     patched_text: Option<String>,
     last_reply: Option<String>,
     medias: Vec<String>,
@@ -33,7 +30,6 @@ impl Input {
         Self {
             config: config.clone(),
             text: text.to_string(),
-            raw: (text.to_string(), vec![]),
             patched_text: None,
             last_reply: None,
             medias: Default::default(),
@@ -50,7 +46,7 @@ impl Input {
         role: Option<Role>,
     ) -> Result<Self> {
         let loaders = config.read().document_loaders.clone();
-        let (raw_paths, local_paths, remote_urls, external_cmds, protocol_paths, with_last_reply) =
+        let (_raw_paths, local_paths, remote_urls, external_cmds, protocol_paths, with_last_reply) =
             resolve_paths(&loaders, paths)?;
         let mut last_reply = None;
         let (documents, medias, data_urls) = load_documents(
@@ -95,7 +91,6 @@ impl Input {
         Ok(Self {
             config: config.clone(),
             text: texts.join("\n"),
-            raw: (raw_text.to_string(), raw_paths),
             patched_text: None,
             last_reply,
             medias,
@@ -209,45 +204,6 @@ impl Input {
         } else {
             None
         }
-    }
-
-    pub fn summary(&self) -> String {
-        let text: String = self
-            .text
-            .trim()
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        if text.width_cjk() > SUMMARY_MAX_WIDTH {
-            let mut sum_width = 0;
-            let mut chars = vec![];
-            for c in text.chars() {
-                sum_width += c.width_cjk().unwrap_or(1);
-                if sum_width > SUMMARY_MAX_WIDTH - 3 {
-                    chars.extend(['.', '.', '.']);
-                    break;
-                }
-                chars.push(c);
-            }
-            chars.into_iter().collect()
-        } else {
-            text
-        }
-    }
-
-    pub fn raw(&self) -> String {
-        let (text, files) = &self.raw;
-        let mut segments = files.to_vec();
-        if !segments.is_empty() {
-            segments.insert(0, ".file".into());
-        }
-        if !text.is_empty() {
-            if !segments.is_empty() {
-                segments.push("--".into());
-            }
-            segments.push(text.clone());
-        }
-        segments.join(" ")
     }
 
     pub fn render(&self) -> String {
