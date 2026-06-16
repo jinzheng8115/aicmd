@@ -115,6 +115,7 @@ pub type GlobalConfig = Arc<RwLock<Config>>;
 
 impl Config {
     pub async fn init(info_flag: bool) -> Result<Self> {
+        Self::migrate_legacy_aichat_config()?;
         let config_path = Self::config_file();
         let mut config = if !config_path.exists() {
             match env::var(get_env_name("provider"))
@@ -157,25 +158,12 @@ impl Config {
     pub fn config_dir() -> PathBuf {
         if let Ok(v) = env::var(get_env_name("config_dir")) {
             PathBuf::from(v)
-        } else if let Ok(v) = env::var("AICHAT_CONFIG_DIR") {
-            PathBuf::from(v)
         } else if let Ok(v) = env::var("XDG_CONFIG_HOME") {
-            let aicmd_dir = PathBuf::from(&v).join(env!("CARGO_CRATE_NAME"));
-            let aichat_dir = PathBuf::from(v).join("aichat");
-            if aicmd_dir.exists() || !aichat_dir.exists() {
-                aicmd_dir
-            } else {
-                aichat_dir
-            }
+            PathBuf::from(v).join(env!("CARGO_CRATE_NAME"))
         } else {
-            let dir = dirs::config_dir().expect("No user's config directory");
-            let aicmd_dir = dir.join(env!("CARGO_CRATE_NAME"));
-            let aichat_dir = dir.join("aichat");
-            if aicmd_dir.exists() || !aichat_dir.exists() {
-                aicmd_dir
-            } else {
-                aichat_dir
-            }
+            dirs::config_dir()
+                .expect("No user's config directory")
+                .join(env!("CARGO_CRATE_NAME"))
         }
     }
 
@@ -213,6 +201,50 @@ impl Config {
 
     pub fn models_override_file() -> PathBuf {
         Self::local_path("models-override.yaml")
+    }
+
+    fn legacy_aichat_config_dir() -> Option<PathBuf> {
+        if let Ok(v) = env::var("XDG_CONFIG_HOME") {
+            Some(PathBuf::from(v).join("aichat"))
+        } else {
+            Some(dirs::config_dir()?.join("aichat"))
+        }
+    }
+
+    fn migrate_legacy_aichat_config() -> Result<()> {
+        if env::var(get_env_name("config_dir")).is_ok()
+            || env::var(get_env_name("config_file")).is_ok()
+        {
+            return Ok(());
+        }
+
+        let legacy_dir = match Self::legacy_aichat_config_dir() {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+        let migrations = [(CONFIG_FILE_NAME, 0o600), (ENV_FILE_NAME, 0o600)];
+        for (name, mode) in migrations {
+            let target = Self::local_path(name);
+            let source = legacy_dir.join(name);
+            if target.exists() || !source.exists() {
+                continue;
+            }
+            ensure_parent_exists(&target)?;
+            std::fs::copy(&source, &target).with_context(|| {
+                format!(
+                    "Failed to migrate legacy AIChat config '{}' to '{}'",
+                    source.display(),
+                    target.display()
+                )
+            })?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::prelude::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(mode);
+                std::fs::set_permissions(&target, perms)?;
+            }
+        }
+        Ok(())
     }
     pub fn log_config() -> Result<(LevelFilter, Option<PathBuf>)> {
         let log_level = env::var(get_env_name("log_level"))
