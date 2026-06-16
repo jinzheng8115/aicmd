@@ -158,12 +158,8 @@ impl Config {
     pub fn config_dir() -> PathBuf {
         if let Ok(v) = env::var(get_env_name("config_dir")) {
             PathBuf::from(v)
-        } else if let Ok(v) = env::var("XDG_CONFIG_HOME") {
-            PathBuf::from(v).join(env!("CARGO_CRATE_NAME"))
         } else {
-            dirs::config_dir()
-                .expect("No user's config directory")
-                .join(env!("CARGO_CRATE_NAME"))
+            home_aicmd_dir()
         }
     }
 
@@ -203,12 +199,17 @@ impl Config {
         Self::local_path("models-override.yaml")
     }
 
-    fn legacy_aichat_config_dir() -> Option<PathBuf> {
+    fn legacy_config_dirs() -> Vec<PathBuf> {
+        let mut dirs = vec![];
         if let Ok(v) = env::var("XDG_CONFIG_HOME") {
-            Some(PathBuf::from(v).join("aichat"))
-        } else {
-            Some(dirs::config_dir()?.join("aichat"))
+            dirs.push(PathBuf::from(v).join(env!("CARGO_CRATE_NAME")));
+            dirs.push(PathBuf::from(env::var("XDG_CONFIG_HOME").unwrap()).join("aichat"));
         }
+        if let Some(dir) = dirs::config_dir() {
+            dirs.push(dir.join(env!("CARGO_CRATE_NAME")));
+            dirs.push(dir.join("aichat"));
+        }
+        dirs
     }
 
     fn migrate_legacy_aichat_config() -> Result<()> {
@@ -218,30 +219,31 @@ impl Config {
             return Ok(());
         }
 
-        let legacy_dir = match Self::legacy_aichat_config_dir() {
-            Some(v) => v,
-            None => return Ok(()),
-        };
         let migrations = [(CONFIG_FILE_NAME, 0o600), (ENV_FILE_NAME, 0o600)];
-        for (name, mode) in migrations {
-            let target = Self::local_path(name);
-            let source = legacy_dir.join(name);
-            if target.exists() || !source.exists() {
+        for legacy_dir in Self::legacy_config_dirs() {
+            if legacy_dir == Self::config_dir() {
                 continue;
             }
-            ensure_parent_exists(&target)?;
-            std::fs::copy(&source, &target).with_context(|| {
-                format!(
-                    "Failed to migrate legacy AIChat config '{}' to '{}'",
-                    source.display(),
-                    target.display()
-                )
-            })?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::prelude::PermissionsExt;
-                let perms = std::fs::Permissions::from_mode(mode);
-                std::fs::set_permissions(&target, perms)?;
+            for (name, mode) in migrations {
+                let target = Self::local_path(name);
+                let source = legacy_dir.join(name);
+                if target.exists() || !source.exists() {
+                    continue;
+                }
+                ensure_parent_exists(&target)?;
+                std::fs::copy(&source, &target).with_context(|| {
+                    format!(
+                        "Failed to migrate legacy config '{}' to '{}'",
+                        source.display(),
+                        target.display()
+                    )
+                })?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::prelude::PermissionsExt;
+                    let perms = std::fs::Permissions::from_mode(mode);
+                    std::fs::set_permissions(&target, perms)?;
+                }
             }
         }
         Ok(())
@@ -696,9 +698,8 @@ async fn create_config_file(config_path: &Path) -> Result<()> {
     config[CLIENTS_FIELD] = clients_config;
 
     let config_data = serde_yaml::to_string(&config).with_context(|| "Failed to create config")?;
-    let config_data = format!(
-        "# see model-config.example.yaml for AICmd model setup\n\n{config_data}"
-    );
+    let config_data =
+        format!("# see model-config.example.yaml for AICmd model setup\n\n{config_data}");
 
     ensure_parent_exists(config_path)?;
     std::fs::write(config_path, config_data)
@@ -731,6 +732,12 @@ pub(crate) fn ensure_parent_exists(path: &Path) -> Result<()> {
         })?;
     }
     Ok(())
+}
+
+fn home_aicmd_dir() -> PathBuf {
+    dirs::home_dir()
+        .expect("No user's home directory")
+        .join(format!(".{}", env!("CARGO_CRATE_NAME")))
 }
 
 fn read_env_value<T>(key: &str) -> Option<Option<T>>

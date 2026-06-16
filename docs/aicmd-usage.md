@@ -280,20 +280,12 @@ File loading can be customized through `document_loaders` in the config.
 
 ## 8. Model configuration / 模型配置
 
-AICmd has its own config directory by default:
+AICmd uses a visible config directory by default:
 
-AICmd 默认使用自己的配置目录：
-
-```text
-<platform config dir>/aicmd
-```
-
-On macOS this is usually:
-
-macOS 上通常是：
+AICmd 默认使用一个用户可见的配置目录：
 
 ```text
-~/Library/Application Support/aicmd
+~/.aicmd
 ```
 
 Use the single model config template as the starting point:
@@ -395,13 +387,13 @@ Then add the provider/model under `clients` and update the top-level `model` fie
 
 ## 10. Legacy AIChat config migration / 旧 AIChat 配置迁移
 
-AICmd is derived from AIChat but now defaults to its own `aicmd` config directory.
+AICmd is derived from AIChat but now defaults to the visible `~/.aicmd` config directory.
 
-AICmd 基于 AIChat 改造，但现在默认使用自己的 `aicmd` 配置目录。
+AICmd 基于 AIChat 改造，但现在默认使用用户可见的 `~/.aicmd` 配置目录。
 
-On first startup, if no AICmd config exists and an old AIChat config exists, AICmd copies only these files into the new directory:
+On first startup, if no `~/.aicmd` config exists and an older AICmd or AIChat config exists, AICmd copies only these files into the new directory:
 
-首次启动时，如果 AICmd 配置不存在但旧 AIChat 配置存在，AICmd 只复制这些文件到新目录：
+首次启动时，如果 `~/.aicmd` 配置不存在但旧版 AICmd 或 AIChat 配置存在，AICmd 只复制这些文件到新目录：
 
 ```text
 config.yaml

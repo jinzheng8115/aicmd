@@ -66,9 +66,9 @@ aicmd-err -- pnpm test
 
 ## Compatibility / 兼容性
 
-AICmd still reuses upstream AIChat internals for model providers, config loading, sessions, roles, and shell execution. By default it uses its own `aicmd` config directory. On first startup, if no AICmd config exists but an old AIChat config exists, AICmd copies only `config.yaml` and `.env` into the new directory. Set `AICMD_CONFIG_DIR` when you want to point AICmd at another config directory explicitly.
+AICmd still reuses upstream AIChat internals for model providers, config loading, sessions, roles, and shell execution. By default it uses the visible `~/.aicmd` config directory. On first startup, if no AICmd config exists but an older AICmd or AIChat config exists, AICmd copies only `config.yaml` and `.env` into `~/.aicmd`. Set `AICMD_CONFIG_DIR` when you want to point AICmd at another config directory explicitly.
 
-AICmd 仍复用上游 AIChat 的 provider、配置加载、session、role 和 shell 执行内部能力。默认情况下，它使用自己的 `aicmd` 配置目录。首次启动时，如果 AICmd 配置不存在但旧 AIChat 配置存在，AICmd 只会把 `config.yaml` 和 `.env` 复制到新目录。如果你想让 AICmd 显式使用其他配置目录，请设置 `AICMD_CONFIG_DIR`。
+AICmd 仍复用上游 AIChat 的 provider、配置加载、session、role 和 shell 执行内部能力。默认情况下，它使用用户可见的 `~/.aicmd` 配置目录。首次启动时，如果 AICmd 配置不存在但旧版 AICmd 或 AIChat 配置存在，AICmd 只会把 `config.yaml` 和 `.env` 复制到 `~/.aicmd`。如果你想让 AICmd 显式使用其他配置目录，请设置 `AICMD_CONFIG_DIR`。
 
 ## Upstream reference / 上游参考
 

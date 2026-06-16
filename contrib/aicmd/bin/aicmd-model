@@ -30,13 +30,11 @@ HELP
 
 config_dir() {
   if [[ -n "${AICMD_CONFIG_DIR:-}" ]]; then
-    printf '%s\n' "$AICMD_CONFIG_DIR"
-  elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-    printf '%s/aicmd\n' "$XDG_CONFIG_HOME"
-  elif [[ "$(uname -s)" == "Darwin" ]]; then
-    printf '%s/Library/Application Support/aicmd\n' "$HOME"
+    printf '%s
+' "$AICMD_CONFIG_DIR"
   else
-    printf '%s/.config/aicmd\n' "$HOME"
+    printf '%s/.aicmd
+' "$HOME"
   fi
 }
 

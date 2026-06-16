@@ -7,8 +7,8 @@
 # 复制到运行时配置文件后，修改 model/client 即可。
 #
 # Runtime config path / 运行时配置路径：
-#   macOS: ~/Library/Application Support/aicmd/config.yaml
-#   Linux: ~/.config/aicmd/config.yaml
+#   macOS: ~/.aicmd/config.yaml
+#   Linux: ~/.aicmd/config.yaml
 #   Override / 显式指定: AICMD_CONFIG_DIR=/path/to/config-dir
 
 # Select the default model / 选择默认模型
