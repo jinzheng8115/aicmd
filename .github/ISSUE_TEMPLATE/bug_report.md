@@ -1,36 +1,41 @@
 ---
-name: Bug report
-about: Create a report to help us improve
+name: Bug report / 问题反馈
+about: Report an AICmd terminal-command workflow bug / 反馈 AICmd 终端命令工作流问题
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-<!-- Your issue may already be reported! Please search for it before creating one. -->
+## Describe the bug / 问题描述
+<!-- English: What went wrong? 中文：发生了什么问题？ -->
 
-**Describe the bug**
-<!-- A clear and concise description of what the bug is. -->
+## To reproduce / 复现步骤
+<!-- English: Include the exact aicmd command and relevant files/stdin. 中文：请包含准确的 aicmd 命令以及相关文件/stdin。 -->
 
-**To Reproduce**
-<!-- Steps to reproduce the behavior, including any relevant code snippets. -->
+```sh
+# example / 示例
+aicmd --dry-run 'list the largest files in this directory'
+```
 
-**Expected behavior**
-<!-- A clear and concise description of what you expected to happen. -->
+## Expected behavior / 预期行为
+<!-- English: What did you expect? 中文：你期望发生什么？ -->
 
-**Logs**
-<!-- If applicable, Attach relevant log outputs that can help diagnose the issue, see https://github.com/sigoden/aichat/wiki/FAQ#how-to-log-or-debug for logging. -->
+## Actual output / 实际输出
+<!-- English: Paste terminal output or error messages. 中文：粘贴终端输出或错误信息。 -->
 
-**Screenshots**
-<!-- If applicable, add screenshots to help explain your problem. -->
+## Configuration / 配置信息
+<!-- English: Do not paste secrets. Include provider type, model id, and whether AICMD_CONFIG_DIR is set. 中文：不要粘贴密钥。请包含 provider 类型、model id，以及是否设置了 AICMD_CONFIG_DIR。 -->
 
-**Configuration**
-<!-- Please run `aichat --info` and paste the output -->
+- provider type / provider 类型:
+- model / 模型:
+- AICMD_CONFIG_DIR set / 是否设置 AICMD_CONFIG_DIR:
 
-**Environment (please complete the following information):**
-- os version: [e.g. Ubuntu 20.04]
-- aichat version: [e.g. 0.9.0]
-- terminal version: [e.g. GNOME Terminal 3.44.0]
+## Environment / 环境
+- OS version / 操作系统版本:
+- AICmd version / AICmd 版本:
+- Terminal / 终端:
+- Shell / Shell:
 
-**Additional context**
-<!-- Add any other context about the problem here. -->
+## Additional context / 其他上下文
+<!-- English: Add screenshots or related context if helpful. 中文：如有帮助，可补充截图或相关上下文。 -->

@@ -35,6 +35,12 @@ The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, and `aicmd-
 
 安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err` 复制到 `~/.local/bin`。
 
+## Config / 配置
+
+English: Start from `config.aicmd.example.yaml` for AICmd's focused terminal-command workflow. The older `config.example.yaml` remains as an upstream-compatible provider reference, but it includes options for workflows that AICmd does not expose.
+
+中文：AICmd 聚焦终端命令工作流，建议从 `config.aicmd.example.yaml` 开始配置。旧的 `config.example.yaml` 仍作为兼容上游 provider 配置的参考，但其中包含 AICmd 不暴露的工作流选项。
+
 ## Usage / 使用
 
 ```bash
