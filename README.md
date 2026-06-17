@@ -169,13 +169,11 @@ Example / 示例：
 Notes / 注意：
 - `servers` defines how to start MCP servers.
 - `commands` defines the AICmd command names users type.
-- `tool` is optional. If omitted, AICmd calls `tools/list` and auto-selects a matching MCP tool.
 - MCP commands return raw tool data first, then AICmd sends it to the configured LLM for a terminal-friendly summary.
 
 中文说明：
 - `servers` 定义如何启动 MCP server。
 - `commands` 定义用户在 AICmd 里输入的命令名。
-- `tool` 可以不写。未配置时，AICmd 会调用 `tools/list` 并自动选择匹配的 MCP tool。
 - MCP 命令会先拿到工具原始结果，再交给当前 LLM 整理成适合终端阅读的输出。
 
 ## 4. Install / 安装

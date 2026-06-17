@@ -459,13 +459,8 @@ Command mapping rules:
 ```text
 mcp.servers.<server-name>    defines how to start the MCP server / 定义如何启动 MCP server
 mcp.commands.<command>.server selects a configured server / 选择一个已配置 server
-mcp.commands.<command>.tool   optional advanced override; AICmd auto-discovers tools by default / 高级可选覆盖项；默认由 AICmd 自动发现 tool
-mcp.commands.<command>.input  optional tool input field name / 可选 tool 输入字段名
 ```
 
-Tool selection is automatic by default: AICmd calls the server's MCP `tools/list`, chooses the best matching tool from the command name, description, and user input, then calls that tool. If a server exposes several similar tools and AICmd cannot choose safely, it prints the available tool names; advanced users can then add the optional `tool` field as an override.
-
-默认会自动选择 tool：AICmd 会调用 MCP server 的 `tools/list`，根据命令名、description 和用户输入选择最匹配的 tool，然后调用它。如果一个 server 暴露多个相似 tool，AICmd 无法安全判断时，会打印可用 tool 名称；高级用户此时可以添加可选的 `tool` 字段作为覆盖。
 
 Examples:
 
