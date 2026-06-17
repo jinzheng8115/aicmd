@@ -273,21 +273,33 @@ aicmd mcp list        # list MCP commands / 列出 MCP 命令
 
 ## 6. Shell integration / Shell 集成
 
-AICmd normally runs commands in a child process. A child process cannot change the parent terminal directory, so commands like `cd ..` need shell integration if you want your current terminal to actually move directory.
+Shell integration lets commands such as `cd ..` update your current terminal directory after AICmd executes them.
 
-AICmd 通常在子进程里执行命令。子进程不能改变父终端的当前目录，所以如果你希望 `cd ..` 这类命令真的让当前终端切换目录，需要 shell 集成。
+Shell 集成的作用是：当 AICmd 执行 `cd ..` 这类命令后，让当前终端目录也真的跟着变化。
+
+For normal first-time installation, you do not need to run any shell integration command manually.
+
+正常首次安装后，不需要手动执行 shell integration 命令。
 
 What the installer does / 安装器行为：
-- macOS / Linux installer writes shell integration to `~/.zshrc` or `~/.bashrc` unless `--no-shell-integration` is used.
-- Windows installer writes PowerShell integration to your PowerShell profile unless `-NoProfile` is used.
-- Existing terminals may need to reload the profile or start a new terminal.
+- macOS / Linux installer automatically writes shell integration to `~/.zshrc` or `~/.bashrc`.
+- Windows installer automatically writes shell integration to your PowerShell profile.
+- After installation, open a new terminal or PowerShell window. The integration will be loaded automatically.
 
 中文：
-- macOS / Linux 安装器会写入 `~/.zshrc` 或 `~/.bashrc`，除非使用 `--no-shell-integration`。
-- Windows 安装器会写入 PowerShell profile，除非使用 `-NoProfile`。
-- 已经打开的终端需要重新加载配置或新开终端。
+- macOS / Linux 安装器会自动写入 `~/.zshrc` 或 `~/.bashrc`。
+- Windows 安装器会自动写入 PowerShell profile。
+- 安装完成后，新开一个终端或 PowerShell 窗口即可自动生效。
 
-Manual enable / 手动启用：
+Manual enable is only for exceptional cases / 手动启用只用于特殊情况：
+- You installed with `--no-shell-integration` or `-NoProfile`.
+- You want the already-open current terminal to load the integration immediately without opening a new terminal.
+
+中文：
+- 安装时使用了 `--no-shell-integration` 或 `-NoProfile`。
+- 不想新开终端，希望当前已经打开的终端立即生效。
+
+Manual commands / 手动命令：
 
 ```bash
 # zsh / bash
@@ -299,9 +311,9 @@ eval "$(aicmd shell-init)"
 Invoke-Expression (& aicmd shell-init powershell)
 ```
 
-If you do not use shell integration, AICmd can still run commands, but `cd` results cannot update your current terminal directory.
+If shell integration is disabled, AICmd can still run commands, but `cd` results cannot update your current terminal directory.
 
-如果不启用 shell 集成，AICmd 仍然可以执行命令，但 `cd` 的结果不会同步到当前终端目录。
+如果禁用了 shell 集成，AICmd 仍然可以执行命令，但 `cd` 的结果不会同步到当前终端目录。
 
 ## 7. Command usage / 命令用法
 
