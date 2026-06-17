@@ -344,7 +344,38 @@ After execution, AICmd prints raw command output and asks the LLM to summarize i
 
 执行后，AICmd 会先输出原始命令结果，再让 LLM 做 summary。
 
-### 7.2 Sessions / 会话
+### 7.2 Global options / 全局系统参数
+
+These options belong to `aicmd` itself. They control how AICmd runs; they are not part of the natural-language task.
+
+这些参数属于 `aicmd` 系统本身，用来控制 AICmd 的运行方式，不属于自然语言任务内容。
+
+| Option / 参数 | Meaning / 含义 | Example / 示例 |
+| --- | --- | --- |
+| `-m, --model <MODEL>` | Temporarily use a specific model for this request. / 本次请求临时使用指定模型。 | `aicmd -m openai:gpt-4o 当前目录有多少文件` |
+| `-s, --session [SESSION]` | Show current session when no name is given; otherwise start or join a named session. / 不带名称时显示当前 session；带名称时进入或创建指定 session。 | `aicmd -s`, `aicmd -s dev hello` |
+| `--empty-session` | Clear/recreate the selected session; AICmd asks for confirmation. / 清空并重建所选 session，会二次确认。 | `aicmd -s dev --empty-session` |
+| `-f, --file <FILE>` | Attach a file, directory, or URL as context for the request. / 把文件、目录或 URL 作为上下文传给模型。 | `aicmd -f README.md 总结这个文件` |
+| `--dry-run` | Show the message/prompt that would be sent, but do not call the LLM. Useful for debugging prompt/session/config behavior. / 只显示将要发送的内容，不调用 LLM。用于调试 prompt、session、配置行为。 | `aicmd --dry-run 当前目录有多少文件` |
+| `--list-sessions` | List saved sessions. / 列出已保存的 session。 | `aicmd --list-sessions` |
+| `-h, --help` | Print help. / 显示帮助。 | `aicmd --help` |
+| `-V, --version` | Print version. / 显示版本。 | `aicmd --version` |
+
+Count / 数量：there are 8 global options in the current CLI.
+
+数量：当前 CLI 有 8 个全局系统参数。
+
+Subcommands also have their own options / 子命令也有自己的参数：
+
+| Command / 命令 | Option / 参数 | Meaning / 含义 |
+| --- | --- | --- |
+| `aicmd do` | `--dry-run` | Build the script-generation request but do not send it to the LLM. / 生成脚本任务请求但不发送给 LLM。 |
+| `aicmd do` | `-o, --output <PATH>` | Ask AICmd to create the task script at this path. / 指定生成脚本路径。 |
+| `aicmd model init` / `aicmd init` | `--from-env` | Require `.env` and generate `~/.aicmd/config.yaml` from it. / 必须读取 `.env` 并生成 `~/.aicmd/config.yaml`。 |
+| `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. / 覆盖已有 `config.yaml`，会二次确认。 |
+| `aicmd shell-init` | `zsh`, `bash`, `powershell` | Print integration code for that shell. Usually not needed after normal install. / 输出对应 shell 的集成代码；正常安装后通常不需要手动执行。 |
+
+### 7.3 Sessions / 会话
 
 ```bash
 aicmd -s                 # show current/default session / 显示当前默认 session
@@ -365,7 +396,7 @@ Notes / 注意：
 - `-s dev` 如果已存在，会继续写入同一个 session。
 - `--empty-session` 会清空会话记录，属于危险操作，会二次确认。
 
-### 7.3 Script workflow: `aicmd do` / 脚本工作流
+### 7.4 Script workflow: `aicmd do` / 脚本工作流
 
 Use this when the task is more than a one-liner, for example processing CSV, logs, images, or multiple files.
 
@@ -381,7 +412,7 @@ AICmd asks the LLM to generate commands that create a script, review it, and exe
 
 AICmd 会让 LLM 生成“创建脚本并运行脚本”的命令，并走正常确认流程。
 
-### 7.4 Error diagnosis: `aicmd err` / 报错诊断
+### 7.5 Error diagnosis: `aicmd err` / 报错诊断
 
 ```bash
 aicmd err -- pnpm test
@@ -392,7 +423,7 @@ AICmd runs the command, captures stdout/stderr/exit code, and asks the LLM to ge
 
 AICmd 会先执行该命令，捕获 stdout/stderr/exit code，然后让 LLM 生成安全的诊断或修复命令。
 
-### 7.5 MCP and search / MCP 与搜索
+### 7.6 MCP and search / MCP 与搜索
 
 ```bash
 aicmd mcp list
@@ -412,7 +443,7 @@ aicmd mcp-raw search "今天 AI 新闻"
 aicmd mcp-raw context7-library react
 ```
 
-### 7.6 Model/config commands / 模型与配置命令
+### 7.7 Model/config commands / 模型与配置命令
 
 ```bash
 aicmd init --from-env        # same as aicmd model init --from-env
