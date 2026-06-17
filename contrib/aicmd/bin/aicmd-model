@@ -5,19 +5,19 @@ usage() {
   cat <<'HELP'
 Usage: aicmd-model <command>
 
-Manage the AICmd runtime model config at ~/.aicmd/config.yaml and MCP config at ~/.aicmd/config.json.
-The recommended setup is: copy .env.example to .env, fill the model and MCP values, then run `aicmd-model init --from-env`.
+Manage the AICmd runtime config at ~/.aicmd/config.yaml, including LLM and MCP settings.
+The recommended setup is: copy .env.example to .env, fill the model and MCP values, then run `aicmd init --from-env`.
 
 用法：aicmd-model <命令>
 
-管理 AICmd 运行时模型配置 ~/.aicmd/config.yaml 和 MCP 配置 ~/.aicmd/config.json。
-推荐流程：复制 .env.example 为 .env，填写模型和 MCP 参数，然后运行 `aicmd-model init --from-env`。
+管理 AICmd 运行时配置 ~/.aicmd/config.yaml，其中同时包含 LLM 和 MCP 设置。
+推荐流程：复制 .env.example 为 .env，填写模型和 MCP 参数，然后运行 `aicmd init --from-env`。
 
 Commands / 命令:
-  init                Create runtime config.yaml and config.json. Uses .env when found, otherwise writes starter configs.
-                      创建运行时 config.yaml 和 config.json。发现 .env 时读取它，否则写入初始配置。
-  init --from-env     Require .env and generate config.yaml/config.json from it / 必须读取 .env 并生成配置
-  init --force        Overwrite runtime config.yaml/config.json / 覆盖运行时配置
+  init                Create runtime config.yaml. Uses .env when found, otherwise writes a starter config.
+                      创建运行时 config.yaml。发现 .env 时读取它，否则写入初始配置。
+  init --from-env     Require .env and generate config.yaml from it / 必须读取 .env 并生成 config.yaml
+  init --force        Overwrite runtime config.yaml / 覆盖运行时配置
   path                Print runtime config.yaml path / 输出运行时 config.yaml 路径
   dir                 Print runtime config directory / 输出运行时配置目录
   show                Print runtime config.yaml / 输出运行时配置
@@ -27,7 +27,7 @@ Commands / 命令:
 Examples / 示例:
   cp .env.example .env
   $EDITOR .env
-  aicmd-model init --from-env
+  aicmd init --from-env
   aicmd-model show
 HELP
 }
@@ -48,14 +48,6 @@ config_path() {
   fi
 }
 
-
-mcp_config_path() {
-  if [[ -n "${AICMD_MCP_CONFIG_FILE:-}" ]]; then
-    printf '%s\n' "$AICMD_MCP_CONFIG_FILE"
-  else
-    printf '%s/config.json\n' "$(config_dir)"
-  fi
-}
 
 find_env_file() {
   if [[ -n "${AICMD_MODEL_ENV:-}" ]]; then
@@ -98,12 +90,8 @@ yaml_escape() {
   printf '"%s"\n' "$value"
 }
 
-json_escape() {
-  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
-}
-
 config_from_env() {
-  local provider name api_base api_key model_ids first_model_id default_model openai_api_style client_type
+  local provider name api_base api_key model_ids first_model_id default_model openai_api_style client_type tavily_key tavily_keys_file
   provider="$(required_env AICMD_MODEL_PROVIDER)"
   name="$(required_env AICMD_MODEL_NAME)"
   api_base="$(required_env AICMD_MODEL_API_BASE)"
@@ -116,6 +104,8 @@ config_from_env() {
     default_model="${name}:${default_model}"
   fi
   openai_api_style="${AICMD_OPENAI_API_STYLE:-chat}"
+  tavily_key="${AICMD_MCP_TAVILY_API_KEY:-}"
+  tavily_keys_file="${AICMD_MCP_TAVILY_API_KEYS_FILE:-}"
 
   case "$provider" in
     openai)
@@ -182,45 +172,20 @@ YAML
     IFS=','
   done
   IFS="$old_ifs"
-}
 
-mcp_config_from_env() {
-  local tavily_key tavily_keys_file
-  tavily_key="${AICMD_MCP_TAVILY_API_KEY:-}"
-  tavily_keys_file="${AICMD_MCP_TAVILY_API_KEYS_FILE:-}"
-  cat <<JSON
-{
-  "mcpServers": {
-    "tavily": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "tavily-mcp"],
-      "env": {
-        "TAVILY_API_KEY": $(printf '%s' "$tavily_key" | json_escape),
-        "TAVILY_API_KEYS_FILE": $(printf '%s' "$tavily_keys_file" | json_escape)
-      }
-    }
-  }
-}
-JSON
-}
+  cat <<YAML
 
-default_mcp_config() {
-  cat <<'JSON'
-{
-  "mcpServers": {
-    "tavily": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "tavily-mcp"],
-      "env": {
-        "TAVILY_API_KEY": "",
-        "TAVILY_API_KEYS_FILE": ""
-      }
-    }
-  }
-}
-JSON
+mcpServers:
+  tavily:
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - tavily-mcp
+    env:
+      TAVILY_API_KEY: $(printf '%s' "$tavily_key" | yaml_escape)
+      TAVILY_API_KEYS_FILE: $(printf '%s' "$tavily_keys_file" | yaml_escape)
+YAML
 }
 
 default_config() {
@@ -228,10 +193,10 @@ default_config() {
 # AICmd runtime config / AICmd 运行时配置
 #
 # Recommended: copy .env.example to .env, fill model values, then run:
-#   aicmd-model init --from-env
+#   aicmd init --from-env
 #
 # 推荐：复制 .env.example 为 .env，填写模型参数，然后运行：
-#   aicmd-model init --from-env
+#   aicmd init --from-env
 
 model: openai:gpt-4o
 
@@ -255,6 +220,17 @@ clients:
     api_style: chat
     models:
       - name: gpt-4o
+
+mcpServers:
+  tavily:
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - tavily-mcp
+    env:
+      TAVILY_API_KEY: ""
+      TAVILY_API_KEYS_FILE: ""
 YAML
 }
 
@@ -272,46 +248,33 @@ confirm_init() {
 }
 
 init_config() {
-  local force="$1" from_env="$2" path mcp_path env_file
+  local force="$1" from_env="$2" path env_file
   path="$(config_path)"
-  mcp_path="$(mcp_config_path)"
-  if [[ "$force" != "true" ]]; then
-    if [[ -f "$path" ]]; then
-      echo "config already exists: $path" >&2
-      echo "use 'aicmd-model init --force' to overwrite it" >&2
-      exit 1
-    fi
-    if [[ -f "$mcp_path" ]]; then
-      echo "MCP config already exists: $mcp_path" >&2
-      echo "use 'aicmd-model init --force' to overwrite it" >&2
-      exit 1
-    fi
+  if [[ -f "$path" && "$force" != "true" ]]; then
+    echo "config already exists: $path" >&2
+    echo "use 'aicmd-model init --force' to overwrite it" >&2
+    exit 1
   fi
 
   env_file="$(find_env_file || true)"
   if [[ -n "$env_file" ]]; then
-    confirm_init "$path and $mcp_path" "$env_file"
-    mkdir -p "$(dirname "$path")" "$(dirname "$mcp_path")"
+    confirm_init "$path" "$env_file"
+    mkdir -p "$(dirname "$path")"
     load_model_env "$env_file"
     config_from_env > "$path"
-    mcp_config_from_env > "$mcp_path"
     echo "created config from env: $path"
-    echo "created MCP config from env: $mcp_path"
     echo "env file: $env_file"
   elif [[ "$from_env" == "true" ]]; then
     echo "env file not found. Copy .env.example to .env and fill it first." >&2
     exit 1
   else
-    confirm_init "$path and $mcp_path" "built-in starter config"
-    mkdir -p "$(dirname "$path")" "$(dirname "$mcp_path")"
+    confirm_init "$path" "built-in starter config"
+    mkdir -p "$(dirname "$path")"
     default_config > "$path"
-    default_mcp_config > "$mcp_path"
     echo "created starter config: $path"
-    echo "created starter MCP config: $mcp_path"
   fi
-  chmod 600 "$path" "$mcp_path" 2>/dev/null || true
-  echo "edit model config with: aicmd-model edit"
-  echo "edit MCP config with: ${EDITOR:-vi} $mcp_path"
+  chmod 600 "$path" 2>/dev/null || true
+  echo "edit config with: aicmd-model edit"
 }
 
 cmd="${1:-help}"
@@ -336,7 +299,7 @@ case "$cmd" in
     path="$(config_path)"
     if [[ ! -f "$path" ]]; then
       echo "config not found: $path" >&2
-      echo "run 'aicmd-model init --from-env' to create it" >&2
+      echo "run 'aicmd init --from-env' to create it" >&2
       exit 1
     fi
     cat "$path" ;;

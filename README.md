@@ -39,15 +39,15 @@ contrib/aicmd/install.sh
 aicmd init --from-env
 ```
 
-The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, `aicmd-model`, and `aicmd-mcp` to `~/.local/bin`. After installation, run `aicmd init --from-env` to generate `~/.aicmd/config.yaml` and `~/.aicmd/config.json` from `.env`.
+The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, `aicmd-model`, and `aicmd-mcp` to `~/.local/bin`. After installation, run `aicmd init --from-env` to generate `~/.aicmd/config.yaml` from `.env`.
 
-安装脚本会构建 Rust 二进制，并把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model`、`aicmd-mcp` 复制到 `~/.local/bin`。安装后运行 `aicmd init --from-env`，根据 `.env` 生成 `~/.aicmd/config.yaml` 和 `~/.aicmd/config.json`。
+安装脚本会构建 Rust 二进制，并把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model`、`aicmd-mcp` 复制到 `~/.local/bin`。安装后运行 `aicmd init --from-env`，根据 `.env` 生成 `~/.aicmd/config.yaml`。
 
 ## Config / 配置
 
-English: Users fill `.env` before installation, then `aicmd-model init --from-env` generates `~/.aicmd/config.yaml` for models and `~/.aicmd/config.json` for MCP. After installation, users may edit those two runtime files directly. `.env` supports exactly one model provider configuration at a time; choose `openai`, `anthropic`, or `google`. To switch provider or MCP settings later, edit the same `.env` file and run `aicmd-model init --from-env --force`. OpenAI also supports `AICMD_OPENAI_API_STYLE=chat|responses`. Temperature, max tokens, and thinking mode are not required in `.env`; defaults are used.
+English: Users fill `.env` before installation, then `aicmd init --from-env` generates one runtime file: `~/.aicmd/config.yaml`. That YAML contains both LLM settings and MCP server settings. After installation, users may edit this file directly. `.env` supports exactly one model provider configuration at a time; choose `openai`, `anthropic`, or `google`. To switch provider or MCP settings later, edit the same `.env` file and run `aicmd init --from-env --force`. OpenAI also supports `AICMD_OPENAI_API_STYLE=chat|responses`. Temperature, max tokens, and thinking mode are not required in `.env`; defaults are used.
 
-中文：用户在安装前填写 `.env`，然后用 `aicmd-model init --from-env` 生成模型配置 `~/.aicmd/config.yaml` 和 MCP 配置 `~/.aicmd/config.json`。安装后也可以直接编辑这两个运行时配置文件。`.env` 同一时间只支持一组模型服务配置；从 `openai`、`anthropic`、`google` 中选择一种。后续如需切换服务商或 MCP 设置，修改同一个 `.env` 文件后运行 `aicmd-model init --from-env --force`。OpenAI 额外支持 `AICMD_OPENAI_API_STYLE=chat|responses`。temperature、max token、thinking 模式不需要在 `.env` 中配置，默认使用关闭或默认值。
+中文：用户在安装前填写 `.env`，然后用 `aicmd init --from-env` 生成唯一运行时配置文件：`~/.aicmd/config.yaml`。这个 YAML 同时包含 LLM 设置和 MCP server 设置。安装后也可以直接编辑这个文件。`.env` 同一时间只支持一组模型服务配置；从 `openai`、`anthropic`、`google` 中选择一种。后续如需切换服务商或 MCP 设置，修改同一个 `.env` 文件后运行 `aicmd init --from-env --force`。OpenAI 额外支持 `AICMD_OPENAI_API_STYLE=chat|responses`。temperature、max token、thinking 模式不需要在 `.env` 中配置，默认使用关闭或默认值。
 
 ## Detailed usage / 详细使用文档
 
@@ -57,9 +57,9 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 ## MCP tools / MCP 工具
 
-AICmd keeps MCP calls separate from the main terminal-command workflow. Use `aicmd search <query>` as the main shortcut for search; it delegates to the dedicated MCP helper `aicmd-mcp search`. MCP runtime settings are generated from `.env` into `~/.aicmd/config.json`; search commands read `config.json` directly. The MCP config uses the standard server shape: `mcpServers.<name>.type`, `command`, `args`, and `env`.
+AICmd keeps MCP calls separate from the main terminal-command workflow. Use `aicmd search <query>` as the main shortcut for search; it delegates to the dedicated MCP helper `aicmd-mcp search`. MCP runtime settings are generated from `.env` into `~/.aicmd/config.yaml`; search commands read `config.yaml` directly. The MCP config uses the standard server shape: `mcpServers.<name>.type`, `command`, `args`, and `env`.
 
-AICmd 将 MCP 调用和主终端命令流程分开。搜索时可以直接使用主命令快捷入口 `aicmd search <query>`；它会转发到独立 MCP 辅助命令 `aicmd-mcp search`。MCP 运行时配置会从 `.env` 生成到 `~/.aicmd/config.json`；搜索命令直接读取 `config.json`。MCP 配置使用标准 server 结构：`mcpServers.<name>.type`、`command`、`args`、`env`。
+AICmd 将 MCP 调用和主终端命令流程分开。搜索时可以直接使用主命令快捷入口 `aicmd search <query>`；它会转发到独立 MCP 辅助命令 `aicmd-mcp search`。MCP 运行时配置会从 `.env` 生成到 `~/.aicmd/config.yaml`；搜索命令直接读取 `config.yaml`。MCP 配置使用标准 server 结构：`mcpServers.<name>.type`、`command`、`args`、`env`。
 
 ```bash
 aicmd init --from-env

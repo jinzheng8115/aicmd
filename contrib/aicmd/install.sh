@@ -49,15 +49,13 @@ rmdir "$LEGACY_SHARE_DIR" 2>/dev/null || true
 SHELL_RC_FILE="$(install_shell_integration)"
 
 CONFIG_PATH="$($BIN_DIR/aicmd-model path)"
-CONFIG_DIR="$($BIN_DIR/aicmd-model dir)"
-MCP_CONFIG_PATH="${AICMD_MCP_CONFIG_FILE:-$CONFIG_DIR/config.json}"
-CONFIG_STATUS="Existing config kept: $CONFIG_PATH and $MCP_CONFIG_PATH"
-if [[ -f "$ROOT_DIR/.env" && ! -f "$CONFIG_PATH" && ! -f "$MCP_CONFIG_PATH" ]]; then
-  CONFIG_STATUS="Found $ROOT_DIR/.env. Run: aicmd-model init --from-env"
-elif [[ -f "$ROOT_DIR/.env" ]]; then
-  CONFIG_STATUS="Existing config kept: $CONFIG_PATH and/or $MCP_CONFIG_PATH. To overwrite from .env, run: aicmd-model init --from-env --force"
-elif [[ ! -f "$CONFIG_PATH" || ! -f "$MCP_CONFIG_PATH" ]]; then
-  CONFIG_STATUS="No .env found. Copy .env.example to .env, fill it, then run: aicmd-model init --from-env"
+CONFIG_STATUS="Existing config kept: $CONFIG_PATH"
+if [[ -f "$ROOT_DIR/.env" && ! -f "$CONFIG_PATH" ]]; then
+  CONFIG_STATUS="Found $ROOT_DIR/.env. Run: aicmd init --from-env"
+elif [[ -f "$ROOT_DIR/.env" && -f "$CONFIG_PATH" ]]; then
+  CONFIG_STATUS="Existing config kept: $CONFIG_PATH. To overwrite from .env, run: aicmd init --from-env --force"
+elif [[ ! -f "$CONFIG_PATH" ]]; then
+  CONFIG_STATUS="No .env found. Copy .env.example to .env, fill it, then run: aicmd init --from-env"
 fi
 
 cat <<MSG
