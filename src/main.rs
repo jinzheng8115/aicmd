@@ -7,6 +7,7 @@ mod function;
 mod mcp_cmd;
 mod model_cmd;
 mod render;
+mod shell_init_cmd;
 #[macro_use]
 mod utils;
 
@@ -107,6 +108,7 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
     match cmd {
         "init" => Ok(Some(model_cmd::run_model_command(args)?)),
         "model" => Ok(Some(model_cmd::run_model_command(&args[1..])?)),
+        "shell-init" => Ok(Some(shell_init_cmd::run_shell_init_command(&args[1..])?)),
         _ => Ok(None),
     }
 }

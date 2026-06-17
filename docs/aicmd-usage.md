@@ -96,7 +96,7 @@ Enable it in the current shell:
 在当前 shell 中启用：
 
 ```bash
-eval "$(aicmd-shell-init)"
+eval "$(aicmd shell-init)"
 ```
 
 Enable it permanently for zsh:
@@ -104,7 +104,7 @@ Enable it permanently for zsh:
 在 zsh 中永久启用：
 
 ```bash
-echo 'eval "$(aicmd-shell-init)"' >> ~/.zshrc
+echo 'eval "$(aicmd shell-init)"' >> ~/.zshrc
 ```
 
 After this, if AICmd executes a command that changes directory, the wrapper updates your current shell directory after the command finishes.

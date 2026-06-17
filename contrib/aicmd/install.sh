@@ -15,7 +15,7 @@ install_shell_integration() {
     *) rc_file="$HOME/.zshrc" ;;
   esac
   marker="# >>> aicmd shell integration >>>"
-  line='eval "$(aicmd-shell-init)"'
+  line='eval "$(aicmd shell-init)"'
   mkdir -p "$(dirname "$rc_file")"
   touch "$rc_file"
   if grep -Fq "$marker" "$rc_file" || grep -Fxq "$line" "$rc_file"; then

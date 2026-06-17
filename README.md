@@ -91,7 +91,7 @@ Or enable it manually for the current shell:
 也可以只在当前 shell 手动启用：
 
 ```bash
-eval "$(aicmd-shell-init)"
+eval "$(aicmd shell-init)"
 ```
 
 ## Usage / 使用
