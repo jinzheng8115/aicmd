@@ -386,9 +386,7 @@ AICMD_MODEL_API_KEY    API key
 AICMD_MODEL_IDS        provider model id(s), comma-separated / 模型 ID，多个用逗号分隔
 AICMD_DEFAULT_MODEL    optional default model; default is name:first-id / 可选默认模型；默认是 name:第一个模型 ID
 AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
-AICMD_MCP_SERVER_NAME   optional single MCP server name / 可选单个 MCP server 名称
-AICMD_MCP_SERVER_JSON   optional single MCP server JSON / 可选单个 MCP server JSON
-AICMD_MCP_SERVERS_JSON  optional multiple MCP servers JSON / 可选多个 MCP servers JSON
+AICMD_MCP_SERVERS_JSON  optional MCP servers JSON map / 可选 MCP servers JSON map
 AICMD_MCP_TAVILY_API_KEY backward-compatible Tavily shorthand / 兼容旧版的 Tavily 简写
 AICMD_MCP_TAVILY_API_KEYS_FILE backward-compatible Tavily key file shorthand / 兼容旧版的 Tavily key 文件简写
 ```
@@ -399,9 +397,8 @@ MCP examples in .env:
 .env 中的 MCP 示例：
 
 ```bash
-# Single server / 单个 server
-AICMD_MCP_SERVER_NAME=context7
-AICMD_MCP_SERVER_JSON='{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]}'
+# One server / 一个 server
+AICMD_MCP_SERVERS_JSON='{"context7":{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]}}'
 
 # Multiple servers / 多个 servers
 AICMD_MCP_SERVERS_JSON='{"context7":{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]},"tavily":{"type":"stdio","command":"npx","args":["-y","tavily-mcp"],"env":{"TAVILY_API_KEY":"tvly-xxxx"}}}'

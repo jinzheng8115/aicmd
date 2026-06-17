@@ -99,15 +99,9 @@ import sys
 import yaml
 
 servers_json = os.environ.get("AICMD_MCP_SERVERS_JSON", "").strip()
-server_name = os.environ.get("AICMD_MCP_SERVER_NAME", "").strip()
-server_json = os.environ.get("AICMD_MCP_SERVER_JSON", "").strip()
 
 if servers_json:
     servers = json.loads(servers_json)
-elif server_json:
-    if not server_name:
-        raise SystemExit("AICMD_MCP_SERVER_NAME is required when AICMD_MCP_SERVER_JSON is set")
-    servers = {server_name: json.loads(server_json)}
 else:
     tavily_env = {}
     tavily_key = os.environ.get("AICMD_MCP_TAVILY_API_KEY", "")
