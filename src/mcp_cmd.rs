@@ -448,7 +448,7 @@ fn choose_tool(
         }
         scored.push((score, name.to_string(), desc.to_string()));
     }
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|item| std::cmp::Reverse(item.0));
     if let Some(best) = scored.first() {
         if best.0 > 0 && (scored.len() == 1 || best.0 > scored[1].0) {
             return Ok(best.1.clone());
