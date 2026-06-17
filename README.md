@@ -202,17 +202,9 @@ Default install locations / 默认安装位置：
 | Runtime config / 运行时配置 | `~/.aicmd/config.yaml` | `~/.aicmd/config.yaml` |
 | MCP config / MCP 配置 | `~/.aicmd/mcp.json` | `~/.aicmd/mcp.json` |
 
-The installer also creates compatibility wrappers:
+The installer also creates compatibility wrappers for older scripts, such as `aicmd-do`, `aicmd-err`, `aicmd-model`, and `aicmd-shell-init`. New usage should prefer the main `aicmd` command examples below.
 
-安装器还会创建兼容 wrapper：
-
-```text
-aicmd-do          -> aicmd do
-aicmd-err         -> aicmd err
-aicmd-model       -> aicmd model
-aicmd-mcp         -> aicmd mcp-raw
-aicmd-shell-init  -> aicmd shell-init
-```
+安装器还会为旧脚本创建兼容 wrapper，例如 `aicmd-do`、`aicmd-err`、`aicmd-model`、`aicmd-shell-init`。新用法建议直接参考下面的 `aicmd` 主命令示例。
 
 ### 4.2 Source/developer install, Rust required / 源码或开发安装，需要 Rust
 
@@ -270,7 +262,6 @@ Useful checks / 常用检查：
 aicmd model path      # show config.yaml path / 查看 config.yaml 路径
 aicmd model show      # print config.yaml / 输出 config.yaml
 aicmd model edit      # edit config.yaml / 编辑 config.yaml
-aicmd mcp list        # list MCP commands / 列出 MCP 命令
 ```
 
 ## 6. Shell integration / Shell 集成
@@ -439,25 +430,20 @@ AICmd runs the command, captures stdout/stderr/exit code, and asks the LLM to ge
 
 AICmd 会先执行该命令，捕获 stdout/stderr/exit code，然后让 LLM 生成安全的诊断或修复命令。
 
-### 7.6 MCP and search / MCP 与搜索
+### 7.6 Search / 搜索
 
 ```bash
-aicmd mcp list
 aicmd search "今天 AI 新闻"
-aicmd mcp search "DeepSeek latest model"
-aicmd mcp context7-library react
+aicmd search "DeepSeek latest model"
 ```
 
-User-facing MCP commands call MCP first, then send the MCP result to the LLM for final summary.
+`aicmd search` calls the configured search MCP server first, then sends the MCP result to the LLM for final terminal-friendly summary.
 
-面向用户的 MCP 命令会先调用 MCP，再把 MCP 结果发送给 LLM 进行最终整理。
+`aicmd search` 会先调用已配置的搜索 MCP server，再把 MCP 结果发送给 LLM，输出适合终端阅读的总结。
 
-Raw MCP output for debugging / 调试 MCP 原始输出：
+For normal users, `aicmd search` is the only search command to remember.
 
-```bash
-aicmd mcp-raw search "今天 AI 新闻"
-aicmd mcp-raw context7-library react
-```
+对普通用户来说，只需要记住 `aicmd search` 这一个搜索命令。
 
 ### 7.7 Model/config commands / 模型与配置命令
 
@@ -552,11 +538,11 @@ Regenerate `config.yaml`:
 aicmd init --from-env --force
 ```
 
-### MCP command not found / 找不到 MCP 命令
+### Search command not found or MCP config issue / 搜索命令不可用或 MCP 配置问题
 
 ```bash
-aicmd mcp list
 $EDITOR ~/.aicmd/mcp.json
+aicmd search "test"
 ```
 
 ### `cd ..` executed but current directory did not change / 执行了 `cd ..` 但当前目录没变
