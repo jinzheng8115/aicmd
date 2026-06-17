@@ -13,7 +13,7 @@ English:
 - The Rust binary is now `aicmd`.
 - Default workflow: `aicmd 列出当前目录最大的 10 个文件` generates a shell command and asks before running it.
 - Daily command session: plain `aicmd` uses `cmd-YYYYMMDD` by default.
-- Script workflow: `aicmd-do` asks AICmd to generate commands that create and run a task script through the normal confirmation flow.
+- Script workflow: `aicmd do` asks AICmd to generate commands that create and run a task script through the normal confirmation flow. `aicmd-do` remains as a compatibility wrapper.
 - Error workflow: `aicmd err -- <command>` captures command output and asks AICmd to generate diagnostic/fix commands. `aicmd-err` remains as a compatibility wrapper.
 - Broad upstream features such as REPL, RAG, agents, macros, custom roles, and server mode are not part of the public AICmd CLI surface.
 
@@ -21,7 +21,7 @@ English:
 - Rust 二进制现在叫 `aicmd`。
 - 默认工作流：`aicmd 列出当前目录最大的 10 个文件` 会生成 shell 命令，并在执行前让你确认。
 - 每日命令会话：普通 `aicmd` 默认使用 `cmd-YYYYMMDD`。
-- 脚本工作流：`aicmd-do` 会让 AICmd 生成“创建并运行任务脚本”的命令，并走正常确认流程。
+- 脚本工作流：`aicmd do` 会让 AICmd 生成“创建并运行任务脚本”的命令，并走正常确认流程；`aicmd-do` 仅作为兼容 wrapper。
 - 报错工作流：`aicmd err -- <command>` 捕获命令输出，并让 AICmd 生成诊断/修复命令；`aicmd-err` 仅作为兼容 wrapper。
 - 模型配置辅助命令：`aicmd model` 用于定位、查看或编辑运行时模型配置；`aicmd-model` 仅作为兼容 wrapper。
 - REPL、RAG、agents、macros、自定义 roles、server mode 等上游宽功能不属于 AICmd 的公开 CLI 使用面。
@@ -103,8 +103,8 @@ aicmd 把当前目录下的 png 图片压缩到 dist/images
 aicmd -s dev 运行测试并修复明显问题
 
 # Generate a script, review it, then run after confirmation / 生成脚本、检查、确认后执行
-aicmd-do "处理 input.csv，输出 cleaned.csv"
-aicmd-do --dry-run "统计 logs/*.log 里的 ERROR 数量"
+aicmd do "处理 input.csv，输出 cleaned.csv"
+aicmd do --dry-run "统计 logs/*.log 里的 ERROR 数量"
 
 # Search with MCP / 使用 MCP 搜索
 aicmd search "今天 AI 新闻"

@@ -603,18 +603,18 @@ This keeps the new project focused while preserving provider credentials and bas
 
 这样可以保留 provider 凭据和基础模型配置，同时让新项目保持聚焦。
 
-## 11. Helper command: aicmd-do / 辅助命令：aicmd-do
+## 11. Script command: aicmd do / 脚本命令：aicmd do
 
-`aicmd-do` asks AICmd to generate commands that create a local zsh script, make it executable, and run it through AICmd's normal confirmation flow.
+`aicmd do` asks AICmd to generate commands that create a local task script, make it runnable, and run it through AICmd's normal confirmation flow. `aicmd-do` remains as a compatibility wrapper.
 
-`aicmd-do` 会让 AICmd 生成命令：创建本地 zsh 脚本、赋予执行权限，并通过 AICmd 正常确认流程运行。
+`aicmd do` 会让 AICmd 生成命令：创建本地任务脚本、设置为可运行，并通过 AICmd 正常确认流程运行；`aicmd-do` 仅作为兼容 wrapper。
 
 Usage:
 
 用法：
 
 ```bash
-aicmd-do [--dry-run] [--output PATH] <task>
+aicmd do [--dry-run] [--output PATH] <task>
 ```
 
 Examples:
@@ -622,15 +622,15 @@ Examples:
 示例：
 
 ```bash
-aicmd-do "统计 data.csv 每列的空值数量"
+aicmd do "统计 data.csv 每列的空值数量"
 ```
 
 ```bash
-aicmd-do --output scripts/clean-data.sh "清洗 input.csv，输出 cleaned.csv"
+aicmd do --output scripts/clean-data.sh "清洗 input.csv，输出 cleaned.csv"
 ```
 
 ```bash
-aicmd-do --dry-run "处理 logs/*.log，提取 ERROR 行到 errors.txt"
+aicmd do --dry-run "处理 logs/*.log，提取 ERROR 行到 errors.txt"
 ```
 
 Default script path:
@@ -857,7 +857,7 @@ aicmd -f README.md 总结安装步骤
 aicmd --dry-run 当前目录下有多少文件
 
 # Generate a script workflow / 生成脚本工作流
-aicmd-do "清洗 input.csv，输出 cleaned.csv"
+aicmd do "清洗 input.csv，输出 cleaned.csv"
 
 # Analyze a failing command / 分析失败命令
 aicmd err -- pnpm test

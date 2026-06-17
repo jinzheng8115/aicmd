@@ -1,6 +1,7 @@
 mod cli;
 mod client;
 mod config;
+mod do_cmd;
 mod err_cmd;
 mod function;
 mod mcp_cmd;
@@ -142,6 +143,18 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             let default_session = default_session_name();
             config.write().use_session(Some(&default_session))?;
             let input = Input::from_str(config, &report, None);
+            shell_execute(config, &SHELL, input, create_abort_signal()).await?;
+            Ok(Some(0))
+        }
+        "do" => {
+            let request = do_cmd::build_do_request(args, &SHELL.name)?;
+            if request.dry_run {
+                config.write().dry_run = true;
+            }
+            config.write().use_role(SHELL_ROLE)?;
+            let default_session = default_session_name();
+            config.write().use_session(Some(&default_session))?;
+            let input = Input::from_str(config, &request.prompt, None);
             shell_execute(config, &SHELL, input, create_abort_signal()).await?;
             Ok(Some(0))
         }

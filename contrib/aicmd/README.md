@@ -8,13 +8,13 @@ English: AICmd is a command-first terminal workflow. The `aicmd` binary turns na
 
 English:
 - `aicmd ...`: generate and confirm a shell command from natural language.
-- `aicmd-do ...`: generate commands that create and run a task script through the normal confirmation flow.
+- `aicmd do ...`: generate commands that create and run a task script through the normal confirmation flow. `aicmd-do` remains as a compatibility wrapper.
 - `aicmd err -- <command>`: capture stdout/stderr/exit code and ask AICmd to generate diagnostic/fix commands. `aicmd-err` remains as a compatibility wrapper.
 - `aicmd model`: locate, show, or edit the runtime model config. `aicmd-model` remains as a compatibility wrapper.
 
 中文：
 - `aicmd ...`：从自然语言生成 shell 命令并确认执行。
-- `aicmd-do ...`：生成创建并运行任务脚本的命令，并走正常确认流程。
+- `aicmd do ...`：生成创建并运行任务脚本的命令，并走正常确认流程；`aicmd-do` 仅作为兼容 wrapper。
 - `aicmd err -- <command>`：捕获 stdout/stderr/exit code，并让 AICmd 生成诊断/修复命令；`aicmd-err` 仅作为兼容 wrapper。
 - `aicmd model`：定位、查看或编辑运行时模型配置；`aicmd-model` 仅作为兼容 wrapper。
 
@@ -34,7 +34,7 @@ The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`
 aicmd 列出当前目录最大的 10 个文件
 aicmd 把当前目录下的 png 图片压缩到 dist/images
 aicmd -s dev 运行测试并修复明显问题
-aicmd-do "处理 input.csv，输出 cleaned.csv"
+aicmd do "处理 input.csv，输出 cleaned.csv"
 aicmd err -- pnpm test
 aicmd model init
 aicmd model show
