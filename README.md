@@ -372,6 +372,7 @@ Subcommands also have their own options / 子命令也有自己的参数：
 | Command / 命令 | Option / 参数 | Meaning / 含义 |
 | --- | --- | --- |
 | `aicmd do` | `--dry-run` | Build the script-generation request but do not send it to the LLM. / 生成脚本任务请求但不发送给 LLM。 |
+| `aicmd do` | `-f, --file <FILE>` | Include a saved text file, such as a previous search result, as task context. / 把保存的文本文件作为任务上下文，例如之前的搜索结果。 |
 | `aicmd do` | `-o, --output <PATH>` | Ask AICmd to create the task script at this path. / 指定生成脚本路径。 |
 | `aicmd model init` / `aicmd init` | `--from-env` | Require `.env` and generate `~/.aicmd/config.yaml` from it. / 必须读取 `.env` 并生成 `~/.aicmd/config.yaml`。 |
 | `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. / 覆盖已有 `config.yaml`，会二次确认。 |
@@ -408,11 +409,24 @@ Use this when the task is more than a one-liner, for example processing CSV, log
 aicmd do "处理 input.csv，输出 cleaned.csv"
 aicmd do --dry-run "统计 logs/*.log 里的 ERROR 数量"
 aicmd do --output scripts/clean_data.sh "清洗 data/input.csv 并输出 data/output.csv"
+aicmd do -f .aicmd/notes/gemini-cli-install.txt "根据这份搜索记录，在本机安装 gemini-cli"
 ```
 
 AICmd asks the LLM to generate commands that create a script, review it, and execute it through the normal confirmation flow.
 
 AICmd 会让 LLM 生成“创建脚本并运行脚本”的命令，并走正常确认流程。
+
+Search first, save notes, then execute with `do` / 先搜索、保存记录、再用 `do` 执行：
+
+```bash
+mkdir -p .aicmd/notes
+aicmd search "gemini-cli 官方安装方式" | tee .aicmd/notes/gemini-cli-install.txt
+aicmd do -f .aicmd/notes/gemini-cli-install.txt "根据这份搜索记录，在本机安装 gemini-cli"
+```
+
+`-f` reads the saved text file and includes it in the script-generation context. This is useful when the installation or operation should follow a previously searched official guide.
+
+`-f` 会读取保存的文本文件，并把它作为脚本生成上下文。适合“先搜索官方安装方式，再根据搜索记录执行”的场景。
 
 ### 7.5 Error diagnosis: `aicmd err` / 报错诊断
 
