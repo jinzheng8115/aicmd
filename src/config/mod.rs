@@ -223,6 +223,8 @@ impl Config {
                 continue;
             }
             for (name, mode) in migrations {
+                #[cfg(not(unix))]
+                let _ = mode;
                 let target = Self::local_path(name);
                 let source = legacy_dir.join(name);
                 if target.exists() || !source.exists() {
