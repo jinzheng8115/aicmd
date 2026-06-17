@@ -14,6 +14,7 @@ CARGO_BIN="${CARGO:-$HOME/.cargo/bin/cargo}"
 FROM_SOURCE=false
 NO_SHELL_INTEGRATION=false
 VERSION="${AICMD_VERSION:-}"
+DEFAULT_VERSION="${AICMD_DEFAULT_VERSION:-v0.30.0}"
 
 usage() {
   cat <<'HELP'
@@ -120,9 +121,19 @@ latest_version() {
     printf '%s\n' "$VERSION"
     return
   fi
-  curl -fsSL -H "User-Agent: aicmd-installer" "https://api.github.com/repos/$REPO/releases/latest" \
+
+  local tag
+  tag="$(curl -fsSL -H "User-Agent: aicmd-installer" "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
     | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -n 1
+    | head -n 1 || true)"
+  if [[ -n "$tag" ]]; then
+    printf '%s\n' "$tag"
+    return
+  fi
+
+  echo "Warning: failed to query latest release from GitHub API; falling back to $DEFAULT_VERSION." >&2
+  echo "提示：无法从 GitHub API 获取最新版本，已回退到 $DEFAULT_VERSION。" >&2
+  printf '%s\n' "$DEFAULT_VERSION"
 }
 
 download_binary() {
