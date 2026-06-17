@@ -1,6 +1,7 @@
 mod cli;
 mod client;
 mod config;
+mod err_cmd;
 mod function;
 mod mcp_cmd;
 mod model_cmd;
@@ -135,6 +136,15 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             Ok(Some(0))
         }
         "mcp-raw" => Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?)),
+        "err" => {
+            let report = err_cmd::build_error_report(args)?;
+            config.write().use_role(SHELL_ROLE)?;
+            let default_session = default_session_name();
+            config.write().use_session(Some(&default_session))?;
+            let input = Input::from_str(config, &report, None);
+            shell_execute(config, &SHELL, input, create_abort_signal()).await?;
+            Ok(Some(0))
+        }
         _ => Ok(None),
     }
 }

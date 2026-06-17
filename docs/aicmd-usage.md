@@ -659,19 +659,19 @@ Safety behavior:
 - 执行前仍然需要你确认生成的命令。
 ```
 
-## 12. Helper command: aicmd-err / 辅助命令：aicmd-err
+## 12. Error command: aicmd err / 报错命令：aicmd err
 
-`aicmd-err` runs a command, captures stdout, stderr, and exit code, then asks AICmd to generate diagnostic or fix commands.
+`aicmd err` runs a command, captures stdout, stderr, and exit code, then asks AICmd to generate diagnostic or fix commands. `aicmd-err` remains as a compatibility wrapper.
 
-`aicmd-err` 会运行一条命令，捕获 stdout、stderr 和 exit code，然后让 AICmd 生成诊断或修复命令。
+`aicmd err` 会运行一条命令，捕获 stdout、stderr 和 exit code，然后让 AICmd 生成诊断或修复命令；`aicmd-err` 仅作为兼容 wrapper。
 
 Usage:
 
 用法：
 
 ```bash
-aicmd-err -- <command> [args...]
-aicmd-err <command> [args...]
+aicmd err -- <command> [args...]
+aicmd err <command> [args...]
 ```
 
 Examples:
@@ -679,20 +679,20 @@ Examples:
 示例：
 
 ```bash
-aicmd-err -- pnpm test
+aicmd err -- pnpm test
 ```
 
 ```bash
-aicmd-err -- cargo test
+aicmd err -- cargo test
 ```
 
 ```bash
-aicmd-err -- npm run build
+aicmd err -- npm run build
 ```
 
-`aicmd-err` does not directly apply fixes. It sends the captured failure context to AICmd, which then generates shell commands for you to review.
+`aicmd err` does not directly apply fixes. It sends the captured failure context to AICmd, which then generates shell commands for you to review.
 
-`aicmd-err` 不会直接应用修复。它把失败上下文发送给 AICmd，由 AICmd 生成 shell 命令，再由你确认。
+`aicmd err` 不会直接应用修复。它把失败上下文发送给 AICmd，由 AICmd 生成 shell 命令，再由你确认。
 
 ## 13. Removed or unsupported upstream options / 已移除或不支持的上游选项
 
@@ -860,7 +860,7 @@ aicmd --dry-run 当前目录下有多少文件
 aicmd-do "清洗 input.csv，输出 cleaned.csv"
 
 # Analyze a failing command / 分析失败命令
-aicmd-err -- pnpm test
+aicmd err -- pnpm test
 
 # Show or edit model config / 查看或编辑模型配置
 aicmd model show
