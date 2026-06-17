@@ -40,7 +40,7 @@ Installed helpers:
   $BIN_DIR/aicmd-model
   $BIN_DIR/aicmd-shell-init
 Shell integration for cd commands:
-  eval "$(aicmd-shell-init)"
+  eval "\$(aicmd-shell-init)"
 
 Config:
   $CONFIG_STATUS
