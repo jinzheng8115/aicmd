@@ -37,6 +37,7 @@ aicmd
 aicmd-do
 aicmd-err
 aicmd-model
+aicmd-mcp
 ```
 
 Make sure `~/.local/bin` is in your `PATH`.
@@ -67,18 +68,22 @@ Expected: `file` should report a native executable, not a shell script.
 
 ## 2.2 MCP tools / MCP 工具
 
-MCP tools are exposed through a dedicated helper command, not through the main `aicmd` command-generation loop.
+MCP tools stay outside the normal natural-language command-generation loop. Search has a main shortcut: `aicmd search <query>`. This shortcut delegates to the dedicated MCP helper command `aicmd-mcp search` and returns search output directly.
 
-MCP 工具通过独立辅助命令暴露，不放入主 `aicmd` 命令生成循环。
+MCP 工具不进入普通自然语言命令生成循环。搜索提供主命令快捷入口：`aicmd search <query>`。这个快捷入口会转发到独立 MCP 辅助命令 `aicmd-mcp search`，并直接返回搜索结果。
 
 ```bash
+aicmd search "今天 AI 新闻"
+aicmd search DeepSeek latest model
+
+# Underlying helper / 底层辅助命令
 aicmd-mcp search "今天 AI 新闻"
 aicmd-mcp tavily "DeepSeek latest model"
 ```
 
-The first supported command is Tavily MCP search. More MCP tools can be added as separate subcommands later.
+The first supported MCP-backed command is Tavily search. More MCP tools can be added as separate subcommands later.
 
-当前第一个支持的命令是 Tavily MCP 搜索。后续可以继续把更多 MCP 工具作为独立子命令加入。
+当前第一个支持的 MCP 命令是 Tavily 搜索。后续可以继续把更多 MCP 工具作为独立子命令加入。
 
 ## 2.1 Shell integration for `cd` / 用于 `cd` 的 Shell 集成
 

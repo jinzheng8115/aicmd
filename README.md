@@ -38,9 +38,9 @@ $EDITOR .env
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary, copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin`, and generates `~/.aicmd/config.yaml` from `.env` when `.env` exists.
+The installer builds the Rust binary, copies `aicmd`, `aicmd-do`, `aicmd-err`, `aicmd-model`, and `aicmd-mcp` to `~/.local/bin`, and generates `~/.aicmd/config.yaml` from `.env` when `.env` exists.
 
-安装脚本会构建 Rust 二进制，把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`；如果项目根目录存在 `.env`，会根据 `.env` 生成 `~/.aicmd/config.yaml`。
+安装脚本会构建 Rust 二进制，把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model`、`aicmd-mcp` 复制到 `~/.local/bin`；如果项目根目录存在 `.env`，会根据 `.env` 生成 `~/.aicmd/config.yaml`。
 
 ## Config / 配置
 
@@ -56,11 +56,15 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 ## MCP tools / MCP 工具
 
-AICmd keeps MCP calls separate from the main terminal-command workflow. Use `aicmd-mcp` for dedicated MCP-backed tools.
+AICmd keeps MCP calls separate from the main terminal-command workflow. Use `aicmd search <query>` as the main shortcut for search; it delegates to the dedicated MCP helper `aicmd-mcp search`.
 
-AICmd 将 MCP 调用和主终端命令流程分开。需要 MCP 工具时，请使用独立命令 `aicmd-mcp`。
+AICmd 将 MCP 调用和主终端命令流程分开。搜索时可以直接使用主命令快捷入口 `aicmd search <query>`；它会转发到独立 MCP 辅助命令 `aicmd-mcp search`。
 
 ```bash
+aicmd search "今天 AI 新闻"
+aicmd search DeepSeek latest model
+
+# Underlying helper / 底层辅助命令
 aicmd-mcp search "今天 AI 新闻"
 aicmd-mcp tavily "DeepSeek latest model"
 ```
@@ -98,6 +102,9 @@ aicmd -s dev 运行测试并修复明显问题
 # Generate a script, review it, then run after confirmation / 生成脚本、检查、确认后执行
 aicmd-do "处理 input.csv，输出 cleaned.csv"
 aicmd-do --dry-run "统计 logs/*.log 里的 ERROR 数量"
+
+# Search with MCP / 使用 MCP 搜索
+aicmd search "今天 AI 新闻"
 
 # Debug a failing command / 分析报错命令
 aicmd-err -- pnpm test

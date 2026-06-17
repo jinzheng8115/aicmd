@@ -23,13 +23,23 @@ use clap::{CommandFactory, Parser};
 use inquire::Text;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
-use std::{env, fs::OpenOptions, io::{self, BufRead, BufReader, Write}, process, sync::Arc};
+use std::{
+    env,
+    fs::OpenOptions,
+    io::{self, BufRead, BufReader, Write},
+    process,
+    sync::Arc,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
     let text = cli.text()?;
+    if let Some(query) = search_shortcut_query(text.as_deref())? {
+        let code = run_command("aicmd-mcp", &["search", query], None)?;
+        process::exit(code);
+    }
     let info_flag = cli.list_sessions;
     setup_logger()?;
     let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
@@ -79,6 +89,23 @@ fn default_session_name() -> String {
     let beijing = chrono::Utc::now()
         .with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).expect("valid timezone"));
     format!("cmd-{}", beijing.format("%Y%m%d"))
+}
+
+fn search_shortcut_query(text: Option<&str>) -> Result<Option<&str>> {
+    let Some(text) = text else {
+        return Ok(None);
+    };
+    if text == "search" {
+        bail!("usage: aicmd search <query>");
+    }
+    if let Some(query) = text.strip_prefix("search ") {
+        let query = query.trim();
+        if query.is_empty() {
+            bail!("usage: aicmd search <query>");
+        }
+        return Ok(Some(query));
+    }
+    Ok(None)
 }
 
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
@@ -167,12 +194,7 @@ async fn shell_execute(
         let prompt_text = options
             .iter()
             .map(|(key, rest, zh)| {
-                format!(
-                    "{}{}({})",
-                    color_text(key, first_letter_color),
-                    rest,
-                    zh
-                )
+                format!("{}{}({})", color_text(key, first_letter_color), rest, zh)
             })
             .collect::<Vec<String>>()
             .join(&dimmed_text(" | "));
