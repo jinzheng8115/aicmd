@@ -26,40 +26,17 @@
       "search": {
         "description": "Search the web using Tavily",
         "server": "tavily",
-        "tool": "tavily_search",
-        "arguments": {
-          "query": "{{input}}",
-          "topic": "general",
-          "search_depth": "advanced",
-          "max_results": 5,
-          "include_answer": true,
-          "include_raw_content": false,
-          "include_images": false,
-          "include_image_descriptions": false
-        }
+        "tool": "tavily_search"
       },
       "context7-library": {
         "description": "Resolve a package/library name using Context7",
         "server": "context7",
-        "tool": "resolve-library-id",
-        "arguments": {
-          "libraryName": "{{input}}"
-        }
+        "tool": "resolve-library-id"
       },
       "tavily": {
         "description": "Alias of search using Tavily",
         "server": "tavily",
-        "tool": "tavily_search",
-        "arguments": {
-          "query": "{{input}}",
-          "topic": "general",
-          "search_depth": "advanced",
-          "max_results": 5,
-          "include_answer": true,
-          "include_raw_content": false,
-          "include_images": false,
-          "include_image_descriptions": false
-        }
+        "tool": "tavily_search"
       }
     }
   }

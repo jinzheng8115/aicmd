@@ -414,18 +414,19 @@ MCP 配置文件示例：
     },
     "commands": {
       "search": {
+        "description": "Search the web using Tavily",
         "server": "tavily",
-        "tool": "tavily_search",
-        "arguments": {
-          "query": "{{input}}"
-        }
+        "tool": "tavily_search"
       },
       "context7-library": {
+        "description": "Resolve a package/library name using Context7",
         "server": "context7",
-        "tool": "resolve-library-id",
-        "arguments": {
-          "libraryName": "{{input}}"
-        }
+        "tool": "resolve-library-id"
+      },
+      "tavily": {
+        "description": "Alias of search using Tavily",
+        "server": "tavily",
+        "tool": "tavily_search"
       }
     }
   }
@@ -437,11 +438,10 @@ Command mapping rules:
 命令映射规则：
 
 ```text
-mcp.servers.<server-name>      defines how to start the MCP server / 定义如何启动 MCP server
-mcp.commands.<command>.server  selects a configured server / 选择一个已配置 server
-mcp.commands.<command>.tool    selects the MCP tool name / 选择 MCP tool 名称
-mcp.commands.<command>.arguments maps CLI input to tool arguments / 把命令行输入映射到 tool 参数
-{{input}}                      expands to all remaining CLI text / 展开为剩余命令行文本
+mcp.servers.<server-name>   defines how to start the MCP server / 定义如何启动 MCP server
+mcp.commands.<command>.server selects a configured server / 选择一个已配置 server
+mcp.commands.<command>.tool  selects the MCP tool name / 选择 MCP tool 名称
+mcp.commands.<command>.input optional tool input field name / 可选 tool 输入字段名
 ```
 
 Examples:
@@ -453,6 +453,10 @@ aicmd search "OpenAI latest news"
 aicmd-mcp search "OpenAI latest news"
 aicmd mcp context7-library react
 ```
+
+Use `aicmd-mcp list` to see configured MCP commands.
+
+使用 `aicmd-mcp list` 查看已配置的 MCP 命令。
 
 When `.env` is converted to `config.yaml`, `AICMD_MODEL_IDS=gpt-4o,gpt-4.1` becomes multiple entries under `clients[].models`. The generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:first-id-in-AICMD_MODEL_IDS`.
 

@@ -56,8 +56,6 @@ import subprocess
 import sys
 import threading
 import time
-from copy import deepcopy
-
 config_path, command_name, user_input = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(config_path, "r", encoding="utf-8") as f:
     config = json.load(f)
@@ -103,9 +101,35 @@ def render(value):
         return {key: render(item) for key, item in value.items()}
     return value
 
-tool_arguments = render(deepcopy(command_spec.get("arguments", {})))
-if not isinstance(tool_arguments, dict):
-    raise SystemExit(f"MCP command {command_name!r} arguments must be an object")
+def default_arguments(tool, text):
+    if tool == "tavily_search":
+        return {
+            "query": text,
+            "topic": "general",
+            "search_depth": "advanced",
+            "max_results": 5,
+            "include_answer": True,
+            "include_raw_content": False,
+            "include_images": False,
+            "include_image_descriptions": False,
+        }
+    if tool == "resolve-library-id":
+        return {"query": text, "libraryName": text}
+    input_field = command_spec.get("input")
+    if input_field:
+        return {str(input_field): text}
+    return {"input": text} if text else {}
+
+if "arguments" in command_spec:
+    tool_arguments = render(command_spec.get("arguments", {}))
+    if not isinstance(tool_arguments, dict):
+        raise SystemExit(f"MCP command {command_name!r} arguments must be an object")
+else:
+    tool_arguments = default_arguments(tool_name, user_input)
+    extra = command_spec.get("options", {}) or {}
+    if not isinstance(extra, dict):
+        raise SystemExit(f"MCP command {command_name!r} options must be an object")
+    tool_arguments.update(render(extra))
 
 env = os.environ.copy()
 for key, value in server_env.items():
