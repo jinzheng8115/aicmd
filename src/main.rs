@@ -131,6 +131,48 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
     }
 }
 
+fn sanitize_mcp_output_for_llm(raw: &str) -> String {
+    let blocked_terms = [
+        "下注",
+        "赔率",
+        "賠率",
+        "博彩",
+        "投注",
+        "盘口",
+        "賭",
+        "bet",
+        "betting",
+        "bookmaker",
+        "odds",
+        "wager",
+    ];
+    let mut kept = vec![];
+    let mut previous_blank = false;
+    for line in raw.lines() {
+        let lower = line.to_lowercase();
+        if blocked_terms.iter().any(|term| lower.contains(term)) {
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            if !previous_blank {
+                kept.push(String::new());
+            }
+            previous_blank = true;
+            continue;
+        }
+        previous_blank = false;
+        kept.push(line.to_string());
+    }
+    let mut text = kept.join("\n");
+    const MAX_CHARS: usize = 24_000;
+    if text.chars().count() > MAX_CHARS {
+        text = text.chars().take(MAX_CHARS).collect::<String>();
+        text.push_str("\n\n[内容过长，已截断]");
+    }
+    text
+}
+
 async fn run_mcp_with_llm_summary(
     config: &GlobalConfig,
     mcp_command: &str,
@@ -160,14 +202,18 @@ async fn run_mcp_with_llm_summary(
     if raw_output.trim().is_empty() {
         bail!("MCP command returned no output");
     }
+    let llm_output = sanitize_mcp_output_for_llm(&raw_output);
+    if llm_output.trim().is_empty() {
+        bail!("MCP command returned no usable output after filtering");
+    }
     let status_text = if success { "success" } else { "failed" };
     let prompt = format!(
         "MCP command: {mcp_command}
 MCP status: {status_text}
 用户请求：{query}
 
-MCP 原始返回：
-{raw_output}"
+MCP 返回内容：
+{llm_output}"
     );
     let role = config.read().retrieve_role(MCP_SUMMARY_ROLE)?;
     let input = Input::from_str(config, &prompt, Some(role));
