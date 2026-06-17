@@ -18,7 +18,7 @@ use crate::config::{
 use crate::render::render_error;
 use crate::utils::*;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use inquire::Text;
 use parking_lot::RwLock;
@@ -35,13 +35,19 @@ use std::{
 async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
-    if let Some(code) = run_builtin_shortcut(cli.text_args())? {
+    if let Some(code) = run_pre_config_shortcut(cli.text_args())? {
         process::exit(code);
     }
     let text = cli.text()?;
     let info_flag = cli.list_sessions;
     setup_logger()?;
     let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
+    if let Some(model_id) = &cli.model {
+        config.write().set_model(model_id)?;
+    }
+    if let Some(code) = run_builtin_shortcut(&config, cli.text_args()).await? {
+        process::exit(code);
+    }
     if let Err(err) = run(config, cli, text).await {
         render_error(err);
         std::process::exit(1);
@@ -90,7 +96,16 @@ fn default_session_name() -> String {
     format!("cmd-{}", beijing.format("%Y%m%d"))
 }
 
-fn run_builtin_shortcut(args: &[String]) -> Result<Option<i32>> {
+fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
+    let Some(cmd) = args.first().map(String::as_str) else {
+        return Ok(None);
+    };
+    match cmd {
+        _ => Ok(None),
+    }
+}
+
+async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<Option<i32>> {
     let Some(cmd) = args.first().map(String::as_str) else {
         return Ok(None);
     };
@@ -100,26 +115,78 @@ fn run_builtin_shortcut(args: &[String]) -> Result<Option<i32>> {
                 bail!("usage: aicmd search <query>");
             }
             let query = args[1..].join(" ");
-            Ok(Some(run_command(
-                "aicmd-mcp",
-                &["search", query.as_str()],
-                None,
-            )?))
-        }
-        "init" => {
-            let mut model_args = vec!["init"];
-            model_args.extend(args[1..].iter().map(String::as_str));
-            Ok(Some(run_command("aicmd-model", &model_args, None)?))
+            run_mcp_with_llm_summary(config, "search", &query).await?;
+            Ok(Some(0))
         }
         "mcp" => {
             if args.len() < 2 {
                 bail!("usage: aicmd mcp <command> [args...]");
             }
-            let mcp_args: Vec<&str> = args[1..].iter().map(String::as_str).collect();
-            Ok(Some(run_command("aicmd-mcp", &mcp_args, None)?))
+            let mcp_command = &args[1];
+            let query = args[2..].join(" ");
+            run_mcp_with_llm_summary(config, mcp_command, &query).await?;
+            Ok(Some(0))
         }
         _ => Ok(None),
     }
+}
+
+async fn run_mcp_with_llm_summary(
+    config: &GlobalConfig,
+    mcp_command: &str,
+    query: &str,
+) -> Result<()> {
+    let abort_signal = create_abort_signal();
+    let mcp_args = if query.trim().is_empty() {
+        vec![mcp_command]
+    } else {
+        vec![mcp_command, query]
+    };
+    let (success, stdout, stderr) = run_command_with_output("aicmd-mcp", &mcp_args, None)
+        .with_context(|| "Unable to run aicmd-mcp")?;
+    let raw_output = if stdout.trim().is_empty() {
+        stderr.trim().to_string()
+    } else if stderr.trim().is_empty() {
+        stdout.trim().to_string()
+    } else {
+        format!(
+            "{}
+
+{}",
+            stdout.trim(),
+            stderr.trim()
+        )
+    };
+    if raw_output.trim().is_empty() {
+        bail!("MCP command returned no output");
+    }
+    let status_text = if success { "success" } else { "failed" };
+    let prompt = format!(
+        "你是 AICmd 的 MCP 结果整理助手。请根据 MCP 返回内容，直接回答用户问题。
+
+要求：
+- 使用中文输出，除非用户明显要求其他语言。
+- 输出为终端友好的纯文本，不使用 Markdown 表格，不使用代码围栏。
+- 先给结论，再列关键依据。
+- 如果 MCP 返回的是错误，说明错误原因和用户下一步应该怎么做。
+- 不要编造 MCP 结果里没有的信息。
+
+MCP command: {mcp_command}
+MCP status: {status_text}
+用户请求：{query}
+
+MCP 原始返回：
+{raw_output}"
+    );
+    let input = Input::from_str(config, &prompt, None);
+    let client = input.create_client()?;
+    if input.stream() {
+        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?;
+    } else {
+        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?;
+    }
+    println!();
+    Ok(())
 }
 
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
@@ -145,9 +212,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         let sessions = config.read().list_sessions().join("\n");
         println!("{sessions}");
         return Ok(());
-    }
-    if let Some(model_id) = &cli.model {
-        config.write().set_model(model_id)?;
     }
     if cli.empty_session {
         let target = session_name.unwrap_or("temporary");

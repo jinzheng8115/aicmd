@@ -68,9 +68,9 @@ Expected: `file` should report a native executable, not a shell script.
 
 ## 2.2 MCP tools / MCP 工具
 
-MCP tools stay outside the normal natural-language command-generation loop. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json` if that file does not already exist. Search has a main shortcut: `aicmd search <query>`. Other configured MCP commands can be called with `aicmd-mcp <command> ...` or `aicmd mcp <command> ...`.
+MCP tools stay outside the normal terminal-command generation loop. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json` if that file does not already exist. User-facing shortcuts such as `aicmd search <query>` and `aicmd mcp <command> ...` call MCP first and then use the configured LLM to summarize the result. The lower-level `aicmd-mcp <command> ...` helper prints raw MCP output for debugging.
 
-MCP 工具不进入普通自然语言命令生成循环。MCP server 和命令映射配置在 `mcp.json`；安装脚本会在 `~/.aicmd/mcp.json` 不存在时复制过去。搜索提供主命令快捷入口：`aicmd search <query>`。其他已配置 MCP 命令可以用 `aicmd-mcp <command> ...` 或 `aicmd mcp <command> ...` 调用。
+MCP 工具不进入普通终端命令生成循环。MCP server 和命令映射配置在 `mcp.json`；安装脚本会在 `~/.aicmd/mcp.json` 不存在时复制过去。面向用户的 `aicmd search <query>` 和 `aicmd mcp <command> ...` 会先调用 MCP，再使用当前配置的 LLM 整理结果。底层 `aicmd-mcp <command> ...` 直接打印 MCP 原始输出，方便调试。
 
 ```bash
 aicmd search "今天 AI 新闻"
