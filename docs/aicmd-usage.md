@@ -28,9 +28,9 @@ $EDITOR .env
 contrib/aicmd/install.sh
 ```
 
-The installer builds the Rust binary, installs these commands to `~/.local/bin` by default, and generates `~/.aicmd/config.yaml` from `.env` when `.env` exists:
+The installer builds the Rust binary and installs these commands to `~/.local/bin` by default. After installation, run `aicmd init --from-env` to generate `~/.aicmd/config.yaml` and `~/.aicmd/config.json` from `.env`:
 
-安装脚本会构建 Rust 二进制，默认安装这些命令到 `~/.local/bin`，并在存在 `.env` 时生成 `~/.aicmd/config.yaml`：
+安装脚本会构建 Rust 二进制，并默认安装这些命令到 `~/.local/bin`。安装后运行 `aicmd init --from-env`，根据 `.env` 生成 `~/.aicmd/config.yaml` 和 `~/.aicmd/config.json`：
 
 ```text
 aicmd
@@ -68,9 +68,9 @@ Expected: `file` should report a native executable, not a shell script.
 
 ## 2.2 MCP tools / MCP 工具
 
-MCP tools stay outside the normal natural-language command-generation loop. Search has a main shortcut: `aicmd search <query>`. This shortcut delegates to the dedicated MCP helper command `aicmd-mcp search` and returns search output directly.
+MCP tools stay outside the normal natural-language command-generation loop. Search has a main shortcut: `aicmd search <query>`. This shortcut delegates to the dedicated MCP helper command `aicmd-mcp search` and returns search output directly. MCP runtime settings are stored in `~/.aicmd/config.json`; search commands read `config.json` directly, not `.env`.
 
-MCP 工具不进入普通自然语言命令生成循环。搜索提供主命令快捷入口：`aicmd search <query>`。这个快捷入口会转发到独立 MCP 辅助命令 `aicmd-mcp search`，并直接返回搜索结果。
+MCP 工具不进入普通自然语言命令生成循环。搜索提供主命令快捷入口：`aicmd search <query>`。这个快捷入口会转发到独立 MCP 辅助命令 `aicmd-mcp search`，并直接返回搜索结果。MCP 运行时配置存储在 `~/.aicmd/config.json`；搜索命令直接读取 `config.json`，不读取 `.env`。
 
 ```bash
 aicmd search "今天 AI 新闻"
@@ -357,17 +357,18 @@ Recommended setup order:
 推荐设置顺序：
 
 ```bash
-# 1. Copy the simple model env file / 复制简单模型配置文件
+# 1. Copy the simple env file / 复制简单配置文件
 cp .env.example .env
 
-# 2. Fill model values / 填写模型参数
+# 2. Fill model and MCP values / 填写模型和 MCP 参数
 $EDITOR .env
 
 # 3. Install commands / 安装命令
 contrib/aicmd/install.sh
 
-# 4. Generate ~/.aicmd/config.yaml with confirmation / 二次确认后生成 ~/.aicmd/config.yaml
-aicmd-model init --from-env
+# 4. Generate ~/.aicmd/config.yaml and ~/.aicmd/config.json with confirmation / 二次确认后生成 ~/.aicmd/config.yaml 和 ~/.aicmd/config.json
+aicmd init --from-env
+# Equivalent helper / 等价辅助命令：aicmd-model init --from-env
 
 # 5. Test / 测试
 aicmd 当前目录下有多少文件
@@ -385,23 +386,27 @@ AICMD_MODEL_API_KEY    API key
 AICMD_MODEL_IDS        provider model id(s), comma-separated / 模型 ID，多个用逗号分隔
 AICMD_DEFAULT_MODEL    optional default model; default is name:first-id / 可选默认模型；默认是 name:第一个模型 ID
 AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
+AICMD_MCP_TAVILY_API_KEY Tavily API key for search / Tavily 搜索 API key
+AICMD_MCP_TAVILY_API_KEYS_FILE optional Tavily key file / 可选 Tavily key 文件
+AICMD_MCP_TAVILY_SCRIPT optional Tavily MCP script path / 可选 Tavily MCP 脚本路径
 ```
 
 When `.env` is converted to `config.yaml`, `AICMD_MODEL_IDS=gpt-4o,gpt-4.1` becomes multiple entries under `clients[].models`. The generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:first-id-in-AICMD_MODEL_IDS`.
 
 `.env` 转成 `config.yaml` 时，`AICMD_MODEL_IDS=gpt-4o,gpt-4.1` 会变成 `clients[].models` 下的多个模型。顶部 `model:` 如果设置了 `AICMD_DEFAULT_MODEL` 就使用它；否则使用 `AICMD_MODEL_NAME:AICMD_MODEL_IDS 中的第一个模型 ID`。
 
-After installation, the single user-editable model config file is:
+After installation, user-editable runtime config files are:
 
-安装后，唯一需要用户编辑的模型配置文件是：
+安装后，用户可编辑的运行时配置文件是：
 
 ```text
-~/.aicmd/config.yaml
+~/.aicmd/config.yaml  # model config / 模型配置
+~/.aicmd/config.json  # MCP config / MCP 配置
 ```
 
-AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`. To switch provider through `.env`, edit the same `.env` file and regenerate with `aicmd-model init --from-env --force`. `aicmd-model init` asks for confirmation before writing config.
+AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`. MCP search reads `~/.aicmd/config.json` directly. To switch provider or MCP settings through `.env`, edit the same `.env` file and regenerate with `aicmd-model init --from-env --force`. `aicmd-model init` asks for confirmation before writing config.
 
-AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，可以直接编辑运行时 `~/.aicmd/config.yaml`。如果通过 `.env` 切换服务商，请修改同一个 `.env` 文件后用 `aicmd-model init --from-env --force` 重新生成。`aicmd-model init` 写入配置前会二次确认。
+AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，可以直接编辑运行时 `~/.aicmd/config.yaml`。MCP 搜索直接读取 `~/.aicmd/config.json`。如果通过 `.env` 切换服务商或 MCP 设置，请修改同一个 `.env` 文件后用 `aicmd-model init --from-env --force` 重新生成。`aicmd-model init` 写入配置前会二次确认。
 
 Important config fields:
 
@@ -462,16 +467,17 @@ Other explicit overrides also follow the `AICMD_...` environment naming pattern.
 
 ## 9. Helper command: aicmd-model / 辅助命令：aicmd-model
 
-`aicmd-model` helps users create, find, show, and edit the runtime model config. `aicmd-model init --from-env` reads the simple `.env` file and writes `~/.aicmd/config.yaml`.
+`aicmd-model` helps users create, find, show, and edit runtime config. `aicmd-model init --from-env` reads the simple `.env` file and writes model config to `~/.aicmd/config.yaml` plus MCP config to `~/.aicmd/config.json`.
 
-`aicmd-model` 用于创建、定位、查看和编辑运行时模型配置。`aicmd-model init --from-env` 会读取简单 `.env` 文件并写入 `~/.aicmd/config.yaml`。
+`aicmd-model` 用于创建、定位、查看和编辑运行时配置。`aicmd-model init --from-env` 会读取简单 `.env` 文件，把模型配置写入 `~/.aicmd/config.yaml`，把 MCP 配置写入 `~/.aicmd/config.json`。
 
 Usage:
 
 用法：
 
 ```bash
-aicmd-model init --from-env
+aicmd init --from-env
+# Equivalent helper / 等价辅助命令：aicmd-model init --from-env
 aicmd-model path
 aicmd-model show
 EDITOR=vim aicmd-model edit

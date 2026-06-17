@@ -6,12 +6,12 @@ usage() {
 Usage: aicmd-mcp <command> [args...]
 
 Call MCP-backed tools through dedicated AICmd helper commands.
-This does not affect the main `aicmd` natural-language terminal workflow.
+MCP runtime settings are read from ~/.aicmd/config.json.
 
 用法：aicmd-mcp <命令> [参数...]
 
 通过独立 AICmd 辅助命令调用 MCP 工具。
-这不会影响主 `aicmd` 自然语言终端命令流程。
+MCP 运行时配置从 ~/.aicmd/config.json 读取。
 
 Commands / 命令:
   search <query>   Search the web using Tavily MCP / 使用 Tavily MCP 搜索网页
@@ -24,33 +24,69 @@ Examples / 示例:
 HELP
 }
 
-load_env_if_exists() {
-  local env_file
-  for env_file in ".env" "$HOME/.aicmd/.env" "$HOME/Library/Application Support/aichat/functions/.env"; do
-    if [[ -f "$env_file" ]]; then
-      set -a
-      # shellcheck disable=SC1090
-      source "$env_file"
-      set +a
-    fi
-  done
+config_dir() {
+  if [[ -n "${AICMD_CONFIG_DIR:-}" ]]; then
+    printf '%s\n' "$AICMD_CONFIG_DIR"
+  else
+    printf '%s/.aicmd\n' "$HOME"
+  fi
+}
+
+mcp_config_path() {
+  if [[ -n "${AICMD_MCP_CONFIG_FILE:-}" ]]; then
+    printf '%s\n' "$AICMD_MCP_CONFIG_FILE"
+  else
+    printf '%s/config.json\n' "$(config_dir)"
+  fi
+}
+
+read_mcp_value() {
+  local key path
+  key="$1"
+  path="$(mcp_config_path)"
+  if [[ ! -f "$path" ]]; then
+    echo "MCP config not found: $path" >&2
+    echo "Run: aicmd-model init --from-env" >&2
+    exit 1
+  fi
+  python3 - "$path" "$key" <<'PY'
+import json
+import sys
+
+path, key = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+value = data.get("mcp", {}).get("tavily", {}).get(key, "")
+if value is None:
+    value = ""
+print(value)
+PY
 }
 
 run_tavily() {
-  local query script
+  local query script api_key api_keys_file
   query="$*"
   if [[ -z "$query" ]]; then
     echo "usage: aicmd-mcp search <query>" >&2
     exit 2
   fi
-  script="${AICMD_TAVILY_MCP_SCRIPT:-$HOME/Library/Application Support/aichat/functions/tools/tavily_mcp_search.mjs}"
-  if [[ ! -f "$script" ]]; then
-    echo "Tavily MCP script not found: $script" >&2
-    echo "Set AICMD_TAVILY_MCP_SCRIPT=/path/to/tavily_mcp_search.mjs" >&2
+  script="$(read_mcp_value script)"
+  api_key="$(read_mcp_value api_key)"
+  api_keys_file="$(read_mcp_value api_keys_file)"
+  if [[ -z "$script" ]]; then
+    echo "missing mcp.tavily.script in $(mcp_config_path)" >&2
     exit 1
   fi
-  load_env_if_exists
-  node "$script" "$query"
+  if [[ -z "$api_key" && -z "$api_keys_file" ]]; then
+    echo "missing mcp.tavily.api_key or mcp.tavily.api_keys_file in $(mcp_config_path)" >&2
+    exit 1
+  fi
+  if [[ ! -f "$script" ]]; then
+    echo "Tavily MCP script not found: $script" >&2
+    echo "Edit mcp.tavily.script in $(mcp_config_path)" >&2
+    exit 1
+  fi
+  TAVILY_API_KEY="$api_key" TAVILY_API_KEYS_FILE="$api_keys_file" node "$script" "$query"
 }
 
 cmd="${1:-help}"

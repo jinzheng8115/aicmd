@@ -35,11 +35,10 @@ use std::{
 async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
-    let text = cli.text()?;
-    if let Some(query) = search_shortcut_query(text.as_deref())? {
-        let code = run_command("aicmd-mcp", &["search", query], None)?;
+    if let Some(code) = run_builtin_shortcut(cli.text_args())? {
         process::exit(code);
     }
+    let text = cli.text()?;
     let info_flag = cli.list_sessions;
     setup_logger()?;
     let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
@@ -91,21 +90,29 @@ fn default_session_name() -> String {
     format!("cmd-{}", beijing.format("%Y%m%d"))
 }
 
-fn search_shortcut_query(text: Option<&str>) -> Result<Option<&str>> {
-    let Some(text) = text else {
+fn run_builtin_shortcut(args: &[String]) -> Result<Option<i32>> {
+    let Some(cmd) = args.first().map(String::as_str) else {
         return Ok(None);
     };
-    if text == "search" {
-        bail!("usage: aicmd search <query>");
-    }
-    if let Some(query) = text.strip_prefix("search ") {
-        let query = query.trim();
-        if query.is_empty() {
-            bail!("usage: aicmd search <query>");
+    match cmd {
+        "search" => {
+            if args.len() < 2 {
+                bail!("usage: aicmd search <query>");
+            }
+            let query = args[1..].join(" ");
+            Ok(Some(run_command(
+                "aicmd-mcp",
+                &["search", query.as_str()],
+                None,
+            )?))
         }
-        return Ok(Some(query));
+        "init" => {
+            let mut model_args = vec!["init"];
+            model_args.extend(args[1..].iter().map(String::as_str));
+            Ok(Some(run_command("aicmd-model", &model_args, None)?))
+        }
+        _ => Ok(None),
     }
-    Ok(None)
 }
 
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {

@@ -30,6 +30,10 @@ pub struct Cli {
 }
 
 impl Cli {
+    pub fn text_args(&self) -> &[String] {
+        &self.text
+    }
+
     pub fn text(&self) -> Result<Option<String>> {
         let mut stdin_text = String::new();
         if !stdin().is_terminal() {
