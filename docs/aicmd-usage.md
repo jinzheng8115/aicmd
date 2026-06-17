@@ -68,22 +68,22 @@ Expected: `file` should report a native executable, not a shell script.
 
 ## 2.2 MCP tools / MCP 工具
 
-MCP tools stay outside the normal terminal-command generation loop. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json` if that file does not already exist. User-facing shortcuts such as `aicmd search <query>` and `aicmd mcp <command> ...` call MCP first and then use the configured LLM to summarize the result. The lower-level `aicmd-mcp <command> ...` helper prints raw MCP output for debugging.
+MCP tools stay outside the normal terminal-command generation loop. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json` if that file does not already exist. User-facing shortcuts such as `aicmd search <query>` and `aicmd mcp <command> ...` call MCP first and then use the configured LLM to summarize the result. The lower-level `aicmd mcp-raw <command> ...` command prints raw MCP output for debugging. `aicmd-mcp` remains as a compatibility wrapper.
 
-MCP 工具不进入普通终端命令生成循环。MCP server 和命令映射配置在 `mcp.json`；安装脚本会在 `~/.aicmd/mcp.json` 不存在时复制过去。面向用户的 `aicmd search <query>` 和 `aicmd mcp <command> ...` 会先调用 MCP，再使用当前配置的 LLM 整理结果。底层 `aicmd-mcp <command> ...` 直接打印 MCP 原始输出，方便调试。
+MCP 工具不进入普通终端命令生成循环。MCP server 和命令映射配置在 `mcp.json`；安装脚本会在 `~/.aicmd/mcp.json` 不存在时复制过去。面向用户的 `aicmd search <query>` 和 `aicmd mcp <command> ...` 会先调用 MCP，再使用当前配置的 LLM 整理结果。底层 `aicmd mcp-raw <command> ...` 直接打印 MCP 原始输出，方便调试；`aicmd-mcp` 仅作为兼容 wrapper。
 
 ```bash
 aicmd search "今天 AI 新闻"
 aicmd search DeepSeek latest model
 
 # Underlying helper / 底层辅助命令
-aicmd-mcp search "今天 AI 新闻"
-aicmd-mcp tavily "DeepSeek latest model"
+aicmd mcp-raw search "今天 AI 新闻"
+aicmd mcp-raw tavily "DeepSeek latest model"
 ```
 
-Use `aicmd-mcp list` to see configured MCP commands.
+Use `aicmd mcp list` to see configured MCP commands.
 
-使用 `aicmd-mcp list` 查看已配置的 MCP 命令。
+使用 `aicmd mcp list` 查看已配置的 MCP 命令。
 
 ## 2.1 Shell integration for `cd` / 用于 `cd` 的 Shell 集成
 
@@ -452,13 +452,13 @@ Examples:
 
 ```bash
 aicmd search "OpenAI latest news"
-aicmd-mcp search "OpenAI latest news"
+aicmd mcp-raw search "OpenAI latest news"
 aicmd mcp context7-library react
 ```
 
-Use `aicmd-mcp list` to see configured MCP commands.
+Use `aicmd mcp list` to see configured MCP commands.
 
-使用 `aicmd-mcp list` 查看已配置的 MCP 命令。
+使用 `aicmd mcp list` 查看已配置的 MCP 命令。
 
 When `.env` is converted to `config.yaml`, `AICMD_MODEL_IDS=gpt-4o,gpt-4.1` becomes multiple entries under `clients[].models`. The generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:first-id-in-AICMD_MODEL_IDS`.
 
@@ -472,9 +472,9 @@ After installation, the user-editable runtime config file is:
 ~/.aicmd/config.yaml  # LLM and MCP config / LLM 和 MCP 配置
 ```
 
-AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`. MCP reads `~/.aicmd/mcp.json` directly. To switch provider through `.env`, edit the same `.env` file and regenerate with `aicmd init --from-env --force`. `aicmd-model init` asks for confirmation before writing config.
+AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`. MCP reads `~/.aicmd/mcp.json` directly. To switch provider through `.env`, edit the same `.env` file and regenerate with `aicmd init --from-env --force`. `aicmd model init` asks for confirmation before writing config; `aicmd-model` is a compatibility wrapper.
 
-AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，可以直接编辑运行时 `~/.aicmd/config.yaml`。MCP 直接读取 `~/.aicmd/mcp.json`。如果通过 `.env` 切换服务商，请修改同一个 `.env` 文件后用 `aicmd init --from-env --force` 重新生成。`aicmd-model init` 写入配置前会二次确认。
+AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，可以直接编辑运行时 `~/.aicmd/config.yaml`。MCP 直接读取 `~/.aicmd/mcp.json`。如果通过 `.env` 切换服务商，请修改同一个 `.env` 文件后用 `aicmd init --from-env --force` 重新生成。`aicmd model init` 写入配置前会二次确认；`aicmd-model` 是兼容 wrapper。
 
 Important config fields:
 
@@ -533,11 +533,11 @@ Other explicit overrides also follow the `AICMD_...` environment naming pattern.
 其他显式覆盖项也遵循 `AICMD_...` 环境变量命名方式。
 
 
-## 9. Helper command: aicmd-model / 辅助命令：aicmd-model
+## 9. Model command: aicmd model / 模型命令：aicmd model
 
-`aicmd-model` helps users find, show, and edit runtime config. `aicmd init --from-env` reads the simple `.env` file and writes LLM config to `~/.aicmd/config.yaml`. MCP config lives in `~/.aicmd/mcp.json`.
+`aicmd model` helps users find, show, and edit runtime config. `aicmd init --from-env` reads the simple `.env` file and writes LLM config to `~/.aicmd/config.yaml`. MCP config lives in `~/.aicmd/mcp.json`.
 
-`aicmd-model` 用于创建、定位、查看和编辑运行时配置。`aicmd init --from-env` 会读取简单 `.env` 文件，把 LLM 配置写入 `~/.aicmd/config.yaml`。MCP 配置保存在 `~/.aicmd/mcp.json`。
+`aicmd model` 用于创建、定位、查看和编辑运行时配置。`aicmd init --from-env` 会读取简单 `.env` 文件，把 LLM 配置写入 `~/.aicmd/config.yaml`。MCP 配置保存在 `~/.aicmd/mcp.json`。
 
 Usage:
 
@@ -546,9 +546,9 @@ Usage:
 ```bash
 aicmd init --from-env
 # Equivalent helper / 等价辅助命令：aicmd init --from-env
-aicmd-model path
-aicmd-model show
-EDITOR=vim aicmd-model edit
+aicmd model path
+aicmd model show
+EDITOR=vim aicmd model edit
 ```
 
 Typical flow after installation if `.env` was not used:
@@ -558,7 +558,7 @@ Typical flow after installation if `.env` was not used:
 ```bash
 aicmd init --from-env
 # or edit config directly / 或直接编辑配置
-EDITOR=vim aicmd-model edit
+EDITOR=vim aicmd model edit
 ```
 
 Typical flow to add another model later:
@@ -566,7 +566,7 @@ Typical flow to add another model later:
 之后新增其他模型的典型流程：
 
 ```bash
-EDITOR=vim aicmd-model edit
+EDITOR=vim aicmd model edit
 ```
 
 Then add the provider/model under `clients` and update the top-level `model` field if you want it to become the default.
@@ -863,6 +863,6 @@ aicmd-do "清洗 input.csv，输出 cleaned.csv"
 aicmd-err -- pnpm test
 
 # Show or edit model config / 查看或编辑模型配置
-aicmd-model show
-EDITOR=vim aicmd-model edit
+aicmd model show
+EDITOR=vim aicmd model edit
 ```

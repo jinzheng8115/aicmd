@@ -23,7 +23,7 @@ English:
 - 每日命令会话：普通 `aicmd` 默认使用 `cmd-YYYYMMDD`。
 - 脚本工作流：`aicmd-do` 会让 AICmd 生成“创建并运行任务脚本”的命令，并走正常确认流程。
 - 报错工作流：`aicmd-err -- <command>` 捕获命令输出，并让 AICmd 分析。
-- 模型配置辅助命令：`aicmd-model` 用于定位、查看或编辑运行时模型配置。
+- 模型配置辅助命令：`aicmd model` 用于定位、查看或编辑运行时模型配置；`aicmd-model` 仅作为兼容 wrapper。
 - REPL、RAG、agents、macros、自定义 roles、server mode 等上游宽功能不属于 AICmd 的公开 CLI 使用面。
 
 ## Install / 安装
@@ -57,9 +57,9 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 ## MCP tools / MCP 工具
 
-AICmd keeps MCP calls separate from the main terminal-command workflow. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json`. Command mappings only need a `server` by default. AICmd discovers MCP tools automatically; `tool` is only an advanced optional override. User-facing commands such as `aicmd search <query>` and `aicmd mcp <command> ...` call MCP first, then send the MCP result to the configured LLM for terminal-friendly summarization. The lower-level `aicmd-mcp <command> ...` helper still prints raw MCP output for debugging.
+AICmd keeps MCP calls separate from the main terminal-command workflow. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json`. Command mappings only need a `server` by default. AICmd discovers MCP tools automatically; `tool` is only an advanced optional override. User-facing commands such as `aicmd search <query>` and `aicmd mcp <command> ...` call MCP first, then send the MCP result to the configured LLM for terminal-friendly summarization. The lower-level `aicmd mcp-raw <command> ...` command prints raw MCP output for debugging. `aicmd-mcp` remains as a compatibility wrapper.
 
-AICmd 将 MCP 调用和主终端命令流程分开。MCP server 和命令映射配置在 `mcp.json`；安装脚本会复制到 `~/.aicmd/mcp.json`。命令映射默认只需要写 `server`，AICmd 会自动发现 MCP tool；`tool` 只是高级可选覆盖项。面向用户的 `aicmd search <query>` 和 `aicmd mcp <command> ...` 会先调用 MCP，再把 MCP 结果交给当前配置的 LLM 整理成适合终端阅读的输出。底层 `aicmd-mcp <command> ...` 仍保留原始 MCP 输出，方便调试。
+AICmd 将 MCP 调用和主终端命令流程分开。MCP server 和命令映射配置在 `mcp.json`；安装脚本会复制到 `~/.aicmd/mcp.json`。命令映射默认只需要写 `server`，AICmd 会自动发现 MCP tool；`tool` 只是高级可选覆盖项。面向用户的 `aicmd search <query>` 和 `aicmd mcp <command> ...` 会先调用 MCP，再把 MCP 结果交给当前配置的 LLM 整理成适合终端阅读的输出。底层 `aicmd mcp-raw <command> ...` 会输出 MCP 原始结果，方便调试；`aicmd-mcp` 仅作为兼容 wrapper。
 
 ```bash
 aicmd init --from-env
@@ -68,8 +68,8 @@ aicmd search "今天 AI 新闻"
 aicmd search DeepSeek latest model
 
 # Underlying helper / 底层辅助命令
-aicmd-mcp search "今天 AI 新闻"
-aicmd-mcp tavily "DeepSeek latest model"
+aicmd mcp-raw search "今天 AI 新闻"
+aicmd mcp-raw tavily "DeepSeek latest model"
 ```
 
 ## Shell integration / Shell 集成

@@ -2,6 +2,8 @@ mod cli;
 mod client;
 mod config;
 mod function;
+mod mcp_cmd;
+mod model_cmd;
 mod render;
 #[macro_use]
 mod utils;
@@ -101,6 +103,8 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         return Ok(None);
     };
     match cmd {
+        "init" => Ok(Some(model_cmd::run_model_command(args)?)),
+        "model" => Ok(Some(model_cmd::run_model_command(&args[1..])?)),
         _ => Ok(None),
     }
 }
@@ -122,11 +126,15 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             if args.len() < 2 {
                 bail!("usage: aicmd mcp <command> [args...]");
             }
+            if args[1] == "list" || args[1] == "help" || args[1] == "-h" || args[1] == "--help" {
+                return Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?));
+            }
             let mcp_command = &args[1];
             let query = args[2..].join(" ");
             run_mcp_with_llm_summary(config, mcp_command, &query).await?;
             Ok(Some(0))
         }
+        "mcp-raw" => Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?)),
         _ => Ok(None),
     }
 }
@@ -179,26 +187,9 @@ async fn run_mcp_with_llm_summary(
     query: &str,
 ) -> Result<()> {
     let abort_signal = create_abort_signal();
-    let mcp_args = if query.trim().is_empty() {
-        vec![mcp_command]
-    } else {
-        vec![mcp_command, query]
-    };
-    let (success, stdout, stderr) = run_command_with_output("aicmd-mcp", &mcp_args, None)
-        .with_context(|| "Unable to run aicmd-mcp")?;
-    let raw_output = if stdout.trim().is_empty() {
-        stderr.trim().to_string()
-    } else if stderr.trim().is_empty() {
-        stdout.trim().to_string()
-    } else {
-        format!(
-            "{}
-
-{}",
-            stdout.trim(),
-            stderr.trim()
-        )
-    };
+    let raw_output = mcp_cmd::call_mcp_command(mcp_command, query)
+        .with_context(|| "Unable to run MCP command")?;
+    let success = true;
     if raw_output.trim().is_empty() {
         bail!("MCP command returned no output");
     }
