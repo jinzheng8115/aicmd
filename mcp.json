@@ -9,8 +9,7 @@
           "tavily-mcp"
         ],
         "env": {
-          "TAVILY_API_KEY": "tvly-xxxx",
-          "TAVILY_API_KEYS_FILE": ""
+          "TAVILY_API_KEY": "tvly-xxxx"
         }
       },
       "context7": {
@@ -30,10 +29,6 @@
       "context7-library": {
         "description": "Resolve a package/library name using Context7",
         "server": "context7"
-      },
-      "tavily": {
-        "description": "Alias of search using Tavily",
-        "server": "tavily"
       }
     }
   }
