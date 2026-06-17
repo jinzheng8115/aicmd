@@ -56,20 +56,24 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 ## Shell integration / Shell 集成
 
-To let generated directory-changing commands such as `cd ..` update your current terminal directory, enable shell integration:
+The installer adds shell integration to your shell rc file automatically, so new terminals can update the current directory after AICmd executes commands such as `cd ..`.
 
-如果希望 `cd ..` 这类切换目录命令真正改变当前终端目录，请启用 shell 集成：
+安装脚本会自动把 shell 集成写入你的 shell rc 文件，因此新打开的终端在 AICmd 执行 `cd ..` 这类命令后可以同步更新当前目录。
+
+For the current already-open terminal, run once:
+
+对于当前已经打开的终端，需要执行一次：
+
+```bash
+source ~/.zshrc
+```
+
+Or enable it manually for the current shell:
+
+也可以只在当前 shell 手动启用：
 
 ```bash
 eval "$(aicmd-shell-init)"
-```
-
-To enable it permanently for zsh:
-
-如果要在 zsh 中永久启用：
-
-```bash
-echo 'eval "$(aicmd-shell-init)"' >> ~/.zshrc
 ```
 
 ## Usage / 使用

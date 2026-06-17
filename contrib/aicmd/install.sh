@@ -6,6 +6,30 @@ BIN_DIR="${AICMD_INSTALL_BIN_DIR:-$HOME/.local/bin}"
 LEGACY_SHARE_DIR="${AICMD_INSTALL_SHARE_DIR:-$HOME/.local/share/aicmd}"
 CARGO_BIN="${CARGO:-$HOME/.cargo/bin/cargo}"
 
+install_shell_integration() {
+  local rc_file shell_name marker line
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    zsh) rc_file="$HOME/.zshrc" ;;
+    bash) rc_file="$HOME/.bashrc" ;;
+    *) rc_file="$HOME/.zshrc" ;;
+  esac
+  marker="# >>> aicmd shell integration >>>"
+  line='eval "$(aicmd-shell-init)"'
+  mkdir -p "$(dirname "$rc_file")"
+  touch "$rc_file"
+  if grep -Fq "$marker" "$rc_file"; then
+    printf '%s\n' "$rc_file"
+    return
+  fi
+  {
+    printf '\n%s\n' "$marker"
+    printf '%s\n' "$line"
+    printf '%s\n' "# <<< aicmd shell integration <<<"
+  } >> "$rc_file"
+  printf '%s\n' "$rc_file"
+}
+
 mkdir -p "$BIN_DIR"
 
 if [[ ! -x "$CARGO_BIN" ]]; then
@@ -21,6 +45,7 @@ install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-model" "$BIN_DIR/aicmd-model"
 install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-shell-init" "$BIN_DIR/aicmd-shell-init"
 rm -f "$LEGACY_SHARE_DIR/model-config.example.yaml"
 rmdir "$LEGACY_SHARE_DIR" 2>/dev/null || true
+SHELL_RC_FILE="$(install_shell_integration)"
 
 CONFIG_PATH="$("$BIN_DIR/aicmd-model" path)"
 CONFIG_STATUS="Existing config kept: $CONFIG_PATH"
@@ -40,7 +65,9 @@ Installed helpers:
   $BIN_DIR/aicmd-model
   $BIN_DIR/aicmd-shell-init
 Shell integration for cd commands:
-  eval "\$(aicmd-shell-init)"
+  Installed into: $SHELL_RC_FILE
+  New terminals will load it automatically.
+  Current terminal: run source "$SHELL_RC_FILE" once.
 
 Config:
   $CONFIG_STATUS
