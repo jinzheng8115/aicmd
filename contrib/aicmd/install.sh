@@ -18,7 +18,7 @@ install_shell_integration() {
   line='eval "$(aicmd-shell-init)"'
   mkdir -p "$(dirname "$rc_file")"
   touch "$rc_file"
-  if grep -Fq "$marker" "$rc_file"; then
+  if grep -Fq "$marker" "$rc_file" || grep -Fxq "$line" "$rc_file"; then
     printf '%s\n' "$rc_file"
     return
   fi
