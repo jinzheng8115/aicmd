@@ -111,6 +111,13 @@ fn run_builtin_shortcut(args: &[String]) -> Result<Option<i32>> {
             model_args.extend(args[1..].iter().map(String::as_str));
             Ok(Some(run_command("aicmd-model", &model_args, None)?))
         }
+        "mcp" => {
+            if args.len() < 2 {
+                bail!("usage: aicmd mcp <command> [args...]");
+            }
+            let mcp_args: Vec<&str> = args[1..].iter().map(String::as_str).collect();
+            Ok(Some(run_command("aicmd-mcp", &mcp_args, None)?))
+        }
         _ => Ok(None),
     }
 }

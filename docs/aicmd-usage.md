@@ -68,9 +68,9 @@ Expected: `file` should report a native executable, not a shell script.
 
 ## 2.2 MCP tools / MCP 工具
 
-MCP tools stay outside the normal natural-language command-generation loop. Put standard MCP server JSON in `.env`, run `aicmd init --from-env`, and AICmd writes it into `~/.aicmd/config.yaml` under `mcpServers`. Search has a main shortcut: `aicmd search <query>`. This shortcut delegates to `aicmd-mcp search` and reads MCP settings from `config.yaml`.
+MCP tools stay outside the normal natural-language command-generation loop. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json` if that file does not already exist. Search has a main shortcut: `aicmd search <query>`. Other configured MCP commands can be called with `aicmd-mcp <command> ...` or `aicmd mcp <command> ...`.
 
-MCP 工具不进入普通自然语言命令生成循环。你可以在 `.env` 中填写标准 MCP server JSON，运行 `aicmd init --from-env` 后，AICmd 会把它写入 `~/.aicmd/config.yaml` 的 `mcpServers` 下。搜索提供主命令快捷入口：`aicmd search <query>`。这个快捷入口会转发到 `aicmd-mcp search`，并从 `config.yaml` 读取 MCP 设置。
+MCP 工具不进入普通自然语言命令生成循环。MCP server 和命令映射配置在 `mcp.json`；安装脚本会在 `~/.aicmd/mcp.json` 不存在时复制过去。搜索提供主命令快捷入口：`aicmd search <query>`。其他已配置 MCP 命令可以用 `aicmd-mcp <command> ...` 或 `aicmd mcp <command> ...` 调用。
 
 ```bash
 aicmd search "今天 AI 新闻"
@@ -81,9 +81,9 @@ aicmd-mcp search "今天 AI 新闻"
 aicmd-mcp tavily "DeepSeek latest model"
 ```
 
-The first supported MCP-backed command is Tavily search. More MCP tools can be added as separate subcommands later.
+Use `aicmd-mcp list` to see configured MCP commands.
 
-当前第一个支持的 MCP 命令是 Tavily 搜索。后续可以继续把更多 MCP 工具作为独立子命令加入。
+使用 `aicmd-mcp list` 查看已配置的 MCP 命令。
 
 ## 2.1 Shell integration for `cd` / 用于 `cd` 的 Shell 集成
 
@@ -386,49 +386,73 @@ AICMD_MODEL_API_KEY    API key
 AICMD_MODEL_IDS        provider model id(s), comma-separated / 模型 ID，多个用逗号分隔
 AICMD_DEFAULT_MODEL    optional default model; default is name:first-id / 可选默认模型；默认是 name:第一个模型 ID
 AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
-AICMD_MCP_SERVERS_JSON  optional MCP servers JSON map / 可选 MCP servers JSON map
-AICMD_MCP_TAVILY_API_KEY backward-compatible Tavily shorthand / 兼容旧版的 Tavily 简写
-AICMD_MCP_TAVILY_API_KEYS_FILE backward-compatible Tavily key file shorthand / 兼容旧版的 Tavily key 文件简写
+MCP is configured in mcp.json, not .env / MCP 在 mcp.json 中配置，不在 .env 中配置
 ```
 
 
-MCP examples in .env:
+MCP config file example:
 
-.env 中的 MCP 示例：
+MCP 配置文件示例：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "tavily": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "tavily-mcp"],
+        "env": {
+          "TAVILY_API_KEY": "tvly-xxxx"
+        }
+      },
+      "context7": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@upstash/context7-mcp"]
+      }
+    },
+    "commands": {
+      "search": {
+        "server": "tavily",
+        "tool": "tavily_search",
+        "arguments": {
+          "query": "{{input}}"
+        }
+      },
+      "context7-library": {
+        "server": "context7",
+        "tool": "resolve-library-id",
+        "arguments": {
+          "libraryName": "{{input}}"
+        }
+      }
+    }
+  }
+}
+```
+
+Command mapping rules:
+
+命令映射规则：
+
+```text
+mcp.servers.<server-name>      defines how to start the MCP server / 定义如何启动 MCP server
+mcp.commands.<command>.server  selects a configured server / 选择一个已配置 server
+mcp.commands.<command>.tool    selects the MCP tool name / 选择 MCP tool 名称
+mcp.commands.<command>.arguments maps CLI input to tool arguments / 把命令行输入映射到 tool 参数
+{{input}}                      expands to all remaining CLI text / 展开为剩余命令行文本
+```
+
+Examples:
+
+示例：
 
 ```bash
-# One server / 一个 server
-AICMD_MCP_SERVERS_JSON='{"context7":{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]}}'
-
-# Multiple servers / 多个 servers
-AICMD_MCP_SERVERS_JSON='{"context7":{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]},"tavily":{"type":"stdio","command":"npx","args":["-y","tavily-mcp"],"env":{"TAVILY_API_KEY":"tvly-xxxx"}}}'
+aicmd search "OpenAI latest news"
+aicmd-mcp search "OpenAI latest news"
+aicmd mcp context7-library react
 ```
-
-Generated MCP section in config.yaml:
-
-生成在 config.yaml 里的 MCP 片段示例：
-
-```yaml
-mcpServers:
-  context7:
-    type: stdio
-    command: npx
-    args:
-      - -y
-      - "@upstash/context7-mcp"
-  tavily:
-    type: stdio
-    command: npx
-    args:
-      - -y
-      - tavily-mcp
-    env:
-      TAVILY_API_KEY: "tvly-xxxx"
-```
-
-Current built-in command support still only wires `aicmd search` to the `tavily` server and its `tavily_search` tool. More dedicated commands can be added later.
-
-当前内置命令仍只把 `aicmd search` 连接到 `tavily` server 及其 `tavily_search` tool。后续可以继续增加更多专用命令。
 
 When `.env` is converted to `config.yaml`, `AICMD_MODEL_IDS=gpt-4o,gpt-4.1` becomes multiple entries under `clients[].models`. The generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:first-id-in-AICMD_MODEL_IDS`.
 
@@ -442,9 +466,9 @@ After installation, the user-editable runtime config file is:
 ~/.aicmd/config.yaml  # LLM and MCP config / LLM 和 MCP 配置
 ```
 
-AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`. MCP search reads `~/.aicmd/config.yaml` directly. To switch provider or MCP settings through `.env`, edit the same `.env` file and regenerate with `aicmd init --from-env --force`. `aicmd-model init` asks for confirmation before writing config.
+AICmd no longer ships a separate public model template or `models.yaml`. Add or switch models directly in runtime `~/.aicmd/config.yaml`. MCP reads `~/.aicmd/mcp.json` directly. To switch provider through `.env`, edit the same `.env` file and regenerate with `aicmd init --from-env --force`. `aicmd-model init` asks for confirmation before writing config.
 
-AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，可以直接编辑运行时 `~/.aicmd/config.yaml`。MCP 搜索直接读取 `~/.aicmd/config.yaml`。如果通过 `.env` 切换服务商或 MCP 设置，请修改同一个 `.env` 文件后用 `aicmd init --from-env --force` 重新生成。`aicmd-model init` 写入配置前会二次确认。
+AICmd 不再提供单独的公开模型模板或 `models.yaml`。新增或切换模型时，可以直接编辑运行时 `~/.aicmd/config.yaml`。MCP 直接读取 `~/.aicmd/mcp.json`。如果通过 `.env` 切换服务商，请修改同一个 `.env` 文件后用 `aicmd init --from-env --force` 重新生成。`aicmd-model init` 写入配置前会二次确认。
 
 Important config fields:
 
@@ -505,9 +529,9 @@ Other explicit overrides also follow the `AICMD_...` environment naming pattern.
 
 ## 9. Helper command: aicmd-model / 辅助命令：aicmd-model
 
-`aicmd-model` helps users find, show, and edit runtime config. `aicmd init --from-env` reads the simple `.env` file and writes LLM and MCP config to `~/.aicmd/config.yaml`.
+`aicmd-model` helps users find, show, and edit runtime config. `aicmd init --from-env` reads the simple `.env` file and writes LLM config to `~/.aicmd/config.yaml`. MCP config lives in `~/.aicmd/mcp.json`.
 
-`aicmd-model` 用于创建、定位、查看和编辑运行时配置。`aicmd init --from-env` 会读取简单 `.env` 文件，把 LLM 和 MCP 配置写入 `~/.aicmd/config.yaml`。
+`aicmd-model` 用于创建、定位、查看和编辑运行时配置。`aicmd init --from-env` 会读取简单 `.env` 文件，把 LLM 配置写入 `~/.aicmd/config.yaml`。MCP 配置保存在 `~/.aicmd/mcp.json`。
 
 Usage:
 

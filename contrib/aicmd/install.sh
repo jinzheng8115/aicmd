@@ -47,6 +47,15 @@ install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-shell-init" "$BIN_DIR/aicmd-s
 rm -f "$LEGACY_SHARE_DIR/model-config.example.yaml"
 rmdir "$LEGACY_SHARE_DIR" 2>/dev/null || true
 SHELL_RC_FILE="$(install_shell_integration)"
+CONFIG_DIR="$($BIN_DIR/aicmd-model dir)"
+MCP_CONFIG_PATH="${AICMD_MCP_CONFIG_FILE:-$CONFIG_DIR/mcp.json}"
+mkdir -p "$CONFIG_DIR"
+if [[ ! -f "$MCP_CONFIG_PATH" ]]; then
+  install -m 0600 "$ROOT_DIR/mcp.json" "$MCP_CONFIG_PATH"
+  MCP_CONFIG_STATUS="Installed MCP config: $MCP_CONFIG_PATH"
+else
+  MCP_CONFIG_STATUS="Existing MCP config kept: $MCP_CONFIG_PATH. To reset, copy $ROOT_DIR/mcp.json manually."
+fi
 
 CONFIG_PATH="$($BIN_DIR/aicmd-model path)"
 CONFIG_STATUS="Existing config kept: $CONFIG_PATH"
@@ -73,6 +82,7 @@ Shell integration for cd commands:
 
 Config:
   $CONFIG_STATUS
+  $MCP_CONFIG_STATUS
 
 Make sure $BIN_DIR is in PATH, then run:
   aicmd 列出当前目录最大的 10 个文件

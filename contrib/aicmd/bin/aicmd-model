@@ -5,13 +5,13 @@ usage() {
   cat <<'HELP'
 Usage: aicmd-model <command>
 
-Manage the AICmd runtime config at ~/.aicmd/config.yaml, including LLM and MCP settings.
-The recommended setup is: copy .env.example to .env, fill the model and MCP values, then run `aicmd init --from-env`.
+Manage the AICmd runtime config at ~/.aicmd/config.yaml, including LLM settings.
+The recommended setup is: copy .env.example to .env, fill the model values, then run `aicmd init --from-env`.
 
 用法：aicmd-model <命令>
 
-管理 AICmd 运行时配置 ~/.aicmd/config.yaml，其中同时包含 LLM 和 MCP 设置。
-推荐流程：复制 .env.example 为 .env，填写模型和 MCP 参数，然后运行 `aicmd init --from-env`。
+管理 AICmd 运行时配置 ~/.aicmd/config.yaml，其中包含 LLM 设置。
+推荐流程：复制 .env.example 为 .env，填写模型参数，然后运行 `aicmd init --from-env`。
 
 Commands / 命令:
   init                Create runtime config.yaml. Uses .env when found, otherwise writes a starter config.
@@ -88,57 +88,6 @@ yaml_escape() {
   value="${value//\\/\\\\}"
   value="${value//"/\\"}"
   printf '"%s"\n' "$value"
-}
-
-mcp_servers_yaml() {
-  python3 - <<'PY'
-import json
-import os
-import sys
-
-import yaml
-
-servers_json = os.environ.get("AICMD_MCP_SERVERS_JSON", "").strip()
-
-if servers_json:
-    servers = json.loads(servers_json)
-else:
-    tavily_env = {}
-    tavily_key = os.environ.get("AICMD_MCP_TAVILY_API_KEY", "")
-    tavily_keys_file = os.environ.get("AICMD_MCP_TAVILY_API_KEYS_FILE", "")
-    if tavily_key:
-        tavily_env["TAVILY_API_KEY"] = tavily_key
-    if tavily_keys_file:
-        tavily_env["TAVILY_API_KEYS_FILE"] = tavily_keys_file
-    servers = {
-        "tavily": {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["-y", "tavily-mcp"],
-            "env": tavily_env,
-        }
-    }
-
-if not isinstance(servers, dict):
-    raise SystemExit("MCP servers config must be a JSON object")
-for name, server in servers.items():
-    if not isinstance(server, dict):
-        raise SystemExit(f"MCP server {name!r} must be an object")
-    if "command" not in server:
-        raise SystemExit(f"MCP server {name!r} missing command")
-    server.setdefault("type", "stdio")
-    server.setdefault("args", [])
-    if not isinstance(server["args"], list):
-        raise SystemExit(f"MCP server {name!r} args must be an array")
-
-yaml.safe_dump(
-    {"mcpServers": servers},
-    sys.stdout,
-    allow_unicode=True,
-    default_flow_style=False,
-    sort_keys=False,
-)
-PY
 }
 
 config_from_env() {
@@ -221,8 +170,6 @@ YAML
   done
   IFS="$old_ifs"
 
-  echo
-  mcp_servers_yaml
 }
 
 default_config() {
@@ -258,16 +205,6 @@ clients:
     models:
       - name: gpt-4o
 
-mcpServers:
-  tavily:
-    type: stdio
-    command: npx
-    args:
-      - -y
-      - tavily-mcp
-    env:
-      TAVILY_API_KEY: ""
-      TAVILY_API_KEYS_FILE: ""
 YAML
 }
 

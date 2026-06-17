@@ -5,22 +5,20 @@ usage() {
   cat <<'HELP'
 Usage: aicmd-mcp <command> [args...]
 
-Call MCP-backed tools through dedicated AICmd helper commands.
-MCP runtime settings are read from ~/.aicmd/config.yaml using standard MCP server config shape.
+Call MCP-backed commands configured in ~/.aicmd/mcp.json.
 
 用法：aicmd-mcp <命令> [参数...]
 
-通过独立 AICmd 辅助命令调用 MCP 工具。
-MCP 运行时配置从 ~/.aicmd/config.yaml 读取，配置结构使用标准 MCP server 形态。
+调用 ~/.aicmd/mcp.json 中配置的 MCP 命令。
 
 Commands / 命令:
-  search <query>   Search the web using configured Tavily MCP / 使用配置的 Tavily MCP 搜索网页
-  tavily <query>   Alias of search / search 的别名
+  list             List configured MCP commands / 列出已配置的 MCP 命令
+  <command> ...    Run a configured MCP command / 运行已配置的 MCP 命令
   help             Show help / 显示帮助
 
 Examples / 示例:
   aicmd-mcp search "今天 AI 新闻"
-  aicmd-mcp tavily "DeepSeek latest model"
+  aicmd-mcp context7-library react
 HELP
 }
 
@@ -32,54 +30,82 @@ config_dir() {
   fi
 }
 
-config_path() {
-  if [[ -n "${AICMD_CONFIG_FILE:-}" ]]; then
-    printf '%s\n' "$AICMD_CONFIG_FILE"
+mcp_config_path() {
+  if [[ -n "${AICMD_MCP_CONFIG_FILE:-}" ]]; then
+    printf '%s\n' "$AICMD_MCP_CONFIG_FILE"
   else
-    printf '%s/config.yaml\n' "$(config_dir)"
+    printf '%s/mcp.json\n' "$(config_dir)"
   fi
 }
 
-run_tavily() {
-  local query path
-  query="$*"
-  if [[ -z "$query" ]]; then
-    echo "usage: aicmd-mcp search <query>" >&2
-    exit 2
-  fi
-  path="$(config_path)"
+run_mcp_command() {
+  local mcp_command input path
+  mcp_command="$1"
+  shift || true
+  input="$*"
+  path="$(mcp_config_path)"
   if [[ ! -f "$path" ]]; then
-    echo "config not found: $path" >&2
-    echo "Run: aicmd init --from-env" >&2
+    echo "MCP config not found: $path" >&2
+    echo "Create it before use, or install from the project mcp.json." >&2
     exit 1
   fi
-  python3 - "$path" "$query" <<'PY'
+  python3 - "$path" "$mcp_command" "$input" <<'PY'
 import json
 import os
 import subprocess
 import sys
 import threading
 import time
+from copy import deepcopy
 
-import yaml
-
-config_path, query = sys.argv[1], sys.argv[2]
+config_path, command_name, user_input = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(config_path, "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f) or {}
-server = config.get("mcpServers", {}).get("tavily")
+    config = json.load(f)
+root = config.get("mcp", config)
+servers = root.get("servers") or root.get("mcpServers") or {}
+commands = root.get("commands") or {}
+
+if command_name == "list":
+    for name, spec in commands.items():
+        desc = spec.get("description", "") if isinstance(spec, dict) else ""
+        print(f"{name}\t{desc}".rstrip())
+    raise SystemExit(0)
+
+command_spec = commands.get(command_name)
+if not command_spec:
+    available = ", ".join(sorted(commands)) or "<none>"
+    raise SystemExit(f"unknown MCP command: {command_name}\navailable: {available}")
+server_name = command_spec.get("server")
+tool_name = command_spec.get("tool")
+if not server_name or not tool_name:
+    raise SystemExit(f"MCP command {command_name!r} requires server and tool")
+server = servers.get(server_name)
 if not server:
-    raise SystemExit(f"missing mcpServers.tavily in {config_path}")
+    raise SystemExit(f"MCP server {server_name!r} not found for command {command_name!r}")
 if server.get("type", "stdio") != "stdio":
-    raise SystemExit("mcpServers.tavily.type must be stdio")
-command = server.get("command")
-args = server.get("args", [])
-if not command:
-    raise SystemExit(f"missing mcpServers.tavily.command in {config_path}")
-if not isinstance(args, list):
-    raise SystemExit("mcpServers.tavily.args must be an array")
+    raise SystemExit(f"MCP server {server_name!r} type must be stdio")
+server_command = server.get("command")
+server_args = server.get("args", [])
+if not server_command:
+    raise SystemExit(f"MCP server {server_name!r} missing command")
+if not isinstance(server_args, list):
+    raise SystemExit(f"MCP server {server_name!r} args must be an array")
 server_env = server.get("env", {}) or {}
 if not isinstance(server_env, dict):
-    raise SystemExit("mcpServers.tavily.env must be an object")
+    raise SystemExit(f"MCP server {server_name!r} env must be an object")
+
+def render(value):
+    if isinstance(value, str):
+        return value.replace("{{input}}", user_input)
+    if isinstance(value, list):
+        return [render(item) for item in value]
+    if isinstance(value, dict):
+        return {key: render(item) for key, item in value.items()}
+    return value
+
+tool_arguments = render(deepcopy(command_spec.get("arguments", {})))
+if not isinstance(tool_arguments, dict):
+    raise SystemExit(f"MCP command {command_name!r} arguments must be an object")
 
 env = os.environ.copy()
 for key, value in server_env.items():
@@ -87,7 +113,7 @@ for key, value in server_env.items():
         env[str(key)] = str(value)
 
 proc = subprocess.Popen(
-    [str(command), *map(str, args)],
+    [str(server_command), *map(str, server_args)],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -149,19 +175,7 @@ init_id = send("initialize", {
 read_response(init_id)
 send("notifications/initialized", {}, is_notification=True)
 
-call_id = send("tools/call", {
-    "name": "tavily_search",
-    "arguments": {
-        "query": query,
-        "topic": "general",
-        "search_depth": "advanced",
-        "max_results": 5,
-        "include_answer": True,
-        "include_raw_content": False,
-        "include_images": False,
-        "include_image_descriptions": False,
-    },
-})
+call_id = send("tools/call", {"name": tool_name, "arguments": tool_arguments})
 result = read_response(call_id, timeout=120)
 content = result.get("content", [])
 texts = []
@@ -179,13 +193,11 @@ PY
 
 cmd="${1:-help}"
 case "$cmd" in
-  search|tavily)
-    shift || true
-    run_tavily "$@" ;;
   help|-h|--help)
     usage ;;
+  list)
+    run_mcp_command list ;;
   *)
-    echo "Unknown command: $cmd" >&2
-    usage >&2
-    exit 2 ;;
+    shift || true
+    run_mcp_command "$cmd" "$@" ;;
 esac
