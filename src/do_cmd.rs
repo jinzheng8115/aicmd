@@ -48,7 +48,7 @@ pub fn build_do_request(args: &[String], shell_name: &str) -> Result<DoRequest> 
     let script_kind = script_kind(shell_name);
     let script_path = output.unwrap_or_else(|| default_script_path(script_kind.extension));
     let prompt = format!(
-        "创建一个 {kind} 脚本 {path} 来完成这个任务: {task}。要求：先检查输入文件是否存在；必要时创建输出目录；不要删除或覆盖原始文件，除非任务明确要求；脚本写入后设置为可执行或可运行；最后执行这个脚本。",
+        "创建一个 {kind} 脚本 {path} 来完成这个任务: {task}。要求：先检查输入文件是否存在；必要时创建输出目录；不要删除或覆盖原始文件，除非任务明确要求；脚本写入后设置为可执行或可运行；最后执行这个脚本。如果任务缺少必要信息、无法安全完成、不适合本地脚本、依赖不可用的凭据或服务，或者找不到合适的实现方式，不要硬写脚本；请只输出一条安全的说明命令，解释无法执行的原因，并告诉用户需要补充什么或下一步建议。",
         kind = script_kind.display,
         path = script_path,
         task = task,
