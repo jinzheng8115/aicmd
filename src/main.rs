@@ -358,6 +358,10 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             return Ok(());
         }
         config.write().empty_session()?;
+        if text.is_none() && cli.file.is_empty() {
+            println!("session cleared: {target}");
+            return Ok(());
+        }
     }
     if text.is_none() && cli.file.is_empty() {
         if cli.session.is_some() {
