@@ -57,9 +57,9 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 ## MCP tools / MCP 工具
 
-AICmd keeps MCP calls separate from the main terminal-command workflow. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json`. Use `aicmd search <query>` as the main search shortcut, or call any configured command with `aicmd-mcp <command> ...` / `aicmd mcp <command> ...`.
+AICmd keeps MCP calls separate from the main terminal-command workflow. Configure MCP servers and command mappings in `mcp.json`; the installer copies it to `~/.aicmd/mcp.json`. Command mappings only need a `server` by default. AICmd discovers MCP tools automatically; `tool` is only an advanced optional override. Use `aicmd search <query>` as the main search shortcut, or call any configured command with `aicmd-mcp <command> ...` / `aicmd mcp <command> ...`.
 
-AICmd 将 MCP 调用和主终端命令流程分开。MCP server 和命令映射配置在 `mcp.json`；安装脚本会复制到 `~/.aicmd/mcp.json`。搜索时使用主命令快捷入口 `aicmd search <query>`；其他已配置命令可以用 `aicmd-mcp <command> ...` 或 `aicmd mcp <command> ...` 调用。
+AICmd 将 MCP 调用和主终端命令流程分开。MCP server 和命令映射配置在 `mcp.json`；安装脚本会复制到 `~/.aicmd/mcp.json`。命令映射默认只需要写 `server`，AICmd 会自动发现 MCP tool；`tool` 只是高级可选覆盖项。搜索时使用主命令快捷入口 `aicmd search <query>`；其他已配置命令可以用 `aicmd-mcp <command> ...` 或 `aicmd mcp <command> ...` 调用。
 
 ```bash
 aicmd init --from-env

@@ -25,18 +25,15 @@
     "commands": {
       "search": {
         "description": "Search the web using Tavily",
-        "server": "tavily",
-        "tool": "tavily_search"
+        "server": "tavily"
       },
       "context7-library": {
         "description": "Resolve a package/library name using Context7",
-        "server": "context7",
-        "tool": "resolve-library-id"
+        "server": "context7"
       },
       "tavily": {
         "description": "Alias of search using Tavily",
-        "server": "tavily",
-        "tool": "tavily_search"
+        "server": "tavily"
       }
     }
   }

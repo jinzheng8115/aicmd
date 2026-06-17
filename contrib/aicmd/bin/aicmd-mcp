@@ -75,8 +75,8 @@ if not command_spec:
     raise SystemExit(f"unknown MCP command: {command_name}\navailable: {available}")
 server_name = command_spec.get("server")
 tool_name = command_spec.get("tool")
-if not server_name or not tool_name:
-    raise SystemExit(f"MCP command {command_name!r} requires server and tool")
+if not server_name:
+    raise SystemExit(f"MCP command {command_name!r} requires server")
 server = servers.get(server_name)
 if not server:
     raise SystemExit(f"MCP server {server_name!r} not found for command {command_name!r}")
@@ -102,7 +102,7 @@ def render(value):
     return value
 
 def default_arguments(tool, text):
-    if tool == "tavily_search":
+    if tool in ("tavily_search", "search"):
         return {
             "query": text,
             "topic": "general",
@@ -120,16 +120,75 @@ def default_arguments(tool, text):
         return {str(input_field): text}
     return {"input": text} if text else {}
 
-if "arguments" in command_spec:
-    tool_arguments = render(command_spec.get("arguments", {}))
-    if not isinstance(tool_arguments, dict):
-        raise SystemExit(f"MCP command {command_name!r} arguments must be an object")
-else:
-    tool_arguments = default_arguments(tool_name, user_input)
-    extra = command_spec.get("options", {}) or {}
-    if not isinstance(extra, dict):
-        raise SystemExit(f"MCP command {command_name!r} options must be an object")
-    tool_arguments.update(render(extra))
+def tokenize(value):
+    out = []
+    current = []
+    for ch in str(value).lower():
+        if ch.isalnum():
+            current.append(ch)
+        elif current:
+            out.append("".join(current))
+            current = []
+    if current:
+        out.append("".join(current))
+    return [item for item in out if item]
+
+def choose_tool(tools):
+    if tool_name:
+        return str(tool_name)
+    if not tools:
+        raise SystemExit(f"MCP server {server_name!r} exposes no tools")
+    if len(tools) == 1:
+        name = tools[0].get("name") if isinstance(tools[0], dict) else None
+        if name:
+            return str(name)
+    desired = " ".join([
+        command_name,
+        str(command_spec.get("description", "")),
+        user_input,
+    ])
+    desired_tokens = set(tokenize(desired))
+    scored = []
+    normalized_command = "".join(tokenize(command_name))
+    for tool in tools:
+        if not isinstance(tool, dict) or not tool.get("name"):
+            continue
+        name = str(tool.get("name"))
+        desc = str(tool.get("description", ""))
+        normalized_name = "".join(tokenize(name))
+        tool_tokens = set(tokenize(name + " " + desc))
+        score = len(desired_tokens & tool_tokens)
+        if normalized_name == normalized_command:
+            score += 100
+        if normalized_command and normalized_command in normalized_name:
+            score += 20
+        if normalized_name and normalized_name in normalized_command:
+            score += 10
+        scored.append((score, name, desc))
+    scored.sort(reverse=True, key=lambda item: item[0])
+    if scored and scored[0][0] > 0 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+        return scored[0][1]
+    lines = [
+        f"Cannot automatically choose a tool for MCP command {command_name!r} on server {server_name!r}.",
+        "Available tools:",
+    ]
+    for _, name, desc in scored:
+        lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+    lines.append("Add an optional tool field to this command if needed.")
+    raise SystemExit("\n".join(lines))
+
+def build_tool_arguments(selected_tool):
+    if "arguments" in command_spec:
+        args = render(command_spec.get("arguments", {}))
+        if not isinstance(args, dict):
+            raise SystemExit(f"MCP command {command_name!r} arguments must be an object")
+    else:
+        args = default_arguments(selected_tool, user_input)
+        extra = command_spec.get("options", {}) or {}
+        if not isinstance(extra, dict):
+            raise SystemExit(f"MCP command {command_name!r} options must be an object")
+        args.update(render(extra))
+    return args
 
 env = os.environ.copy()
 for key, value in server_env.items():
@@ -199,7 +258,15 @@ init_id = send("initialize", {
 read_response(init_id)
 send("notifications/initialized", {}, is_notification=True)
 
-call_id = send("tools/call", {"name": tool_name, "arguments": tool_arguments})
+if tool_name:
+    selected_tool_name = str(tool_name)
+else:
+    list_id = send("tools/list")
+    list_result = read_response(list_id, timeout=60)
+    selected_tool_name = choose_tool(list_result.get("tools", []))
+tool_arguments = build_tool_arguments(selected_tool_name)
+
+call_id = send("tools/call", {"name": selected_tool_name, "arguments": tool_arguments})
 result = read_response(call_id, timeout=120)
 content = result.get("content", [])
 texts = []
