@@ -390,14 +390,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 安装指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.0
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.1
 ```
 
 Windows PowerShell 指定版本：
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.0
+# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.1
 ```
 
 ## 10. 常见问题
