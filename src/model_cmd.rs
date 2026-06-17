@@ -93,6 +93,12 @@ fn config_path() -> PathBuf {
     Config::config_file()
 }
 
+fn mcp_config_path() -> PathBuf {
+    env::var("AICMD_MCP_CONFIG_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| config_dir().join("mcp.json"))
+}
+
 fn find_env_file() -> Option<PathBuf> {
     if let Ok(path) = env::var("AICMD_MODEL_ENV") {
         return Some(PathBuf::from(path));
@@ -104,6 +110,25 @@ fn find_env_file() -> Option<PathBuf> {
     let config_env = Config::env_file();
     if config_env.exists() {
         return Some(config_env);
+    }
+    None
+}
+
+fn find_mcp_file(env_file: Option<&Path>) -> Option<PathBuf> {
+    if let Ok(path) = env::var("AICMD_MCP_SOURCE") {
+        return Some(PathBuf::from(path));
+    }
+    if let Some(env_file) = env_file {
+        if let Some(parent) = env_file.parent() {
+            let sibling_mcp = parent.join("mcp.json");
+            if sibling_mcp.exists() {
+                return Some(sibling_mcp);
+            }
+        }
+    }
+    let cwd_mcp = PathBuf::from("mcp.json");
+    if cwd_mcp.exists() {
+        return Some(cwd_mcp);
     }
     None
 }
@@ -256,9 +281,16 @@ clients:
 "#
 }
 
-fn confirm_init(path: &Path, source_desc: &str) -> Result<()> {
+fn confirm_init(path: &Path, source_desc: &str, mcp_source: Option<&Path>) -> Result<()> {
     eprintln!("About to write AICmd config: {}", path.display());
     eprintln!("Source: {source_desc}");
+    if let Some(mcp_source) = mcp_source {
+        eprintln!(
+            "MCP config will be copied: {} -> {}",
+            mcp_source.display(),
+            mcp_config_path().display()
+        );
+    }
     eprint!("Continue? [y/N] ");
     io::stderr().flush()?;
     let mut answer = String::new();
@@ -269,6 +301,31 @@ fn confirm_init(path: &Path, source_desc: &str) -> Result<()> {
     }
 }
 
+fn sync_mcp_config(source: &Path) -> Result<Option<PathBuf>> {
+    let target = mcp_config_path();
+    let source_abs = source
+        .canonicalize()
+        .unwrap_or_else(|_| source.to_path_buf());
+    let target_abs = target.canonicalize().unwrap_or_else(|_| target.clone());
+    if source_abs == target_abs {
+        return Ok(Some(target));
+    }
+    let content = fs::read_to_string(source)
+        .with_context(|| format!("failed to read MCP config: {}", source.display()))?;
+    serde_json::from_str::<serde_json::Value>(&content)
+        .with_context(|| format!("invalid MCP JSON: {}", source.display()))?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&target, content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o600));
+    }
+    Ok(Some(target))
+}
+
 fn init_config(force: bool, from_env: bool) -> Result<()> {
     let path = config_path();
     if path.exists() && !force {
@@ -277,9 +334,13 @@ fn init_config(force: bool, from_env: bool) -> Result<()> {
             path.display()
         );
     }
+    let mut env_source = None;
     let (content, source) = if let Some(env_file) = find_env_file() {
         let values = parse_env_file(&env_file)?;
-        (config_from_env(&values)?, env_file.display().to_string())
+        let content = config_from_env(&values)?;
+        let source = env_file.display().to_string();
+        env_source = Some(env_file);
+        (content, source)
     } else if from_env {
         bail!("env file not found. Copy .env.example to .env and fill it first.");
     } else {
@@ -288,7 +349,10 @@ fn init_config(force: bool, from_env: bool) -> Result<()> {
             "built-in starter config".into(),
         )
     };
-    confirm_init(&path, &source)?;
+    let mcp_source = env_source
+        .as_deref()
+        .and_then(|env_file| find_mcp_file(Some(env_file)));
+    confirm_init(&path, &source, mcp_source.as_deref())?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -303,6 +367,12 @@ fn init_config(force: bool, from_env: bool) -> Result<()> {
     } else {
         println!("created config from env: {}", path.display());
         println!("env file: {source}");
+    }
+    if let Some(mcp_source) = mcp_source.as_deref() {
+        if let Some(target) = sync_mcp_config(mcp_source)? {
+            println!("copied MCP config: {}", target.display());
+            println!("mcp file: {}", mcp_source.display());
+        }
     }
     println!("edit config with: aicmd model edit");
     Ok(())

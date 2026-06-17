@@ -121,9 +121,9 @@ MCP 与模型配置分开。运行时 MCP 文件是：
 ~/.aicmd/mcp.json
 ```
 
-The installer creates a starter `mcp.json` if the file does not already exist. If you want to prepare it before installation, create `~/.aicmd/mcp.json` first; the installer will keep the existing file.
+The installer creates a starter `mcp.json` if the file does not already exist. The recommended setup is to keep your prepared `.env` and `mcp.json` in the same directory, then run `aicmd init --from-env`; AICmd will generate `~/.aicmd/config.yaml` from `.env` and copy `mcp.json` to `~/.aicmd/mcp.json`.
 
-如果该文件不存在，安装器会创建一个 starter `mcp.json`。如果你想在安装前配置 MCP，可以先创建 `~/.aicmd/mcp.json`；安装器会保留已有文件。
+如果该文件不存在，安装器会创建一个 starter `mcp.json`。推荐做法是把准备好的 `.env` 和 `mcp.json` 放在同一个目录，然后运行 `aicmd init --from-env`；AICmd 会根据 `.env` 生成 `~/.aicmd/config.yaml`，并把 `mcp.json` 复制到 `~/.aicmd/mcp.json`。
 
 Create or edit it manually / 手动创建或编辑：
 
@@ -226,32 +226,34 @@ contrib/aicmd/install.sh --from-source
 
 ## 5. After installation: generate `config.yaml` / 安装后：生成 `config.yaml`
 
-After installing the binary, generate the runtime model config from `.env`:
+After installing the binary, generate the runtime model config from `.env`. If a `mcp.json` file exists in the same directory, it is copied to `~/.aicmd/mcp.json` at the same time.
 
-安装二进制后，用 `.env` 生成运行时模型配置：
+安装二进制后，用 `.env` 生成运行时模型配置。如果同目录存在 `mcp.json`，会同时复制到 `~/.aicmd/mcp.json`。
 
 ```bash
 aicmd init --from-env
 ```
 
-This writes:
+This writes or updates:
 
-这会写入：
+这会写入或更新：
 
 ```text
 ~/.aicmd/config.yaml
+~/.aicmd/mcp.json   # only when local mcp.json exists / 仅当本地 mcp.json 存在时
 ```
 
 AICmd will ask for confirmation before writing. This is intentional because `config.yaml` contains your API key.
 
 AICmd 写入前会二次确认。这是有意设计，因为 `config.yaml` 会包含你的 API key。
 
-If your `.env` is not in the current directory, point AICmd to it:
+If your `.env` is not in the current directory, point AICmd to it. AICmd also looks for `mcp.json` next to that `.env`; you can override the MCP source with `AICMD_MCP_SOURCE=/path/to/mcp.json`.
 
-如果 `.env` 不在当前目录，可以显式指定：
+如果 `.env` 不在当前目录，可以显式指定。AICmd 也会查找这个 `.env` 同目录下的 `mcp.json`；也可以用 `AICMD_MCP_SOURCE=/path/to/mcp.json` 指定 MCP 来源文件。
 
 ```bash
 AICMD_MODEL_ENV=/path/to/.env aicmd init --from-env
+AICMD_MODEL_ENV=/path/to/.env AICMD_MCP_SOURCE=/path/to/mcp.json aicmd init --from-env
 ```
 
 If `config.yaml` already exists and you want to regenerate it:
