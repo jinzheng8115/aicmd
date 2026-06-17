@@ -13,7 +13,7 @@ use crate::cli::Cli;
 use crate::client::{call_chat_completions, call_chat_completions_streaming};
 use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, EXPLAIN_SHELL_ROLE,
-    SHELL_ROLE,
+    MCP_SUMMARY_ROLE, SHELL_ROLE,
 };
 use crate::render::render_error;
 use crate::utils::*;
@@ -162,23 +162,15 @@ async fn run_mcp_with_llm_summary(
     }
     let status_text = if success { "success" } else { "failed" };
     let prompt = format!(
-        "你是 AICmd 的 MCP 结果整理助手。请根据 MCP 返回内容，直接回答用户问题。
-
-要求：
-- 使用中文输出，除非用户明显要求其他语言。
-- 输出为终端友好的纯文本，不使用 Markdown 表格，不使用代码围栏。
-- 先给结论，再列关键依据。
-- 如果 MCP 返回的是错误，说明错误原因和用户下一步应该怎么做。
-- 不要编造 MCP 结果里没有的信息。
-
-MCP command: {mcp_command}
+        "MCP command: {mcp_command}
 MCP status: {status_text}
 用户请求：{query}
 
 MCP 原始返回：
 {raw_output}"
     );
-    let input = Input::from_str(config, &prompt, None);
+    let role = config.read().retrieve_role(MCP_SUMMARY_ROLE)?;
+    let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
     if input.stream() {
         call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?;
