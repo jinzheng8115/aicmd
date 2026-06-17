@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 
 pub const SHELL_ROLE: &str = "%shell%";
 pub const EXPLAIN_SHELL_ROLE: &str = "%explain-shell%";
+pub const COMMAND_SUMMARY_ROLE: &str = "%command-summary%";
 pub const MCP_SUMMARY_ROLE: &str = "%mcp-summary%";
 
 pub const INPUT_PLACEHOLDER: &str = "__INPUT__";

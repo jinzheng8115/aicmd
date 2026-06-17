@@ -12,8 +12,8 @@ extern crate log;
 use crate::cli::Cli;
 use crate::client::{call_chat_completions, call_chat_completions_streaming};
 use crate::config::{
-    ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, EXPLAIN_SHELL_ROLE,
-    MCP_SUMMARY_ROLE, SHELL_ROLE,
+    ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
+    EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_ROLE,
 };
 use crate::render::render_error;
 use crate::utils::*;
@@ -27,7 +27,7 @@ use std::{
     env,
     fs::OpenOptions,
     io::{self, BufRead, BufReader, Write},
-    process,
+    process::{self, Command},
     sync::Arc,
 };
 
@@ -181,6 +181,48 @@ MCP 原始返回：
     Ok(())
 }
 
+fn run_shell_command_capture(shell: &Shell, command: &str) -> Result<(i32, String, String)> {
+    let output = Command::new(&shell.cmd)
+        .args([&shell.arg, command])
+        .output()?;
+    let code = output.status.code().unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    Ok((code, stdout, stderr))
+}
+
+async fn summarize_command_output(
+    config: &GlobalConfig,
+    command: &str,
+    code: i32,
+    stdout: &str,
+    stderr: &str,
+    abort_signal: AbortSignal,
+) -> Result<()> {
+    let combined = if stdout.trim().is_empty() {
+        stderr.trim().to_string()
+    } else if stderr.trim().is_empty() {
+        stdout.trim().to_string()
+    } else {
+        format!("STDOUT:\n{}\n\nSTDERR:\n{}", stdout.trim(), stderr.trim())
+    };
+    if combined.trim().is_empty() {
+        return Ok(());
+    }
+    let prompt = format!("执行的命令：\n{command}\n\n退出码：{code}\n\n命令输出：\n{combined}");
+    let role = config.read().retrieve_role(COMMAND_SUMMARY_ROLE)?;
+    let input = Input::from_str(config, &prompt, Some(role));
+    let client = input.create_client()?;
+    println!("{}", dimmed_text("\nAI summary:"));
+    if input.stream() {
+        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?;
+    } else {
+        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?;
+    }
+    println!();
+    Ok(())
+}
+
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
     let abort_signal = create_abort_signal();
 
@@ -277,10 +319,25 @@ async fn shell_execute(
                 'e' => {
                     let eval_command = command_with_cwd_capture(&eval_str);
                     debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
-                    let code = run_command(&shell.cmd, &[&shell.arg, &eval_command], None)?;
+                    let (code, stdout, stderr) = run_shell_command_capture(shell, &eval_command)?;
+                    if !stdout.is_empty() {
+                        print!("{stdout}");
+                    }
+                    if !stderr.is_empty() {
+                        eprint!("{stderr}");
+                    }
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }
+                    summarize_command_output(
+                        config,
+                        &eval_str,
+                        code,
+                        &stdout,
+                        &stderr,
+                        abort_signal.clone(),
+                    )
+                    .await?;
                     process::exit(code);
                 }
                 'r' => {

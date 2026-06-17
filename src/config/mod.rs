@@ -3,7 +3,9 @@ mod role;
 mod session;
 
 pub use self::input::Input;
-pub use self::role::{Role, RoleLike, EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_ROLE};
+pub use self::role::{
+    Role, RoleLike, COMMAND_SUMMARY_ROLE, EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_ROLE,
+};
 use self::session::Session;
 
 use crate::client::{
