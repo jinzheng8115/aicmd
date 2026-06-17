@@ -3,79 +3,64 @@ name: Release
 on:
   push:
     tags:
-    - v[0-9]+.[0-9]+.[0-9]+*
+    - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
 
 jobs:
-  release:
-    name: Publish to GitHub Release
+  build:
+    name: Build ${{ matrix.target }}
     permissions:
       contents: write
-    outputs:
-      rc: ${{ steps.check-tag.outputs.rc }}
-
     strategy:
+      fail-fast: false
       matrix:
         include:
-        - target: aarch64-unknown-linux-musl
-          os: ubuntu-latest
-          use-cross: true
-          cargo-flags: ""
-        - target: aarch64-apple-darwin
-          os: macos-latest
-          use-cross: true
-          cargo-flags: ""
-        - target: aarch64-pc-windows-msvc
-          os: windows-latest
-          use-cross: true
-          cargo-flags: ""
-        - target: x86_64-apple-darwin
-          os: macos-latest
-          cargo-flags: ""
-        - target: x86_64-pc-windows-msvc
-          os: windows-latest
-          cargo-flags: ""
         - target: x86_64-unknown-linux-musl
           os: ubuntu-latest
           use-cross: true
-          cargo-flags: ""
-        - target: i686-unknown-linux-musl
+          archive: tar.gz
+        - target: aarch64-unknown-linux-musl
           os: ubuntu-latest
           use-cross: true
-          cargo-flags: ""
-        - target: i686-pc-windows-msvc
+          archive: tar.gz
+        - target: x86_64-apple-darwin
+          os: macos-latest
+          archive: tar.gz
+        - target: aarch64-apple-darwin
+          os: macos-latest
+          archive: tar.gz
+        - target: x86_64-pc-windows-msvc
           os: windows-latest
-          use-cross: true
-          cargo-flags: ""
-        - target: armv7-unknown-linux-musleabihf
-          os: ubuntu-latest
-          use-cross: true
-          cargo-flags: ""
-        - target: arm-unknown-linux-musleabihf
-          os: ubuntu-latest
-          use-cross: true
-          cargo-flags: ""
+          archive: zip
+        - target: aarch64-pc-windows-msvc
+          os: windows-latest
+          archive: zip
 
-    runs-on: ${{matrix.os}}
+    runs-on: ${{ matrix.os }}
     env:
       BUILD_CMD: cargo
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Check Tag
-      id: check-tag
+    - name: Determine version
+      id: version
       shell: bash
       run: |
-        ver=${GITHUB_REF##*/}
-        echo "version=$ver" >> $GITHUB_OUTPUT
-        if [[ "$ver" =~ [0-9]+.[0-9]+.[0-9]+$ ]]; then
-          echo "rc=false" >> $GITHUB_OUTPUT
+        if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          version="${GITHUB_REF_NAME}"
         else
-          echo "rc=true" >> $GITHUB_OUTPUT
+          version="dev-${GITHUB_SHA::7}"
         fi
+        if [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          prerelease=false
+        else
+          prerelease=true
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
-
-    - name: Install Rust Toolchain Components
+    - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ matrix.target }}
@@ -86,76 +71,44 @@ jobs:
       with:
         tool: cross
 
-    - name: Overwrite build command env variable
+    - name: Use cross
       if: matrix.use-cross
       shell: bash
-      run: echo "BUILD_CMD=cross" >> $GITHUB_ENV
-  
-    - name: Show Version Information (Rust, cargo, GCC)
-      shell: bash
-      run: |
-        gcc --version || true
-        rustup -V
-        rustup toolchain list
-        rustup default
-        cargo -V
-        rustc -V
-      
+      run: echo "BUILD_CMD=cross" >> "$GITHUB_ENV"
+
     - name: Build
       shell: bash
-      run: $BUILD_CMD build --locked --release --target=${{ matrix.target }} ${{ matrix.cargo-flags }}
+      run: $BUILD_CMD build --locked --release --target=${{ matrix.target }}
 
-    - name: Build Archive
-      shell: bash
+    - name: Package
       id: package
+      shell: bash
       env:
         target: ${{ matrix.target }}
-        version:  ${{ steps.check-tag.outputs.version }}
+        version: ${{ steps.version.outputs.version }}
+        archive_kind: ${{ matrix.archive }}
       run: |
         set -euxo pipefail
-
-        bin=${GITHUB_REPOSITORY##*/}
-        dist_dir=`pwd`/dist
-        name=$bin-$version-$target
-        executable=target/$target/release/$bin
-
+        bin="aicmd"
+        dist="dist"
+        name="aicmd-$version-$target"
+        mkdir -p "$dist/$name"
+        exe="target/$target/release/$bin"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
-          executable=$executable.exe
-        fi
-
-        mkdir $dist_dir
-        cp $executable $dist_dir
-        cd $dist_dir
-
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-            archive=$dist_dir/$name.zip
-            7z a $archive *
-            echo "archive=dist/$name.zip" >> $GITHUB_OUTPUT
+          exe="$exe.exe"
+          cp "$exe" "$dist/$name/aicmd.exe"
+          (cd "$dist/$name" && 7z a "../$name.zip" .)
+          echo "archive=$dist/$name.zip" >> "$GITHUB_OUTPUT"
         else
-            archive=$dist_dir/$name.tar.gz
-            tar -czf $archive *
-            echo "archive=dist/$name.tar.gz" >> $GITHUB_OUTPUT
+          cp "$exe" "$dist/$name/aicmd"
+          tar -C "$dist/$name" -czf "$dist/$name.tar.gz" .
+          echo "archive=$dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Publish Archive
+    - name: Publish archive
       uses: softprops/action-gh-release@v2
-      if: ${{ startsWith(github.ref, 'refs/tags/') }}
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         draft: false
+        prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
         files: ${{ steps.package.outputs.archive }}
-        prerelease: ${{ steps.check-tag.outputs.rc == 'true' }}
-
-  publish-crate:
-    name: Publish to crates.io
-    if: ${{ needs.release.outputs.rc == 'false' }}
-    runs-on: ubuntu-latest
-    needs: release
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-        run: cargo publish

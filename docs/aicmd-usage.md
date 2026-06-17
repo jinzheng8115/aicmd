@@ -18,31 +18,52 @@ AICmd 刻意保持聚焦。它不暴露上游 AIChat 的宽功能，例如 Chat 
 
 ## 2. Install / 安装
 
-From the repository root, configure the model first, then install:
+AICmd supports macOS, Linux, Windows PowerShell, and Windows WSL.
 
-在项目根目录先配置模型，然后安装：
+AICmd 支持 macOS、Linux、Windows PowerShell 和 Windows WSL。
+
+### Release binary install, no Rust required / Release 二进制安装，不需要 Rust
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash
+```
+
+Windows PowerShell:
+
+```powershell
+iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+```
+
+### Source/developer install, Rust required / 源码或开发安装，需要 Rust
+
+From the repository root:
+
+在项目根目录执行：
 
 ```bash
 cp .env.example .env
 $EDITOR .env
-contrib/aicmd/install.sh
+contrib/aicmd/install.sh --from-source
+aicmd init --from-env
 ```
 
-The installer builds the Rust binary and installs these commands to `~/.local/bin` by default. After installation, run `aicmd init --from-env` to generate `~/.aicmd/config.yaml` from `.env`:
+The installer puts `aicmd` in the user bin directory and creates compatibility wrappers:
 
-安装脚本会构建 Rust 二进制，并默认安装这些命令到 `~/.local/bin`。安装后运行 `aicmd init --from-env`，根据 `.env` 生成 `~/.aicmd/config.yaml`：
+安装器会把 `aicmd` 放到用户 bin 目录，并创建兼容 wrapper：
 
 ```text
-aicmd
-aicmd-do
-aicmd-err
-aicmd-model
-aicmd-mcp
+aicmd-do      -> aicmd do
+aicmd-err     -> aicmd err
+aicmd-model   -> aicmd model
+aicmd-mcp     -> aicmd mcp-raw
+aicmd-shell-init -> aicmd shell-init
 ```
 
-Make sure `~/.local/bin` is in your `PATH`.
+Make sure the install directory is in your `PATH`.
 
-请确认 `~/.local/bin` 已加入 `PATH`。
+请确认安装目录已加入 `PATH`。
 
 If your shell has cached an older `aicmd`, refresh the command hash:
 

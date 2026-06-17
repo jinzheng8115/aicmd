@@ -123,7 +123,6 @@ impl Input {
         self.data_urls.clone()
     }
 
-
     pub fn text(&self) -> String {
         match self.patched_text.clone() {
             Some(text) => text,
@@ -142,11 +141,6 @@ impl Input {
     pub fn stream(&self) -> bool {
         self.config.read().stream && !self.role().model().no_stream()
     }
-
-
-
-
-
 
     pub fn create_client(&self) -> Result<Box<dyn Client>> {
         init_client(&self.config, Some(self.role().model().clone()))

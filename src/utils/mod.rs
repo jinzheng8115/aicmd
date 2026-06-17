@@ -55,7 +55,6 @@ pub fn get_env_name(key: &str) -> String {
     format!("{}_{key}", env!("CARGO_CRATE_NAME"),).to_ascii_uppercase()
 }
 
-
 pub fn parse_bool(value: &str) -> Option<bool> {
     match value {
         "1" | "true" => Some(true),
@@ -153,7 +152,6 @@ pub fn dimmed_text(input: &str) -> String {
     }
     nu_ansi_term::Style::new().dimmed().paint(input).to_string()
 }
-
 
 pub fn temp_file(prefix: &str, suffix: &str) -> PathBuf {
     env::temp_dir().join(format!(

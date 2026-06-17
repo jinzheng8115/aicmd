@@ -20,13 +20,27 @@ English:
 
 ## Install / 安装
 
+Release binary install, no Rust required:
+
+Release 二进制安装，不需要 Rust：
+
 ```bash
-contrib/aicmd/install.sh
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash
 ```
 
-The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, and `aicmd-model` to `~/.local/bin` by default.
+Windows PowerShell:
 
-安装脚本会构建 Rust 二进制，并默认把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model` 复制到 `~/.local/bin`。
+```powershell
+iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+```
+
+Source/developer install, Rust required:
+
+源码/开发安装，需要 Rust：
+
+```bash
+contrib/aicmd/install.sh --from-source
+```
 
 ## Examples / 示例
 

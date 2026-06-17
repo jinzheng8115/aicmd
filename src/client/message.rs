@@ -86,7 +86,6 @@ pub enum MessageContent {
 }
 
 impl MessageContent {
-
     pub fn merge_prompt(&mut self, replace_fn: impl Fn(&str) -> String) {
         match self {
             MessageContent::Text(text) => *text = replace_fn(text),

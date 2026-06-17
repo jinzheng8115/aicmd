@@ -26,22 +26,52 @@ English:
 - 模型配置辅助命令：`aicmd model` 用于定位、查看或编辑运行时模型配置；`aicmd-model` 仅作为兼容 wrapper。
 - REPL、RAG、agents、macros、自定义 roles、server mode 等上游宽功能不属于 AICmd 的公开 CLI 使用面。
 
+## Platform support / 平台支持
+
+English:
+- macOS: supported
+- Linux: supported
+- Windows PowerShell: supported by the Rust binary and `install.ps1`
+- Windows WSL: supported through the Linux installer
+
+中文：
+- macOS：支持
+- Linux：支持
+- Windows PowerShell：Rust 主程序和 `install.ps1` 支持
+- Windows WSL：通过 Linux 安装器支持
+
 ## Install / 安装
 
-Recommended first-time setup:
+Recommended first-time setup with release binaries, no Rust required:
 
-推荐首次安装流程：
+推荐首次使用 Release 二进制安装，不需要 Rust：
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash
+```
+
+Windows PowerShell:
+
+```powershell
+iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+```
+
+Source/developer install, Rust required:
+
+源码/开发安装，需要 Rust：
 
 ```bash
 cp .env.example .env
 $EDITOR .env
-contrib/aicmd/install.sh
+contrib/aicmd/install.sh --from-source
 aicmd init --from-env
 ```
 
-The installer builds the Rust binary and copies `aicmd`, `aicmd-do`, `aicmd-err`, `aicmd-model`, and `aicmd-mcp` to `~/.local/bin`. After installation, run `aicmd init --from-env` to generate `~/.aicmd/config.yaml` from `.env`.
+The installer puts `aicmd` in the user bin directory and creates compatibility wrappers such as `aicmd-do`, `aicmd-err`, `aicmd-model`, `aicmd-mcp`, and `aicmd-shell-init`. New code should prefer the Rust subcommands: `aicmd do`, `aicmd err`, `aicmd model`, `aicmd mcp-raw`, and `aicmd shell-init`.
 
-安装脚本会构建 Rust 二进制，并把 `aicmd`、`aicmd-do`、`aicmd-err`、`aicmd-model`、`aicmd-mcp` 复制到 `~/.local/bin`。安装后运行 `aicmd init --from-env`，根据 `.env` 生成 `~/.aicmd/config.yaml`。
+安装器会把 `aicmd` 放到用户 bin 目录，并创建 `aicmd-do`、`aicmd-err`、`aicmd-model`、`aicmd-mcp`、`aicmd-shell-init` 等兼容 wrapper。新用法建议使用 Rust 子命令：`aicmd do`、`aicmd err`、`aicmd model`、`aicmd mcp-raw`、`aicmd shell-init`。
 
 ## Config / 配置
 

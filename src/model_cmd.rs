@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     env, fs,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -256,7 +256,7 @@ clients:
 "#
 }
 
-fn confirm_init(path: &PathBuf, source_desc: &str) -> Result<()> {
+fn confirm_init(path: &Path, source_desc: &str) -> Result<()> {
     eprintln!("About to write AICmd config: {}", path.display());
     eprintln!("Source: {source_desc}");
     eprint!("Continue? [y/N] ");

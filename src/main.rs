@@ -109,6 +109,14 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         "init" => Ok(Some(model_cmd::run_model_command(args)?)),
         "model" => Ok(Some(model_cmd::run_model_command(&args[1..])?)),
         "shell-init" => Ok(Some(shell_init_cmd::run_shell_init_command(&args[1..])?)),
+        "mcp"
+            if args
+                .get(1)
+                .is_some_and(|v| matches!(v.as_str(), "list" | "help" | "-h" | "--help")) =>
+        {
+            Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?))
+        }
+        "mcp-raw" => Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?)),
         _ => Ok(None),
     }
 }
@@ -138,7 +146,6 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             run_mcp_with_llm_summary(config, mcp_command, &query).await?;
             Ok(Some(0))
         }
-        "mcp-raw" => Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?)),
         "err" => {
             let report = err_cmd::build_error_report(args)?;
             config.write().use_role(SHELL_ROLE)?;

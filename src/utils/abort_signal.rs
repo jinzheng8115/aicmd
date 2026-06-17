@@ -45,7 +45,6 @@ impl AbortSignalInner {
         self.ctrld.load(Ordering::SeqCst)
     }
 
-
     pub fn set_ctrlc(&self) {
         self.ctrlc.store(true, Ordering::SeqCst);
     }
