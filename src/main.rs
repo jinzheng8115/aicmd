@@ -31,9 +31,10 @@ use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, Wr
 use std::{
     env,
     fs::OpenOptions,
-    io::{self, BufRead, BufReader, Write},
-    process::{self, Command},
+    io::{self, BufRead, BufReader, Read, Write},
+    process::{self, Command, Stdio},
     sync::Arc,
+    thread,
 };
 
 #[tokio::main]
@@ -251,13 +252,45 @@ MCP 返回内容：
 }
 
 fn run_shell_command_capture(shell: &Shell, command: &str) -> Result<(i32, String, String)> {
-    let output = Command::new(&shell.cmd)
+    let mut child = Command::new(&shell.cmd)
         .args([&shell.arg, command])
-        .output()?;
-    let code = output.status.code().unwrap_or_default();
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().context("failed to capture stdout")?;
+    let stderr = child.stderr.take().context("failed to capture stderr")?;
+    let stdout_handle = thread::spawn(move || stream_and_capture(stdout, false));
+    let stderr_handle = thread::spawn(move || stream_and_capture(stderr, true));
+    let status = child.wait()?;
+    let stdout = stdout_handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("stdout reader thread panicked"))??;
+    let stderr = stderr_handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("stderr reader thread panicked"))??;
+    let code = status.code().unwrap_or_default();
     Ok((code, stdout, stderr))
+}
+
+fn stream_and_capture<R: Read>(mut reader: R, is_stderr: bool) -> Result<String> {
+    let mut captured = Vec::new();
+    let mut buf = [0_u8; 8192];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        captured.extend_from_slice(&buf[..n]);
+        if is_stderr {
+            io::stderr().write_all(&buf[..n])?;
+            io::stderr().flush()?;
+        } else {
+            io::stdout().write_all(&buf[..n])?;
+            io::stdout().flush()?;
+        }
+    }
+    Ok(String::from_utf8_lossy(&captured).to_string())
 }
 
 async fn summarize_command_output(
@@ -389,12 +422,6 @@ async fn shell_execute(
                     let eval_command = command_with_cwd_capture(&eval_str);
                     debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
                     let (code, stdout, stderr) = run_shell_command_capture(shell, &eval_command)?;
-                    if !stdout.is_empty() {
-                        print!("{stdout}");
-                    }
-                    if !stderr.is_empty() {
-                        eprint!("{stderr}");
-                    }
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }
