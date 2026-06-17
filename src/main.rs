@@ -40,6 +40,23 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn command_with_cwd_capture(command: &str) -> String {
+    let Ok(cwd_file) = env::var("AICMD_CWD_FILE") else {
+        return command.to_string();
+    };
+    if cwd_file.is_empty() {
+        return command.to_string();
+    }
+    format!(
+        "{{\n{command}\n}}\n__aicmd_status=$?\npwd > {}\nexit $__aicmd_status",
+        shell_single_quote(&cwd_file)
+    )
+}
+
 fn confirm_action(message: &str) -> Result<bool> {
     if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
         let mut tty_reader = BufReader::new(tty.try_clone()?);
@@ -166,8 +183,9 @@ async fn shell_execute(
 
             match answer_char {
                 'e' => {
-                    debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_str]);
-                    let code = run_command(&shell.cmd, &[&shell.arg, &eval_str], None)?;
+                    let eval_command = command_with_cwd_capture(&eval_str);
+                    debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
+                    let code = run_command(&shell.cmd, &[&shell.arg, &eval_command], None)?;
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }

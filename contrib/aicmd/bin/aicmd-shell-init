@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat <<'SHELL'
+# AICmd shell integration.
+# Source this in zsh/bash so commands like `aicmd 切换到上一层目录`
+# can update the current shell directory after execution.
+aicmd() {
+  local __aicmd_cwd_file __aicmd_status __aicmd_new_cwd
+  __aicmd_cwd_file="$(mktemp -t aicmd-cwd.XXXXXX)" || return 1
+  AICMD_CWD_FILE="$__aicmd_cwd_file" command aicmd "$@"
+  __aicmd_status=$?
+  if [ -s "$__aicmd_cwd_file" ]; then
+    __aicmd_new_cwd="$(cat "$__aicmd_cwd_file")"
+    if [ -n "$__aicmd_new_cwd" ] && [ -d "$__aicmd_new_cwd" ] && [ "$PWD" != "$__aicmd_new_cwd" ]; then
+      cd "$__aicmd_new_cwd" || __aicmd_status=$?
+    fi
+  fi
+  rm -f "$__aicmd_cwd_file"
+  return "$__aicmd_status"
+}
+SHELL

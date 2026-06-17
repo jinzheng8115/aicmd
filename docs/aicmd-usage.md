@@ -65,6 +65,32 @@ Expected: `file` should report a native executable, not a shell script.
 
 期望结果：`file` 应显示原生可执行文件，而不是 shell script。
 
+## 2.1 Shell integration for `cd` / 用于 `cd` 的 Shell 集成
+
+AICmd normally runs commands in a child process. A plain child process cannot change the parent terminal directory, so commands like `cd ..` need shell integration.
+
+AICmd 默认在子进程中执行命令。普通子进程不能改变父终端目录，所以 `cd ..` 这类命令需要 shell 集成。
+
+Enable it in the current shell:
+
+在当前 shell 中启用：
+
+```bash
+eval "$(aicmd-shell-init)"
+```
+
+Enable it permanently for zsh:
+
+在 zsh 中永久启用：
+
+```bash
+echo 'eval "$(aicmd-shell-init)"' >> ~/.zshrc
+```
+
+After this, if AICmd executes a command that changes directory, the wrapper updates your current shell directory after the command finishes.
+
+启用后，如果 AICmd 执行了切换目录的命令，wrapper 会在命令结束后同步更新当前 shell 目录。
+
 ## 3. Basic workflow / 基础工作流
 
 Run AICmd with a natural-language task:

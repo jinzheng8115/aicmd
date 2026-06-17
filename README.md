@@ -54,6 +54,24 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 中文：完整的当前使用文档见 `docs/aicmd-usage.md`。
 
+## Shell integration / Shell 集成
+
+To let generated directory-changing commands such as `cd ..` update your current terminal directory, enable shell integration:
+
+如果希望 `cd ..` 这类切换目录命令真正改变当前终端目录，请启用 shell 集成：
+
+```bash
+eval "$(aicmd-shell-init)"
+```
+
+To enable it permanently for zsh:
+
+如果要在 zsh 中永久启用：
+
+```bash
+echo 'eval "$(aicmd-shell-init)"' >> ~/.zshrc
+```
+
 ## Usage / 使用
 
 ```bash
