@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'HELP'
+Usage: aicmd-mcp <command> [args...]
+
+Call MCP-backed tools through dedicated AICmd helper commands.
+This does not affect the main `aicmd` natural-language terminal workflow.
+
+用法：aicmd-mcp <命令> [参数...]
+
+通过独立 AICmd 辅助命令调用 MCP 工具。
+这不会影响主 `aicmd` 自然语言终端命令流程。
+
+Commands / 命令:
+  search <query>   Search the web using Tavily MCP / 使用 Tavily MCP 搜索网页
+  tavily <query>   Alias of search / search 的别名
+  help             Show help / 显示帮助
+
+Examples / 示例:
+  aicmd-mcp search "今天 AI 新闻"
+  aicmd-mcp tavily "DeepSeek latest model"
+HELP
+}
+
+load_env_if_exists() {
+  local env_file
+  for env_file in ".env" "$HOME/.aicmd/.env" "$HOME/Library/Application Support/aichat/functions/.env"; do
+    if [[ -f "$env_file" ]]; then
+      set -a
+      # shellcheck disable=SC1090
+      source "$env_file"
+      set +a
+    fi
+  done
+}
+
+run_tavily() {
+  local query script
+  query="$*"
+  if [[ -z "$query" ]]; then
+    echo "usage: aicmd-mcp search <query>" >&2
+    exit 2
+  fi
+  script="${AICMD_TAVILY_MCP_SCRIPT:-$HOME/Library/Application Support/aichat/functions/tools/tavily_mcp_search.mjs}"
+  if [[ ! -f "$script" ]]; then
+    echo "Tavily MCP script not found: $script" >&2
+    echo "Set AICMD_TAVILY_MCP_SCRIPT=/path/to/tavily_mcp_search.mjs" >&2
+    exit 1
+  fi
+  load_env_if_exists
+  node "$script" "$query"
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+  search|tavily)
+    shift || true
+    run_tavily "$@" ;;
+  help|-h|--help)
+    usage ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    usage >&2
+    exit 2 ;;
+esac

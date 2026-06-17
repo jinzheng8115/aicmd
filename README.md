@@ -54,6 +54,17 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 中文：完整的当前使用文档见 `docs/aicmd-usage.md`。
 
+## MCP tools / MCP 工具
+
+AICmd keeps MCP calls separate from the main terminal-command workflow. Use `aicmd-mcp` for dedicated MCP-backed tools.
+
+AICmd 将 MCP 调用和主终端命令流程分开。需要 MCP 工具时，请使用独立命令 `aicmd-mcp`。
+
+```bash
+aicmd-mcp search "今天 AI 新闻"
+aicmd-mcp tavily "DeepSeek latest model"
+```
+
 ## Shell integration / Shell 集成
 
 The installer adds shell integration to your shell rc file automatically, so new terminals can update the current directory after AICmd executes commands such as `cd ..`.

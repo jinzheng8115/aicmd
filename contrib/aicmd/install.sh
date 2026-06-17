@@ -42,6 +42,7 @@ install -m 0755 "$ROOT_DIR/target/release/aicmd" "$BIN_DIR/aicmd"
 install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-do" "$BIN_DIR/aicmd-do"
 install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-err" "$BIN_DIR/aicmd-err"
 install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-model" "$BIN_DIR/aicmd-model"
+install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-mcp" "$BIN_DIR/aicmd-mcp"
 install -m 0755 "$ROOT_DIR/contrib/aicmd/bin/aicmd-shell-init" "$BIN_DIR/aicmd-shell-init"
 rm -f "$LEGACY_SHARE_DIR/model-config.example.yaml"
 rmdir "$LEGACY_SHARE_DIR" 2>/dev/null || true
@@ -63,6 +64,7 @@ Installed helpers:
   $BIN_DIR/aicmd-do
   $BIN_DIR/aicmd-err
   $BIN_DIR/aicmd-model
+  $BIN_DIR/aicmd-mcp
   $BIN_DIR/aicmd-shell-init
 Shell integration for cd commands:
   Installed into: $SHELL_RC_FILE

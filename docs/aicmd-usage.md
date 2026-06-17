@@ -65,6 +65,21 @@ Expected: `file` should report a native executable, not a shell script.
 
 期望结果：`file` 应显示原生可执行文件，而不是 shell script。
 
+## 2.2 MCP tools / MCP 工具
+
+MCP tools are exposed through a dedicated helper command, not through the main `aicmd` command-generation loop.
+
+MCP 工具通过独立辅助命令暴露，不放入主 `aicmd` 命令生成循环。
+
+```bash
+aicmd-mcp search "今天 AI 新闻"
+aicmd-mcp tavily "DeepSeek latest model"
+```
+
+The first supported command is Tavily MCP search. More MCP tools can be added as separate subcommands later.
+
+当前第一个支持的命令是 Tavily MCP 搜索。后续可以继续把更多 MCP 工具作为独立子命令加入。
+
 ## 2.1 Shell integration for `cd` / 用于 `cd` 的 Shell 集成
 
 AICmd normally runs commands in a child process. A plain child process cannot change the parent terminal directory, so commands like `cd ..` need shell integration.
