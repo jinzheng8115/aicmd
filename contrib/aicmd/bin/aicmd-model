@@ -185,17 +185,20 @@ YAML
 }
 
 mcp_config_from_env() {
-  local tavily_key tavily_keys_file tavily_script
+  local tavily_key tavily_keys_file
   tavily_key="${AICMD_MCP_TAVILY_API_KEY:-}"
   tavily_keys_file="${AICMD_MCP_TAVILY_API_KEYS_FILE:-}"
-  tavily_script="${AICMD_MCP_TAVILY_SCRIPT:-$HOME/Library/Application Support/aichat/functions/tools/tavily_mcp_search.mjs}"
   cat <<JSON
 {
-  "mcp": {
+  "mcpServers": {
     "tavily": {
-      "api_key": $(printf '%s' "$tavily_key" | json_escape),
-      "api_keys_file": $(printf '%s' "$tavily_keys_file" | json_escape),
-      "script": $(printf '%s' "$tavily_script" | json_escape)
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "tavily-mcp"],
+      "env": {
+        "TAVILY_API_KEY": $(printf '%s' "$tavily_key" | json_escape),
+        "TAVILY_API_KEYS_FILE": $(printf '%s' "$tavily_keys_file" | json_escape)
+      }
     }
   }
 }
@@ -203,13 +206,17 @@ JSON
 }
 
 default_mcp_config() {
-  cat <<JSON
+  cat <<'JSON'
 {
-  "mcp": {
+  "mcpServers": {
     "tavily": {
-      "api_key": "",
-      "api_keys_file": "",
-      "script": "$HOME/Library/Application Support/aichat/functions/tools/tavily_mcp_search.mjs"
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "tavily-mcp"],
+      "env": {
+        "TAVILY_API_KEY": "",
+        "TAVILY_API_KEYS_FILE": ""
+      }
     }
   }
 }

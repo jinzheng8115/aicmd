@@ -68,9 +68,9 @@ Expected: `file` should report a native executable, not a shell script.
 
 ## 2.2 MCP tools / MCP 工具
 
-MCP tools stay outside the normal natural-language command-generation loop. Search has a main shortcut: `aicmd search <query>`. This shortcut delegates to the dedicated MCP helper command `aicmd-mcp search` and returns search output directly. MCP runtime settings are stored in `~/.aicmd/config.json`; search commands read `config.json` directly, not `.env`.
+MCP tools stay outside the normal natural-language command-generation loop. Search has a main shortcut: `aicmd search <query>`. This shortcut delegates to the dedicated MCP helper command `aicmd-mcp search` and returns search output directly. MCP runtime settings are stored in `~/.aicmd/config.json`; search commands read `config.json` directly, not `.env`. The config uses the standard MCP server shape: `mcpServers.<name>.type`, `command`, `args`, and `env`.
 
-MCP 工具不进入普通自然语言命令生成循环。搜索提供主命令快捷入口：`aicmd search <query>`。这个快捷入口会转发到独立 MCP 辅助命令 `aicmd-mcp search`，并直接返回搜索结果。MCP 运行时配置存储在 `~/.aicmd/config.json`；搜索命令直接读取 `config.json`，不读取 `.env`。
+MCP 工具不进入普通自然语言命令生成循环。搜索提供主命令快捷入口：`aicmd search <query>`。这个快捷入口会转发到独立 MCP 辅助命令 `aicmd-mcp search`，并直接返回搜索结果。MCP 运行时配置存储在 `~/.aicmd/config.json`；搜索命令直接读取 `config.json`，不读取 `.env`。配置使用标准 MCP server 结构：`mcpServers.<name>.type`、`command`、`args`、`env`。
 
 ```bash
 aicmd search "今天 AI 新闻"
@@ -388,8 +388,48 @@ AICMD_DEFAULT_MODEL    optional default model; default is name:first-id / 可选
 AICMD_OPENAI_API_STYLE openai only: chat | responses / 仅 openai 需要
 AICMD_MCP_TAVILY_API_KEY Tavily API key for search / Tavily 搜索 API key
 AICMD_MCP_TAVILY_API_KEYS_FILE optional Tavily key file / 可选 Tavily key 文件
-AICMD_MCP_TAVILY_SCRIPT optional Tavily MCP script path / 可选 Tavily MCP 脚本路径
 ```
+
+
+Generated MCP config example:
+
+生成的 MCP 配置示例：
+
+```json
+{
+  "mcpServers": {
+    "tavily": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "tavily-mcp"],
+      "env": {
+        "TAVILY_API_KEY": "tvly-xxxx",
+        "TAVILY_API_KEYS_FILE": ""
+      }
+    }
+  }
+}
+```
+
+This shape is intentionally compatible with common MCP client configuration. A server such as Context7 can be represented the same way, for example:
+
+这个结构刻意兼容常见 MCP 客户端配置。像 Context7 这样的 server 也可以用同样方式表示，例如：
+
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
+}
+```
+
+Current built-in command support still only wires `aicmd search` to the `tavily` server and its `tavily_search` tool. More dedicated commands can be added later.
+
+当前内置命令仍只把 `aicmd search` 连接到 `tavily` server 及其 `tavily_search` tool。后续可以继续增加更多专用命令。
 
 When `.env` is converted to `config.yaml`, `AICMD_MODEL_IDS=gpt-4o,gpt-4.1` becomes multiple entries under `clients[].models`. The generated top-level `model:` is `AICMD_DEFAULT_MODEL` when set; otherwise it is `AICMD_MODEL_NAME:first-id-in-AICMD_MODEL_IDS`.
 

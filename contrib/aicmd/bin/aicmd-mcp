@@ -6,15 +6,15 @@ usage() {
 Usage: aicmd-mcp <command> [args...]
 
 Call MCP-backed tools through dedicated AICmd helper commands.
-MCP runtime settings are read from ~/.aicmd/config.json.
+MCP runtime settings are read from ~/.aicmd/config.json using standard MCP server config shape.
 
 用法：aicmd-mcp <命令> [参数...]
 
 通过独立 AICmd 辅助命令调用 MCP 工具。
-MCP 运行时配置从 ~/.aicmd/config.json 读取。
+MCP 运行时配置从 ~/.aicmd/config.json 读取，配置结构使用标准 MCP server 形态。
 
 Commands / 命令:
-  search <query>   Search the web using Tavily MCP / 使用 Tavily MCP 搜索网页
+  search <query>   Search the web using configured Tavily MCP / 使用配置的 Tavily MCP 搜索网页
   tavily <query>   Alias of search / search 的别名
   help             Show help / 显示帮助
 
@@ -40,53 +40,139 @@ mcp_config_path() {
   fi
 }
 
-read_mcp_value() {
-  local key path
-  key="$1"
-  path="$(mcp_config_path)"
-  if [[ ! -f "$path" ]]; then
-    echo "MCP config not found: $path" >&2
-    echo "Run: aicmd-model init --from-env" >&2
-    exit 1
-  fi
-  python3 - "$path" "$key" <<'PY'
-import json
-import sys
-
-path, key = sys.argv[1], sys.argv[2]
-with open(path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-value = data.get("mcp", {}).get("tavily", {}).get(key, "")
-if value is None:
-    value = ""
-print(value)
-PY
-}
-
 run_tavily() {
-  local query script api_key api_keys_file
+  local query config_path
   query="$*"
   if [[ -z "$query" ]]; then
     echo "usage: aicmd-mcp search <query>" >&2
     exit 2
   fi
-  script="$(read_mcp_value script)"
-  api_key="$(read_mcp_value api_key)"
-  api_keys_file="$(read_mcp_value api_keys_file)"
-  if [[ -z "$script" ]]; then
-    echo "missing mcp.tavily.script in $(mcp_config_path)" >&2
+  config_path="$(mcp_config_path)"
+  if [[ ! -f "$config_path" ]]; then
+    echo "MCP config not found: $config_path" >&2
+    echo "Run: aicmd init --from-env" >&2
     exit 1
   fi
-  if [[ -z "$api_key" && -z "$api_keys_file" ]]; then
-    echo "missing mcp.tavily.api_key or mcp.tavily.api_keys_file in $(mcp_config_path)" >&2
-    exit 1
-  fi
-  if [[ ! -f "$script" ]]; then
-    echo "Tavily MCP script not found: $script" >&2
-    echo "Edit mcp.tavily.script in $(mcp_config_path)" >&2
-    exit 1
-  fi
-  TAVILY_API_KEY="$api_key" TAVILY_API_KEYS_FILE="$api_keys_file" node "$script" "$query"
+  python3 - "$config_path" "$query" <<'PY'
+import json
+import os
+import subprocess
+import sys
+import threading
+import time
+
+config_path, query = sys.argv[1], sys.argv[2]
+with open(config_path, "r", encoding="utf-8") as f:
+    config = json.load(f)
+server = config.get("mcpServers", {}).get("tavily")
+if not server:
+    raise SystemExit(f"missing mcpServers.tavily in {config_path}")
+if server.get("type", "stdio") != "stdio":
+    raise SystemExit("mcpServers.tavily.type must be stdio")
+command = server.get("command")
+args = server.get("args", [])
+if not command:
+    raise SystemExit(f"missing mcpServers.tavily.command in {config_path}")
+if not isinstance(args, list):
+    raise SystemExit("mcpServers.tavily.args must be an array")
+server_env = server.get("env", {}) or {}
+if not isinstance(server_env, dict):
+    raise SystemExit("mcpServers.tavily.env must be an object")
+
+env = os.environ.copy()
+for key, value in server_env.items():
+    if value is not None and str(value) != "":
+        env[str(key)] = str(value)
+
+proc = subprocess.Popen(
+    [command, *map(str, args)],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    bufsize=1,
+    env=env,
+)
+
+stderr_lines = []
+def read_stderr():
+    assert proc.stderr is not None
+    for line in proc.stderr:
+        stderr_lines.append(line)
+threading.Thread(target=read_stderr, daemon=True).start()
+
+next_id = 1
+
+def send(method, params=None, is_notification=False):
+    global next_id
+    msg = {"jsonrpc": "2.0", "method": method}
+    if params is not None:
+        msg["params"] = params
+    if not is_notification:
+        msg["id"] = next_id
+        next_id += 1
+    assert proc.stdin is not None
+    proc.stdin.write(json.dumps(msg, separators=(",", ":")) + "\n")
+    proc.stdin.flush()
+    return msg.get("id")
+
+def read_response(expected_id, timeout=60):
+    assert proc.stdout is not None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None:
+                err = "".join(stderr_lines).strip()
+                raise SystemExit(err or f"MCP server exited with code {proc.returncode}")
+            continue
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if msg.get("id") == expected_id:
+            if "error" in msg:
+                raise SystemExit(json.dumps(msg["error"], ensure_ascii=False))
+            return msg.get("result", {})
+    raise SystemExit("timed out waiting for MCP response")
+
+init_id = send("initialize", {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {"name": "aicmd-mcp", "version": "0.1.0"},
+})
+read_response(init_id)
+send("notifications/initialized", {}, is_notification=True)
+
+call_id = send("tools/call", {
+    "name": "tavily_search",
+    "arguments": {
+        "query": query,
+        "topic": "general",
+        "search_depth": "advanced",
+        "max_results": 5,
+        "include_answer": True,
+        "include_raw_content": False,
+        "include_images": False,
+        "include_image_descriptions": False,
+    },
+})
+result = read_response(call_id, timeout=120)
+content = result.get("content", [])
+texts = []
+for item in content:
+    if isinstance(item, dict) and isinstance(item.get("text"), str):
+        texts.append(item["text"])
+print("\n".join(texts), end="")
+
+try:
+    proc.terminate()
+except Exception:
+    pass
+PY
 }
 
 cmd="${1:-help}"

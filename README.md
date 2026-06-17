@@ -57,9 +57,9 @@ English: See `docs/aicmd-usage.md` for the full current usage guide.
 
 ## MCP tools / MCP 工具
 
-AICmd keeps MCP calls separate from the main terminal-command workflow. Use `aicmd search <query>` as the main shortcut for search; it delegates to the dedicated MCP helper `aicmd-mcp search`. MCP runtime settings are generated from `.env` into `~/.aicmd/config.json`; search commands read `config.json` directly.
+AICmd keeps MCP calls separate from the main terminal-command workflow. Use `aicmd search <query>` as the main shortcut for search; it delegates to the dedicated MCP helper `aicmd-mcp search`. MCP runtime settings are generated from `.env` into `~/.aicmd/config.json`; search commands read `config.json` directly. The MCP config uses the standard server shape: `mcpServers.<name>.type`, `command`, `args`, and `env`.
 
-AICmd 将 MCP 调用和主终端命令流程分开。搜索时可以直接使用主命令快捷入口 `aicmd search <query>`；它会转发到独立 MCP 辅助命令 `aicmd-mcp search`。MCP 运行时配置会从 `.env` 生成到 `~/.aicmd/config.json`；搜索命令直接读取 `config.json`。
+AICmd 将 MCP 调用和主终端命令流程分开。搜索时可以直接使用主命令快捷入口 `aicmd search <query>`；它会转发到独立 MCP 辅助命令 `aicmd-mcp search`。MCP 运行时配置会从 `.env` 生成到 `~/.aicmd/config.json`；搜索命令直接读取 `config.json`。MCP 配置使用标准 server 结构：`mcpServers.<name>.type`、`command`、`args`、`env`。
 
 ```bash
 aicmd init --from-env
