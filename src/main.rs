@@ -66,6 +66,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
