@@ -295,7 +295,9 @@ Subcommands also have their own options:
 | Command | Option | Meaning |
 | --- | --- | --- |
 | `aicmd do` | `--dry-run` | Build the script-generation request but do not send it to the LLM. |
+| `aicmd do` | `--plan` | Generate an execution plan only; do not create or run a task script. |
 | `aicmd do` | `-f, --file <FILE>` | Include a saved text file, such as a previous search result, as task context. |
+| `aicmd do` | `--from-search <NAME>` | Include a saved search result such as `~/.aicmd/searches/<NAME>.txt`. |
 | `aicmd do` | `-o, --output <PATH>` | Ask AICmd to create the task script at this path. |
 | `aicmd model init` / `aicmd init` | `--from-env` | Require `.env` and generate `~/.aicmd/config.yaml` from it. |
 | `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. |
@@ -303,6 +305,9 @@ Subcommands also have their own options:
 | `aicmd doctor` | none | Check install, model config, MCP/search, PATH, and shell integration status. |
 | `aicmd session` | `list`, `show`, `--limit` | Inspect current session, saved sessions, and recent messages. |
 | `aicmd last` | none | Show the last non-system message in the current default session. |
+| `aicmd search` | `summarize <name|last>` | Summarize a saved raw search result again. |
+| `aicmd search` | `list`, `show <name|last>` | List or show saved searches; list shows summary/raw status. |
+| `aicmd search` | `open <name|last>`, `rm <name>` | Open or remove saved search records. |
 | `aicmd update` | `--check`, `--version`, `--dry-run` | Check or update AICmd with the official installer. |
 
 ### 7.3 Sessions
@@ -342,9 +347,12 @@ Use this when the task is more than a one-liner, for example processing CSV, log
 
 ```bash
 aicmd do "处理 input.csv，输出 cleaned.csv"
+aicmd do --plan --from-search gemini-cli "根据这份搜索记录，在本机安装 gemini-cli"
 aicmd do --dry-run "统计 logs/*.log 里的 ERROR 数量"
 aicmd do --output scripts/clean_data.sh "清洗 data/input.csv 并输出 data/output.csv"
-aicmd do -f ~/.aicmd/searches/gemini-cli.md "根据这份搜索记录，在本机安装 gemini-cli"
+aicmd do -f ~/.aicmd/searches/gemini-cli.txt "根据这份搜索记录，在本机安装 gemini-cli"
+aicmd do --from-search gemini-cli "根据这份搜索记录，在本机安装 gemini-cli"
+aicmd do --from-search last "根据最近一次搜索记录生成执行脚本"
 ```
 
 AICmd asks the LLM to generate commands that create a script, review it, and execute it through the normal confirmation flow.
@@ -361,10 +369,11 @@ aicmd search save gemini-cli
 
 # Inspect the saved result, then use it as do context
 aicmd search show gemini-cli
-aicmd do -f ~/.aicmd/searches/gemini-cli.md "根据这份搜索记录，在本机安装 gemini-cli"
+aicmd do --from-search gemini-cli "根据这份搜索记录，在本机安装 gemini-cli"
 ```
 
-`-f` reads the saved text file and includes it in the script-generation context. This is useful when the installation or operation should follow a previously searched official guide.
+`--from-search` reads `~/.aicmd/searches/<name>.txt` automatically and includes it in the script-generation context. This is useful when the installation or operation should follow a previously searched official guide. If only `<name>.raw.txt` exists, AICmd asks you to run `aicmd search summarize <name>` first.
+`--plan` only generates a safe command that prints an execution plan. It does not create scripts, install software, or modify files. Use it to check whether the model understands the saved search and task risks.
 
 ### 7.6 Error diagnosis: `aicmd err`
 
@@ -397,11 +406,14 @@ aicmd search summarize gemini-cli
 aicmd search list
 aicmd search show gemini-cli
 aicmd search show last
+aicmd search open gemini-cli
+aicmd search rm gemini-cli
 ```
 
 `aicmd search` calls the configured search MCP server first, then sends the MCP result to the LLM for final terminal-friendly summary.
-Every search also writes the latest result to `~/.aicmd/searches/.last.md`. `--save` or `aicmd search save` stores a named record such as `~/.aicmd/searches/gemini-cli.md`.
-If MCP search succeeds but LLM summarization fails because the model is overloaded or the API errors, AICmd keeps the raw search result at `~/.aicmd/searches/.last.raw.md`. When the search used `--save gemini-cli`, it also keeps `~/.aicmd/searches/gemini-cli.raw.md`. Later, run `aicmd search summarize last` or `aicmd search summarize gemini-cli` to summarize the saved raw result.
+Every search also writes the latest result to `~/.aicmd/searches/.last.txt`. `--save` or `aicmd search save` stores a named record such as `~/.aicmd/searches/gemini-cli.txt`.
+If MCP search succeeds but LLM summarization fails because the model is overloaded or the API errors, AICmd keeps the raw search result at `~/.aicmd/searches/.last.raw.txt`. When the search used `--save gemini-cli`, it also keeps `~/.aicmd/searches/gemini-cli.raw.txt`. Later, run `aicmd search summarize last` or `aicmd search summarize gemini-cli` to summarize the saved raw result.
+`aicmd search list` shows each record status: `summary`, `raw`, or `summary+raw`. `aicmd search rm <name>` removes both `<name>.txt` and `<name>.raw.txt`.
 
 For normal users, `aicmd search` is the only search entry point to remember.
 
@@ -423,6 +435,56 @@ aicmd init --from-env        # same as aicmd model init --from-env
 aicmd model path             # print ~/.aicmd/config.yaml path
 ```
 
+### 7.9 Complete command reference
+
+This section lists each command, what it does, common usage, and important notes.
+
+| Command | Purpose | Example | Notes |
+| --- | --- | --- | --- |
+| `aicmd <natural language>` | Generate a terminal command and run it after confirmation. | `aicmd 当前目录有多少文件` | AICmd asks `execute/revise/describe/copy/quit` before running. Results are stored in the current session. |
+| `aicmd -m <MODEL> <task>` | Temporarily select a model. | `aicmd -m openai:gpt-4o 当前目录有多少文件` | Affects only this request; does not edit `config.yaml`. |
+| `aicmd -s [SESSION] [task]` | Show, start, or join a session. | `aicmd -s`, `aicmd -s dev hello` | With no task it prepares the session; with a task it sends the request. |
+| `aicmd --empty-session` | Clear the selected session. | `aicmd -s dev --empty-session` | Requires confirmation. Previous context becomes unavailable. |
+| `aicmd -f <FILE> <task>` | Attach a file, directory, or URL as context. | `aicmd -f README.md summarize this file` | Useful for one-off file context. For script tasks, prefer `aicmd do -f`. |
+| `aicmd --dry-run <task>` | Preview the request without executing the final command. | `aicmd --dry-run 当前目录有多少文件` | Useful for checking prompt, session, and context size. |
+| `aicmd do <task>` | Generate a task script and enter the confirmation flow. | `aicmd do "处理 input.csv，输出 cleaned.csv"` | Default script path is `.aicmd/task-timestamp.sh` or `.ps1`. |
+| `aicmd do --plan <task>` | Generate an execution plan only. | `aicmd do --plan "安装 Docker"` | Does not create scripts, install software, or modify files. |
+| `aicmd do --dry-run <task>` | Preview the `do` task prompt. | `aicmd do --dry-run "统计日志"` | Checks whether task text, files, and search records are injected. |
+| `aicmd do -f <FILE> <task>` | Use a text file as task reference. | `aicmd do -f notes.txt "按说明执行"` | `-f` currently supports regular files. |
+| `aicmd do --from-search <NAME> <task>` | Use a saved search result as task context. | `aicmd do --from-search docker-install "安装 Docker"` | Reads `~/.aicmd/searches/<NAME>.txt`; `last` means the latest search. |
+| `aicmd do -o <PATH> <task>` | Choose the generated script path. | `aicmd do -o scripts/task.sh "清洗 CSV"` | Useful when the script should remain in the project. |
+| `aicmd search <query>` | Call MCP search and summarize with the LLM. | `aicmd search "今天 AI 新闻"` | Writes `.last.txt` and `.last.raw.txt`. |
+| `aicmd search <query> --save [NAME]` | Search and save immediately. | `aicmd search "Docker install" --save docker-install` | Writes `<NAME>.txt` and `<NAME>.raw.txt`; omitting name auto-generates one. |
+| `aicmd search save [NAME]` | Save the latest search summary. | `aicmd search save docker-install` | Useful after reviewing the search result. |
+| `aicmd search summarize [NAME\|last]` | Summarize a raw search result again. | `aicmd search summarize docker-install` | Use when the model failed but raw search was saved. |
+| `aicmd search list` | List saved search records. | `aicmd search list` | Status is `summary`, `raw`, or `summary+raw`. |
+| `aicmd search show <NAME\|last>` | Print a saved search summary. | `aicmd search show docker-install` | Read-only; does not call the model. |
+| `aicmd search open <NAME\|last>` | Open a saved search file. | `aicmd search open docker-install` | Uses `$EDITOR` first, then the OS opener. |
+| `aicmd search rm <NAME>` | Remove saved search files. | `aicmd search rm docker-install` | Removes `<NAME>.txt` and `<NAME>.raw.txt`. |
+| `aicmd err -- <command>` | Run a command and ask the LLM to diagnose errors. | `aicmd err -- pnpm test` | Really executes the command; do not pass destructive commands casually. |
+| `aicmd session` | Show the current default session. | `aicmd session` | Read-only; does not call the model. |
+| `aicmd session list` | List sessions. | `aicmd session list` | Sessions live under `~/.aicmd/sessions`. |
+| `aicmd session show [SESSION] [--limit N]` | Show recent session messages. | `aicmd session show dev --limit 5` | Defaults to the current daily session and 20 messages. |
+| `aicmd last` | Show the last non-system message. | `aicmd last` | Handy for quickly checking the previous output. |
+| `aicmd config init [--force]` | Generate `config.yaml` from `.env`. | `aicmd config init --force` | `--force` overwrites config after confirmation. |
+| `aicmd config path` | Print the `config.yaml` path. | `aicmd config path` | Usually `~/.aicmd/config.yaml`. |
+| `aicmd config dir` | Print the AICmd config directory. | `aicmd config dir` | Usually `~/.aicmd`. |
+| `aicmd config show` | Print current config. | `aicmd config show` | May contain API keys; do not paste publicly. |
+| `aicmd config edit` | Edit current config. | `aicmd config edit` | Uses `$EDITOR`. |
+| `aicmd config mcp` | Print MCP config path. | `aicmd config mcp` | Usually `~/.aicmd/mcp.json`. |
+| `aicmd config doctor` | Run diagnostics. | `aicmd config doctor` | Same as `aicmd doctor`. |
+| `aicmd model ...` | Compatibility model config entry point. | `aicmd model show` | Regular users should prefer `aicmd config ...`. |
+| `aicmd init --from-env` | Initialize config from `.env`. | `aicmd init --from-env` | Same as `aicmd model init --from-env`. |
+| `aicmd mcp list` | List MCP commands. | `aicmd mcp list` | Reads `~/.aicmd/mcp.json`. |
+| `aicmd mcp <command> <input>` | Call MCP and summarize with the LLM. | `aicmd mcp search "OpenAI latest news"` | For web search, prefer `aicmd search`. |
+| `aicmd mcp-raw <command> <input>` | Print raw MCP output. | `aicmd mcp-raw search "OpenAI latest news"` | For debugging MCP; no LLM summary. |
+| `aicmd doctor` | Check local install and config status. | `aicmd doctor` | Checks binary, version, model, MCP, PATH, and shell integration. |
+| `aicmd shell-init [shell]` | Print shell integration code. | `eval "$(aicmd shell-init)"` | Lets `cd` commands update the current terminal directory. |
+| `aicmd update --check` | Check latest version. | `aicmd update --check` | Does not install. |
+| `aicmd update` | Update to the latest Release. | `aicmd update` | Confirms before downloading and overwriting the binary. |
+| `aicmd update --version <TAG>` | Install a specific version. | `aicmd update --version v0.30.9` | Useful for rollback or pinning. |
+| `aicmd update --dry-run` | Print the update command only. | `aicmd update --dry-run` | Useful for checking the installer URL. |
+
 ## 8. Safety notes
 
 - Always review generated commands before choosing `execute`.
@@ -438,7 +500,7 @@ Recommended:
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.8
+aicmd update --version v0.30.9
 aicmd update --dry-run
 ```
 
@@ -457,14 +519,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.8
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.9
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.8
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.9
 ```
 
 ## 10. Troubleshooting

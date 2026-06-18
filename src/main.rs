@@ -124,7 +124,17 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
             if args.get(1).is_some_and(|v| {
                 matches!(
                     v.as_str(),
-                    "save" | "list" | "ls" | "show" | "help" | "-h" | "--help"
+                    "save"
+                        | "list"
+                        | "ls"
+                        | "show"
+                        | "open"
+                        | "rm"
+                        | "remove"
+                        | "delete"
+                        | "help"
+                        | "-h"
+                        | "--help"
                 )
             }) =>
         {
