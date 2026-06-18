@@ -70,13 +70,39 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn command_with_cwd_capture(command: &str) -> String {
+#[cfg(windows)]
+fn cmd_double_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+#[cfg(windows)]
+fn powershell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn command_with_cwd_capture(shell: &Shell, command: &str) -> String {
     let Ok(cwd_file) = env::var("AICMD_CWD_FILE") else {
         return command.to_string();
     };
     if cwd_file.is_empty() {
         return command.to_string();
     }
+    #[cfg(not(windows))]
+    let _ = shell;
+    #[cfg(windows)]
+    {
+        if matches!(shell.name.as_str(), "powershell" | "pwsh") {
+            return format!(
+                "& {{\r\n{command}\r\n$__aicmd_status = if ($null -ne $LASTEXITCODE) {{ $LASTEXITCODE }} else {{ 0 }}\r\n(Get-Location).Path | Set-Content -LiteralPath {} -Encoding UTF8\r\nexit $__aicmd_status\r\n}}",
+                powershell_single_quote(&cwd_file)
+            );
+        }
+        return format!(
+            "{command}\r\nset __aicmd_status=%ERRORLEVEL%\r\ncd > {}\r\nexit /b %__aicmd_status%",
+            cmd_double_quote(&cwd_file)
+        );
+    }
+    #[cfg(not(windows))]
     format!(
         "{{\n{command}\n}}\n__aicmd_status=$?\npwd > {}\nexit $__aicmd_status",
         shell_single_quote(&cwd_file)
@@ -564,7 +590,7 @@ async fn shell_execute(
 
             match answer_char {
                 'e' => {
-                    let eval_command = command_with_cwd_capture(&eval_str);
+                    let eval_command = command_with_cwd_capture(shell, &eval_str);
                     debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
                     let (code, stdout, stderr) = run_shell_command_capture(shell, &eval_command)?;
                     if code == 0 && config.read().save_shell_history {
