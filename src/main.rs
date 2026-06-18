@@ -98,10 +98,10 @@ fn command_with_cwd_capture(shell: &Shell, command: &str) -> String {
                 powershell_single_quote(&cwd_file)
             );
         }
-        return format!(
+        format!(
             "{command}\r\nset __aicmd_status=%ERRORLEVEL%\r\ncd > {}\r\nexit /b %__aicmd_status%",
             cmd_double_quote(&cwd_file)
-        );
+        )
     }
     #[cfg(not(windows))]
     format!(
