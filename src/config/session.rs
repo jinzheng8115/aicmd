@@ -143,6 +143,15 @@ impl Session {
         Ok(())
     }
 
+    pub fn add_assistant_note(&mut self, note: String) {
+        self.messages.push(Message::new(
+            MessageRole::Assistant,
+            MessageContent::Text(note),
+        ));
+        self.dirty = true;
+        self.update_tokens();
+    }
+
     pub fn clear_messages(&mut self) {
         self.messages.clear();
         self.data_urls.clear();

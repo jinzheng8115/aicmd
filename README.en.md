@@ -271,7 +271,7 @@ Choices:
 - `copy` / `c`: copy the command
 - `quit` / `q`: quit without running
 
-After execution, AICmd prints raw command output and asks the LLM to summarize it.
+After execution, AICmd prints raw command output and asks the LLM to summarize it. The command, exit code, truncated stdout/stderr, and summary are stored in the current session so the next turn can refer to the previous execution result.
 
 ### 7.2 Global options
 
@@ -300,6 +300,7 @@ Subcommands also have their own options:
 | `aicmd model init` / `aicmd init` | `--from-env` | Require `.env` and generate `~/.aicmd/config.yaml` from it. |
 | `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. |
 | `aicmd shell-init` | `zsh`, `bash`, `powershell` | Print integration code for that shell. Usually not needed after normal install. |
+| `aicmd doctor` | none | Check install, model config, MCP/search, PATH, and shell integration status. |
 
 ### 7.3 Sessions
 
@@ -364,6 +365,7 @@ For normal users, `aicmd search` is the only search command to remember.
 
 ```bash
 aicmd init --from-env        # same as aicmd model init --from-env
+aicmd doctor                 # check local AICmd runtime status
 aicmd model path             # print ~/.aicmd/config.yaml path
 aicmd model dir              # print ~/.aicmd directory
 aicmd model show             # print config.yaml
@@ -416,6 +418,7 @@ hash -r
 ### Config not found
 
 ```bash
+aicmd doctor
 aicmd model path
 aicmd init --from-env
 ```

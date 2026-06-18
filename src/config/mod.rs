@@ -499,6 +499,23 @@ impl Config {
         }
         Ok(())
     }
+
+    pub fn append_session_note(&mut self, note: String) -> Result<()> {
+        if self.dry_run {
+            return Ok(());
+        }
+        let sessions_dir = self.sessions_dir();
+        if let Some(session) = self.session.as_mut() {
+            session.add_assistant_note(note);
+            let session_path = match session.name().split_once("/") {
+                Some((dir, name)) => sessions_dir.join(dir).join(format!("{name}.yaml")),
+                None => sessions_dir.join(format!("{}.yaml", session.name())),
+            };
+            session.persist(&session_path)?;
+        }
+        Ok(())
+    }
+
     fn load_from_file(config_path: &Path) -> Result<Self> {
         let err = || format!("Failed to load config at '{}'", config_path.display());
         let content = read_to_string(config_path).with_context(err)?;

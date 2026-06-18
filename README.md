@@ -271,7 +271,7 @@ execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出
 - `copy` / `c`：复制命令
 - `quit` / `q`：退出，不执行
 
-执行后，AICmd 会先输出原始命令结果，再让 LLM 做 summary。
+执行后，AICmd 会先输出原始命令结果，再让 LLM 做 summary。命令、退出码、截断后的 stdout/stderr 和 summary 会写入当前 session，方便下一轮继续引用“刚才的执行结果”。
 
 ### 7.2 全局系统参数
 
@@ -300,6 +300,7 @@ execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出
 | `aicmd model init` / `aicmd init` | `--from-env` | 必须读取 `.env` 并生成 `~/.aicmd/config.yaml`。 |
 | `aicmd model init` / `aicmd init` | `--force` | 覆盖已有 `config.yaml`，会二次确认。 |
 | `aicmd shell-init` | `zsh`, `bash`, `powershell` | 输出对应 shell 的集成代码；正常安装后通常不需要手动执行。 |
+| `aicmd doctor` | 无 | 检查安装、模型配置、MCP/search、PATH 和 shell 集成状态。 |
 
 ### 7.3 会话
 
@@ -364,6 +365,7 @@ aicmd search "DeepSeek latest model"
 
 ```bash
 aicmd init --from-env        # 等同于 aicmd model init --from-env
+aicmd doctor                 # 检查本机 AICmd 运行状态
 aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 aicmd model dir              # 输出 ~/.aicmd 目录
 aicmd model show             # 输出 config.yaml
@@ -416,6 +418,7 @@ hash -r
 ### 找不到配置
 
 ```bash
+aicmd doctor
 aicmd model path
 aicmd init --from-env
 ```

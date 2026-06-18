@@ -2,6 +2,7 @@ mod cli;
 mod client;
 mod config;
 mod do_cmd;
+mod doctor_cmd;
 mod err_cmd;
 mod function;
 mod mcp_cmd;
@@ -110,6 +111,7 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         "init" => Ok(Some(model_cmd::run_model_command(args)?)),
         "model" => Ok(Some(model_cmd::run_model_command(&args[1..])?)),
         "shell-init" => Ok(Some(shell_init_cmd::run_shell_init_command(&args[1..])?)),
+        "doctor" => Ok(Some(doctor_cmd::run_doctor_command()?)),
         "mcp"
             if args
                 .get(1)
@@ -300,7 +302,7 @@ async fn summarize_command_output(
     stdout: &str,
     stderr: &str,
     abort_signal: AbortSignal,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let combined = if stdout.trim().is_empty() {
         stderr.trim().to_string()
     } else if stderr.trim().is_empty() {
@@ -309,20 +311,51 @@ async fn summarize_command_output(
         format!("STDOUT:\n{}\n\nSTDERR:\n{}", stdout.trim(), stderr.trim())
     };
     if combined.trim().is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     let prompt = format!("执行的命令：\n{command}\n\n退出码：{code}\n\n命令输出：\n{combined}");
     let role = config.read().retrieve_role(COMMAND_SUMMARY_ROLE)?;
     let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
     println!("{}", dimmed_text("\nAI summary:"));
-    if input.stream() {
-        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?;
+    let (summary, _) = if input.stream() {
+        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?
     } else {
-        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?;
-    }
+        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?
+    };
     println!();
-    Ok(())
+    Ok(Some(summary))
+}
+
+fn truncate_for_session(value: &str, max_chars: usize) -> String {
+    let mut out: String = value.chars().take(max_chars).collect();
+    if value.chars().count() > max_chars {
+        out.push_str("\n[truncated / 已截断]");
+    }
+    if out.trim().is_empty() {
+        "(empty)".to_string()
+    } else {
+        out
+    }
+}
+
+fn build_execution_session_note(
+    command: &str,
+    code: i32,
+    stdout: &str,
+    stderr: &str,
+    summary: Option<&str>,
+) -> String {
+    const OUTPUT_LIMIT: usize = 4_000;
+    const SUMMARY_LIMIT: usize = 2_000;
+    let stdout = truncate_for_session(stdout.trim(), OUTPUT_LIMIT);
+    let stderr = truncate_for_session(stderr.trim(), OUTPUT_LIMIT);
+    let summary = summary
+        .map(|value| truncate_for_session(value.trim(), SUMMARY_LIMIT))
+        .unwrap_or_else(|| "(empty)".to_string());
+    format!(
+        "Command execution result:\nCommand:\n{command}\n\nExit code: {code}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n\nAI summary:\n{summary}"
+    )
 }
 
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
@@ -429,7 +462,7 @@ async fn shell_execute(
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }
-                    summarize_command_output(
+                    let summary = match summarize_command_output(
                         config,
                         &eval_str,
                         code,
@@ -437,7 +470,22 @@ async fn shell_execute(
                         &stderr,
                         abort_signal.clone(),
                     )
-                    .await?;
+                    .await
+                    {
+                        Ok(summary) => summary,
+                        Err(err) => {
+                            eprintln!("AI summary failed: {err:#}");
+                            None
+                        }
+                    };
+                    let session_note = build_execution_session_note(
+                        &eval_str,
+                        code,
+                        &stdout,
+                        &stderr,
+                        summary.as_deref(),
+                    );
+                    config.write().append_session_note(session_note)?;
                     process::exit(code);
                 }
                 'r' => {
@@ -533,4 +581,27 @@ fn setup_logger() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_for_session_marks_truncated_content() {
+        let value = truncate_for_session("abcdef", 3);
+        assert_eq!(value, "abc\n[truncated / 已截断]");
+    }
+
+    #[test]
+    fn build_execution_session_note_includes_execution_fields() {
+        let note =
+            build_execution_session_note("printf hello", 0, "hello", "", Some("printed hello"));
+        assert!(note.contains("Command execution result:"));
+        assert!(note.contains("Command:\nprintf hello"));
+        assert!(note.contains("Exit code: 0"));
+        assert!(note.contains("STDOUT:\nhello"));
+        assert!(note.contains("STDERR:\n(empty)"));
+        assert!(note.contains("AI summary:\nprinted hello"));
+    }
 }
