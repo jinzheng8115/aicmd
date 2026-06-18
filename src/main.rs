@@ -358,12 +358,12 @@ fn stream_and_capture<R: Read>(mut reader: R, is_stderr: bool) -> Result<String>
         captured.extend_from_slice(&buf[..n]);
         write_console_chunk(&buf[..n], is_stderr)?;
     }
-    Ok(String::from_utf8_lossy(&captured).to_string())
+    Ok(decode_command_output(&captured))
 }
 
 #[cfg(windows)]
 fn write_console_chunk(bytes: &[u8], is_stderr: bool) -> Result<()> {
-    let text = String::from_utf8_lossy(bytes);
+    let text = decode_command_output(bytes);
     if is_stderr {
         io::stderr().write_all(text.as_bytes())?;
         io::stderr().flush()?;
@@ -372,6 +372,23 @@ fn write_console_chunk(bytes: &[u8], is_stderr: bool) -> Result<()> {
         io::stdout().flush()?;
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn decode_command_output(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+    let (text, _, had_errors) = encoding_rs::GBK.decode(bytes);
+    if !had_errors {
+        return text.into_owned();
+    }
+    String::from_utf8_lossy(bytes).to_string()
+}
+
+#[cfg(not(windows))]
+fn decode_command_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).to_string()
 }
 
 #[cfg(not(windows))]

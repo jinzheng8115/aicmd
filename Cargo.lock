@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "aicmd"
-version = "0.30.13"
+version = "0.30.14"
 dependencies = [
  "ansi_colours",
  "anyhow",
@@ -45,6 +45,7 @@ dependencies = [
  "crossterm 0.28.1",
  "dirs",
  "duct",
+ "encoding_rs",
  "fancy-regex",
  "futures-util",
  "hmac",
@@ -575,7 +576,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -628,6 +629,15 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+
+[[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
 
 [[package]]
 name = "equivalent"
