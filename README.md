@@ -301,7 +301,7 @@ execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出
 | `aicmd model init` / `aicmd init` | `--force` | 覆盖已有 `config.yaml`，会二次确认。 |
 | `aicmd shell-init` | `zsh`, `bash`, `powershell` | 输出对应 shell 的集成代码；正常安装后通常不需要手动执行。 |
 | `aicmd doctor` | 无 | 检查安装、模型配置、MCP/search、PATH 和 shell 集成状态。 |
-| `aicmd update` | `--version`, `--dry-run` | 使用官方安装器更新 AICmd。 |
+| `aicmd update` | `--check`, `--version`, `--dry-run` | 检查或使用官方安装器更新 AICmd。 |
 
 ### 7.3 会话
 
@@ -393,12 +393,13 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 推荐使用内置更新命令：
 
 ```bash
+aicmd update --check
 aicmd update
-aicmd update --version v0.30.3
+aicmd update --version v0.30.4
 aicmd update --dry-run
 ```
 
-`aicmd update` 会二次确认，因为它会重新下载安装并覆盖本地 AICmd。更新完成后建议运行：
+`aicmd update --check` 只检查当前版本和最新 Release，不会安装。`aicmd update` 会先检查是否已有新版本；如果已经是最新版本，会直接提示无需更新。需要安装时会二次确认，因为它会重新下载安装并覆盖本地 AICmd。更新完成后建议运行：
 
 ```bash
 aicmd doctor
@@ -413,14 +414,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 安装指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.3
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.4
 ```
 
 Windows PowerShell 指定版本：
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.3
+# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.4
 ```
 
 ## 10. 常见问题

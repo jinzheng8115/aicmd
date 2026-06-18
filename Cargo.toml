@@ -1,6 +1,6 @@
 [package]
 name = "aicmd"
-version = "0.30.3"
+version = "0.30.4"
 edition = "2021"
 authors = ["sigoden <sigoden@gmail.com>"]
 description = "Natural language terminal command runner"

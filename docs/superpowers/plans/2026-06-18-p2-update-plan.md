@@ -35,7 +35,7 @@ sh -c 'curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/cont
 With version:
 
 ```bash
-sh -c 'curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.3'
+sh -c 'curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.4'
 ```
 
 For Windows:
@@ -69,7 +69,7 @@ Run:
 
 ```bash
 target/debug/aicmd update --dry-run
-target/debug/aicmd update --version v0.30.3 --dry-run
+target/debug/aicmd update --version v0.30.4 --dry-run
 ```
 
 Expected: prints installer command and exits without network/file writes.

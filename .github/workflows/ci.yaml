@@ -39,6 +39,9 @@ jobs:
     - name: Test
       run: cargo test --all
 
+    - name: Verify installer and update
+      run: scripts/verify_update_install.sh
+
     - name: Clippy
       run: cargo clippy --all --all-targets -- -D warnings
 

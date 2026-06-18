@@ -301,7 +301,7 @@ Subcommands also have their own options:
 | `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. |
 | `aicmd shell-init` | `zsh`, `bash`, `powershell` | Print integration code for that shell. Usually not needed after normal install. |
 | `aicmd doctor` | none | Check install, model config, MCP/search, PATH, and shell integration status. |
-| `aicmd update` | `--version`, `--dry-run` | Update AICmd with the official installer. |
+| `aicmd update` | `--check`, `--version`, `--dry-run` | Check or update AICmd with the official installer. |
 
 ### 7.3 Sessions
 
@@ -393,12 +393,13 @@ aicmd model path             # print ~/.aicmd/config.yaml path
 Recommended:
 
 ```bash
+aicmd update --check
 aicmd update
-aicmd update --version v0.30.3
+aicmd update --version v0.30.4
 aicmd update --dry-run
 ```
 
-`aicmd update` asks for confirmation because it downloads and overwrites the local AICmd binary. After updating, run:
+`aicmd update --check` only checks the current version and latest Release; it does not install anything. `aicmd update` checks whether a newer Release exists first; if AICmd is already up to date, it exits without reinstalling. When installation is needed, it asks for confirmation because it downloads and overwrites the local AICmd binary. After updating, run:
 
 ```bash
 aicmd doctor
@@ -413,14 +414,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.3
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.4
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.3
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.4
 ```
 
 ## 10. Troubleshooting
