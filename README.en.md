@@ -344,7 +344,7 @@ Use this when the task is more than a one-liner, for example processing CSV, log
 aicmd do "处理 input.csv，输出 cleaned.csv"
 aicmd do --dry-run "统计 logs/*.log 里的 ERROR 数量"
 aicmd do --output scripts/clean_data.sh "清洗 data/input.csv 并输出 data/output.csv"
-aicmd do -f .aicmd/notes/gemini-cli-install.txt "根据这份搜索记录，在本机安装 gemini-cli"
+aicmd do -f ~/.aicmd/searches/gemini-cli.md "根据这份搜索记录，在本机安装 gemini-cli"
 ```
 
 AICmd asks the LLM to generate commands that create a script, review it, and execute it through the normal confirmation flow.
@@ -352,9 +352,16 @@ AICmd asks the LLM to generate commands that create a script, review it, and exe
 Search first, save notes, then execute with `do`:
 
 ```bash
-mkdir -p .aicmd/notes
-aicmd search "gemini-cli 官方安装方式" | tee .aicmd/notes/gemini-cli-install.txt
-aicmd do -f .aicmd/notes/gemini-cli-install.txt "根据这份搜索记录，在本机安装 gemini-cli"
+# Option 1: search and save immediately
+aicmd search "gemini-cli 官方安装方式" --save gemini-cli
+
+# Option 2: search first; save the last result after reviewing it
+aicmd search "gemini-cli 官方安装方式"
+aicmd search save gemini-cli
+
+# Inspect the saved result, then use it as do context
+aicmd search show gemini-cli
+aicmd do -f ~/.aicmd/searches/gemini-cli.md "根据这份搜索记录，在本机安装 gemini-cli"
 ```
 
 `-f` reads the saved text file and includes it in the script-generation context. This is useful when the installation or operation should follow a previously searched official guide.
@@ -373,11 +380,25 @@ AICmd runs the command, captures stdout/stderr/exit code, and asks the LLM to ge
 ```bash
 aicmd search "今天 AI 新闻"
 aicmd search "DeepSeek latest model"
+
+# Search and save immediately; omit the name to auto-generate one
+aicmd search "gemini-cli 官方安装方式" --save
+aicmd search "gemini-cli 官方安装方式" --save gemini-cli
+
+# Search first, then save the last result after reviewing it
+aicmd search save
+aicmd search save gemini-cli
+
+# Inspect saved results
+aicmd search list
+aicmd search show gemini-cli
+aicmd search show last
 ```
 
 `aicmd search` calls the configured search MCP server first, then sends the MCP result to the LLM for final terminal-friendly summary.
+Every search also writes the latest result to `~/.aicmd/searches/.last.md`. `--save` or `aicmd search save` stores a named record such as `~/.aicmd/searches/gemini-cli.md`.
 
-For normal users, `aicmd search` is the only search command to remember.
+For normal users, `aicmd search` is the only search entry point to remember.
 
 ### 7.8 Model/config commands
 
@@ -412,7 +433,7 @@ Recommended:
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.6
+aicmd update --version v0.30.7
 aicmd update --dry-run
 ```
 
@@ -431,14 +452,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.6
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.7
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.6
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.7
 ```
 
 ## 10. Troubleshooting

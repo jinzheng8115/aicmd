@@ -9,6 +9,7 @@ mod function;
 mod mcp_cmd;
 mod model_cmd;
 mod render;
+mod search_cmd;
 mod session_cmd;
 mod shell_init_cmd;
 mod update_cmd;
@@ -119,6 +120,16 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         "update" => Ok(Some(update_cmd::run_update_command(&args[1..])?)),
         "session" => Ok(Some(session_cmd::run_session_command(&args[1..])?)),
         "last" => Ok(Some(session_cmd::run_last_command(&args[1..])?)),
+        "search"
+            if args.get(1).is_some_and(|v| {
+                matches!(
+                    v.as_str(),
+                    "save" | "list" | "ls" | "show" | "help" | "-h" | "--help"
+                )
+            }) =>
+        {
+            Ok(Some(search_cmd::run_search_store_command(&args[1..])?))
+        }
         "mcp"
             if args
                 .get(1)
@@ -137,11 +148,9 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
     };
     match cmd {
         "search" => {
-            if args.len() < 2 {
-                bail!("usage: aicmd search <query>");
-            }
-            let query = args[1..].join(" ");
-            run_mcp_with_llm_summary(config, "search", &query).await?;
+            let options = search_cmd::parse_search_run_args(&args[1..])?;
+            let summary = run_mcp_with_llm_summary(config, "search", &options.query).await?;
+            search_cmd::persist_search_result(&options.query, &summary, options.save_name)?;
             Ok(Some(0))
         }
         "mcp" => {
@@ -227,7 +236,7 @@ async fn run_mcp_with_llm_summary(
     config: &GlobalConfig,
     mcp_command: &str,
     query: &str,
-) -> Result<()> {
+) -> Result<String> {
     let abort_signal = create_abort_signal();
     let raw_output = mcp_cmd::call_mcp_command(mcp_command, query)
         .with_context(|| "Unable to run MCP command")?;
@@ -251,13 +260,13 @@ MCP 返回内容：
     let role = config.read().retrieve_role(MCP_SUMMARY_ROLE)?;
     let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
-    if input.stream() {
-        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?;
+    let (summary, _) = if input.stream() {
+        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?
     } else {
-        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?;
-    }
+        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?
+    };
     println!();
-    Ok(())
+    Ok(summary)
 }
 
 fn run_shell_command_capture(shell: &Shell, command: &str) -> Result<(i32, String, String)> {
