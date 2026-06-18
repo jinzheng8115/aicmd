@@ -8,15 +8,11 @@ pub use self::role::{
 };
 use self::session::Session;
 
-use crate::client::{
-    create_client_config, list_client_types, list_models, ClientConfig, Model, ModelType,
-    OPENAI_COMPATIBLE_PROVIDERS,
-};
+use crate::client::{list_models, ClientConfig, Model, ModelType, OPENAI_COMPATIBLE_PROVIDERS};
 use crate::render::{MarkdownRender, RenderOptions};
 use crate::utils::*;
 
 use anyhow::{anyhow, bail, Context, Result};
-use inquire::{Confirm, Select};
 use parking_lot::RwLock;
 use serde::Deserialize;
 use serde_json::json;
@@ -26,7 +22,6 @@ use std::{
     env,
     fs::{create_dir_all, read_to_string, remove_file},
     path::{Path, PathBuf},
-    process,
     sync::Arc,
 };
 use syntect::highlighting::ThemeSet;
@@ -125,12 +120,7 @@ impl Config {
                 .or_else(|| env::var(get_env_name("platform")).ok())
             {
                 Some(v) => Self::load_dynamic(&v)?,
-                None => {
-                    if *IS_STDOUT_TERMINAL {
-                        create_config_file(&config_path).await?;
-                    }
-                    Self::load_from_file(&config_path)?
-                }
+                None => bail!("{}", missing_config_guidance(&config_path)),
             }
         } else {
             Self::load_from_file(&config_path)?
@@ -691,35 +681,17 @@ impl LastMessage {
     }
 }
 
-async fn create_config_file(config_path: &Path) -> Result<()> {
-    let ans = Confirm::new("No config file, create a new one?")
-        .with_default(true)
-        .prompt()?;
-    if !ans {
-        process::exit(0);
-    }
+fn missing_config_guidance(config_path: &Path) -> String {
+    format!(
+        r#"AICmd config not found: {}
 
-    let client = Select::new("API Provider (required):", list_client_types()).prompt()?;
-
-    let mut config = serde_json::json!({});
-    let (model, clients_config) = create_client_config(client).await?;
-    config["model"] = model.into();
-    config[CLIENTS_FIELD] = clients_config;
-
-    let config_data = serde_yaml::to_string(&config).with_context(|| "Failed to create config")?;
-    ensure_parent_exists(config_path)?;
-    std::fs::write(config_path, config_data)
-        .with_context(|| format!("Failed to write to '{}'", config_path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::prelude::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(config_path, perms)?;
-    }
-
-    println!("✓ Saved the config file to '{}'.\n", config_path.display());
-
-    Ok(())
+First-time setup:
+1. Create a .env file with your model settings.
+2. Run: aicmd init --from-env
+3. Check: aicmd doctor
+4. Try: aicmd 当前目录有多少文件"#,
+        config_path.display()
+    )
 }
 
 pub(crate) fn ensure_parent_exists(path: &Path) -> Result<()> {

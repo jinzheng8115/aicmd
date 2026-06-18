@@ -70,12 +70,14 @@ macro_rules! register_client {
             })
         }
 
+        #[allow(dead_code)]
         pub fn list_client_types() -> Vec<&'static str> {
             let mut client_types: Vec<_> = vec![$($client::NAME,)+];
             client_types.extend($crate::client::OPENAI_COMPATIBLE_PROVIDERS.iter().map(|(name, _)| *name));
             client_types
         }
 
+        #[allow(dead_code)]
         pub async fn create_client_config(client: &str) -> anyhow::Result<(String, serde_json::Value)> {
             $(
                 if client == $client::NAME && client != $crate::client::OpenAICompatibleClient::NAME {

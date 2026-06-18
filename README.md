@@ -364,13 +364,19 @@ aicmd search "DeepSeek latest model"
 ### 7.7 模型与配置命令
 
 ```bash
-aicmd init --from-env        # 等同于 aicmd model init --from-env
+aicmd config init            # 从 .env 生成 ~/.aicmd/config.yaml
+aicmd config init --force    # 重新从 .env 生成配置，会二次确认
+aicmd config path            # 输出 ~/.aicmd/config.yaml 路径
+aicmd config dir             # 输出 ~/.aicmd 目录
+aicmd config show            # 输出 config.yaml
+aicmd config edit            # 编辑 config.yaml
+aicmd config mcp             # 输出 ~/.aicmd/mcp.json 路径
+aicmd config doctor          # 等同于 aicmd doctor
 aicmd doctor                 # 检查本机 AICmd 运行状态
+
+# 兼容入口
+aicmd init --from-env        # 等同于 aicmd model init --from-env
 aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
-aicmd model dir              # 输出 ~/.aicmd 目录
-aicmd model show             # 输出 config.yaml
-aicmd model edit             # 编辑 config.yaml
-aicmd model init --force     # 覆盖生成 starter 或基于 .env 的配置
 ```
 
 ## 8. 安全注意事项
@@ -419,7 +425,7 @@ hash -r
 
 ```bash
 aicmd doctor
-aicmd model path
+aicmd config path
 aicmd init --from-env
 ```
 

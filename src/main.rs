@@ -1,6 +1,7 @@
 mod cli;
 mod client;
 mod config;
+mod config_cmd;
 mod do_cmd;
 mod doctor_cmd;
 mod err_cmd;
@@ -110,6 +111,7 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
     match cmd {
         "init" => Ok(Some(model_cmd::run_model_command(args)?)),
         "model" => Ok(Some(model_cmd::run_model_command(&args[1..])?)),
+        "config" => Ok(Some(config_cmd::run_config_command(&args[1..])?)),
         "shell-init" => Ok(Some(shell_init_cmd::run_shell_init_command(&args[1..])?)),
         "doctor" => Ok(Some(doctor_cmd::run_doctor_command()?)),
         "mcp"

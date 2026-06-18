@@ -364,13 +364,19 @@ For normal users, `aicmd search` is the only search command to remember.
 ### 7.7 Model/config commands
 
 ```bash
-aicmd init --from-env        # same as aicmd model init --from-env
+aicmd config init            # generate ~/.aicmd/config.yaml from .env
+aicmd config init --force    # regenerate config from .env; asks for confirmation
+aicmd config path            # print ~/.aicmd/config.yaml path
+aicmd config dir             # print ~/.aicmd directory
+aicmd config show            # print config.yaml
+aicmd config edit            # edit config.yaml
+aicmd config mcp             # print ~/.aicmd/mcp.json path
+aicmd config doctor          # same as aicmd doctor
 aicmd doctor                 # check local AICmd runtime status
+
+# Compatibility entry points
+aicmd init --from-env        # same as aicmd model init --from-env
 aicmd model path             # print ~/.aicmd/config.yaml path
-aicmd model dir              # print ~/.aicmd directory
-aicmd model show             # print config.yaml
-aicmd model edit             # edit config.yaml
-aicmd model init --force     # overwrite with starter or .env-based config
 ```
 
 ## 8. Safety notes
@@ -419,7 +425,7 @@ hash -r
 
 ```bash
 aicmd doctor
-aicmd model path
+aicmd config path
 aicmd init --from-env
 ```
 
