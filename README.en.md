@@ -17,6 +17,8 @@ License: MIT OR Apache-2.0
 
 ## 2. Platform support
 
+AICmd officially supports macOS and Linux only. Native Windows PowerShell/cmd is no longer supported. Windows users should use WSL and install AICmd with the Linux installer inside WSL.
+
 Supported release binaries:
 
 | System | CPU / architecture | Release target |
@@ -25,10 +27,8 @@ Supported release binaries:
 | macOS Intel | x86_64 | `x86_64-apple-darwin` |
 | Linux ARM64 | arm64 / aarch64 | `aarch64-unknown-linux-musl` |
 | Linux Intel/AMD | x86_64 | `x86_64-unknown-linux-musl` |
-| Windows ARM64 | arm64 / aarch64 | `aarch64-pc-windows-msvc` |
-| Windows Intel/AMD | x86_64 | `x86_64-pc-windows-msvc` |
 
-Windows WSL can use the Linux installer.
+Unsupported: native Windows PowerShell/cmd. Please use WSL.
 
 ## 3. Before installation
 
@@ -149,27 +149,21 @@ Notes:
 
 ### 4.1 Recommended: binary install, no Rust required
 
-macOS / Linux:
+macOS / Linux / WSL:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash
 ```
 
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
-```
-
-Note: do not use `iwr ... | iex`. `iwr` / `Invoke-WebRequest` returns a response object, not script text. If you must use `iwr`, use `(iwr URL -UseBasicParsing).Content | iex`.
+Native Windows PowerShell/cmd is not supported. On Windows, run the Linux installer inside WSL.
 
 Default install locations:
 
-| Item | macOS / Linux | Windows |
-| --- | --- | --- |
-| Binary | `~/.local/bin/aicmd` | `~/.local/bin/aicmd.exe` |
-| Runtime config | `~/.aicmd/config.yaml` | `~/.aicmd/config.yaml` |
-| MCP config | `~/.aicmd/mcp.json` | `~/.aicmd/mcp.json` |
+| Item | macOS / Linux / WSL |
+| --- | --- |
+| Binary | `~/.local/bin/aicmd` |
+| Runtime config | `~/.aicmd/config.yaml` |
+| MCP config | `~/.aicmd/mcp.json` |
 
 The installer also creates compatibility wrappers for older scripts, such as `aicmd-do`, `aicmd-err`, `aicmd-model`, and `aicmd-shell-init`. New usage should prefer the main `aicmd` command examples below.
 
@@ -229,8 +223,7 @@ For normal first-time installation, you do not need to run any shell integration
 
 What the installer does:
 - macOS / Linux installer automatically writes shell integration to `~/.zshrc` or `~/.bashrc`.
-- Windows installer automatically writes shell integration to your PowerShell profile.
-- After installation, open a new terminal or PowerShell window. The integration will be loaded automatically.
+- Native Windows PowerShell/cmd is not supported; Windows users should enable shell integration inside WSL.
 
 Manual enable is only for exceptional cases:
 - You installed with `--no-shell-integration` or `-NoProfile`.
@@ -244,8 +237,7 @@ eval "$(aicmd shell-init)"
 ```
 
 ```powershell
-# PowerShell
-Invoke-Expression ((& aicmd shell-init powershell) -join [Environment]::NewLine)
+# Windows users should use bash/zsh integration inside WSL; native PowerShell/cmd is not supported.
 ```
 
 If shell integration is disabled, AICmd can still run commands, but `cd` results cannot update your current terminal directory.
@@ -484,7 +476,7 @@ This section lists each command, what it does, common usage, and important notes
 | `aicmd shell-init [shell]` | Print shell integration code. | `eval "$(aicmd shell-init)"` | Lets `cd` commands update the current terminal directory. |
 | `aicmd update --check` | Check latest version. | `aicmd update --check` | Does not install. |
 | `aicmd update` | Update to the latest Release. | `aicmd update` | Confirms before downloading and overwriting the binary. |
-| `aicmd update --version <TAG>` | Install a specific version. | `aicmd update --version v0.30.19` | Useful for rollback or pinning. |
+| `aicmd update --version <TAG>` | Install a specific version. | `aicmd update --version v0.30.20` | Useful for rollback or pinning. |
 | `aicmd update --dry-run` | Print the update command only. | `aicmd update --dry-run` | Useful for checking the installer URL. |
 
 ## 8. Safety notes
@@ -502,7 +494,7 @@ Recommended:
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.19
+aicmd update --version v0.30.20
 aicmd update --dry-run
 ```
 
@@ -521,17 +513,10 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.19
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.20
 ```
 
-Windows PowerShell specific version:
-
-```powershell
-$env:AICMD_VERSION = "v0.30.19"
-irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
-Remove-Item Env:AICMD_VERSION
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.19
-```
+Native Windows PowerShell/cmd is not supported. On Windows, enter WSL and use the Linux install command.
 
 ## 10. Troubleshooting
 
@@ -562,21 +547,9 @@ Regenerate `config.yaml`:
 aicmd init --from-env --force
 ```
 
-### Garbled command output on Windows
-
-Traditional Windows `cmd.exe` and some system commands may use the local code page, such as GBK/CP936 on Chinese systems, instead of UTF-8. Starting with AICmd v0.30.19, Windows command output is decoded as UTF-8 first and then falls back to GBK to reduce garbled Chinese output.
-
-If output is still garbled, try this in PowerShell first:
-
-```powershell
-chcp 65001
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-```
-
 ### `timed out waiting for MCP response`
 
-This means the MCP server process started but did not complete initialization, tool discovery, or tool execution before the timeout. On Windows, the first `npx -y ...` run may take longer because npm needs to download the MCP package. AICmd waits 180 seconds for MCP startup/tool listing and 300 seconds for tool calls by default. You can temporarily increase the timeouts:
+This means the MCP server process started but did not complete initialization, tool discovery, or tool execution before the timeout. The first `npx -y ...` run may take longer because npm needs to download the MCP package. AICmd waits 180 seconds for MCP startup/tool listing and 300 seconds for tool calls by default. You can temporarily increase the timeouts:
 
 ```powershell
 $env:AICMD_MCP_START_TIMEOUT_SECS = "300"

@@ -29,12 +29,6 @@ jobs:
         - target: aarch64-apple-darwin
           os: macos-latest
           archive: tar.gz
-        - target: x86_64-pc-windows-msvc
-          os: windows-latest
-          archive: zip
-        - target: aarch64-pc-windows-msvc
-          os: windows-latest
-          archive: zip
 
     runs-on: ${{ matrix.os }}
     env:
@@ -94,16 +88,9 @@ jobs:
         name="aicmd-$version-$target"
         mkdir -p "$dist/$name"
         exe="target/$target/release/$bin"
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          exe="$exe.exe"
-          cp "$exe" "$dist/$name/aicmd.exe"
-          (cd "$dist/$name" && 7z a "../$name.zip" .)
-          echo "archive=$dist/$name.zip" >> "$GITHUB_OUTPUT"
-        else
-          cp "$exe" "$dist/$name/aicmd"
-          tar -C "$dist/$name" -czf "$dist/$name.tar.gz" .
-          echo "archive=$dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
-        fi
+        cp "$exe" "$dist/$name/aicmd"
+        tar -C "$dist/$name" -czf "$dist/$name.tar.gz" .
+        echo "archive=$dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
 
     - name: Publish archive
       uses: softprops/action-gh-release@v2

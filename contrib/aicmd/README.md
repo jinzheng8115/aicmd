@@ -28,13 +28,9 @@ Release 二进制安装，不需要 Rust：
 curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash
 ```
 
-Windows PowerShell:
+Native Windows PowerShell/cmd is not supported. Windows users should install and run AICmd inside WSL with the Linux command above.
 
-```powershell
-irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
-```
-
-Do not use `iwr ... | iex`; `iwr` returns a response object. Use `irm ... | iex`, or `(iwr URL -UseBasicParsing).Content | iex`.
+Windows 原生 PowerShell/cmd 不支持。Windows 用户请在 WSL 中使用上面的 Linux 命令安装和运行 AICmd。
 
 Source/developer install, Rust required:
 
