@@ -110,6 +110,17 @@ fn command_with_cwd_capture(shell: &Shell, command: &str) -> String {
     )
 }
 
+fn sanitize_generated_command(command: &str) -> String {
+    let mut out = command.trim().to_string();
+    for marker in ["]<]", "<]"] {
+        if let Some(index) = out.find(marker) {
+            out.truncate(index);
+            out = out.trim_end().to_string();
+        }
+    }
+    out
+}
+
 fn confirm_action(message: &str) -> Result<bool> {
     if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
         let mut tty_reader = BufReader::new(tty.try_clone()?);
@@ -558,6 +569,7 @@ async fn shell_execute(
     config.write().before_chat_completion(&input)?;
     let (eval_str, _) =
         call_chat_completions(&input, false, true, client.as_ref(), abort_signal.clone()).await?;
+    let eval_str = sanitize_generated_command(&eval_str);
 
     config.write().after_chat_completion(&input, &eval_str)?;
     if eval_str.is_empty() {
@@ -738,5 +750,21 @@ mod tests {
         assert!(note.contains("STDOUT:\nhello"));
         assert!(note.contains("STDERR:\n(empty)"));
         assert!(note.contains("AI summary:\nprinted hello"));
+    }
+
+    #[test]
+    fn sanitize_generated_command_removes_minimax_marker() {
+        assert_eq!(
+            sanitize_generated_command("dir /a /b | find /c /v \"\"]<]minimax[>["),
+            "dir /a /b | find /c /v \"\""
+        );
+    }
+
+    #[test]
+    fn sanitize_generated_command_keeps_normal_command() {
+        assert_eq!(
+            sanitize_generated_command("wmic logicaldisk get caption,freespace,size"),
+            "wmic logicaldisk get caption,freespace,size"
+        );
     }
 }
