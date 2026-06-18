@@ -250,6 +250,10 @@ fn check_path() -> Check {
 }
 
 fn check_shell_integration() -> Check {
+    if env::var("AICMD_SHELL_INTEGRATION").as_deref() == Ok("1") {
+        return Check::ok("Shell integration", "active in current shell");
+    }
+
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     let candidates = [
         home.join(".zshrc"),
