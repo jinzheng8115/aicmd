@@ -132,7 +132,7 @@ latest_version() {
   fi
 
   echo "Warning: failed to query latest release from GitHub API; falling back to $DEFAULT_VERSION." >&2
-  echo "提示：无法从 GitHub API 获取最新版本，已回退到 $DEFAULT_VERSION。" >&2
+  echo "提示：无法从 GitHub API 获取最新版本，已回退到 ${DEFAULT_VERSION}。" >&2
   printf '%s\n' "$DEFAULT_VERSION"
 }
 
