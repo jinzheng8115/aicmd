@@ -66,8 +66,12 @@ echo "[verify] aicmd update dry-run uses versioned installer URL"
 version="$($CARGO_BIN metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
 dry_run="$($CARGO_BIN run --quiet -- update --dry-run)"
 printf '%s\n' "$dry_run"
-grep -F "/v${version}/contrib/aicmd/install.sh" <<< "$dry_run" >/dev/null
-if grep -F "/main/contrib/aicmd/install.sh" <<< "$dry_run" >/dev/null; then
+if [[ "$dry_run" == *"powershell"* ]]; then
+  grep -F "/v${version}/contrib/aicmd/install.ps1" <<< "$dry_run" >/dev/null
+else
+  grep -F "/v${version}/contrib/aicmd/install.sh" <<< "$dry_run" >/dev/null
+fi
+if grep -F "/main/contrib/aicmd/" <<< "$dry_run" >/dev/null; then
   echo "update dry-run should not use main installer URL" >&2
   exit 1
 fi
