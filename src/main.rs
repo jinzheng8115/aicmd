@@ -10,6 +10,7 @@ mod mcp_cmd;
 mod model_cmd;
 mod render;
 mod shell_init_cmd;
+mod update_cmd;
 #[macro_use]
 mod utils;
 
@@ -114,6 +115,7 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         "config" => Ok(Some(config_cmd::run_config_command(&args[1..])?)),
         "shell-init" => Ok(Some(shell_init_cmd::run_shell_init_command(&args[1..])?)),
         "doctor" => Ok(Some(doctor_cmd::run_doctor_command()?)),
+        "update" => Ok(Some(update_cmd::run_update_command(&args[1..])?)),
         "mcp"
             if args
                 .get(1)

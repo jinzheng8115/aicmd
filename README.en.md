@@ -301,6 +301,7 @@ Subcommands also have their own options:
 | `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. |
 | `aicmd shell-init` | `zsh`, `bash`, `powershell` | Print integration code for that shell. Usually not needed after normal install. |
 | `aicmd doctor` | none | Check install, model config, MCP/search, PATH, and shell integration status. |
+| `aicmd update` | `--version`, `--dry-run` | Update AICmd with the official installer. |
 
 ### 7.3 Sessions
 
@@ -389,7 +390,21 @@ aicmd model path             # print ~/.aicmd/config.yaml path
 
 ## 9. Update
 
-Re-run the installer to update to the latest Release:
+Recommended:
+
+```bash
+aicmd update
+aicmd update --version v0.30.2
+aicmd update --dry-run
+```
+
+`aicmd update` asks for confirmation because it downloads and overwrites the local AICmd binary. After updating, run:
+
+```bash
+aicmd doctor
+```
+
+You can also re-run the installer manually to update to the latest Release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash
@@ -398,14 +413,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.1
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.2
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.1
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.2
 ```
 
 ## 10. Troubleshooting
