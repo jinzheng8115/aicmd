@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "aicmd"
-version = "0.30.9"
+version = "0.30.10"
 dependencies = [
  "ansi_colours",
  "anyhow",

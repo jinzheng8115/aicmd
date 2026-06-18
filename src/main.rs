@@ -356,15 +356,34 @@ fn stream_and_capture<R: Read>(mut reader: R, is_stderr: bool) -> Result<String>
             break;
         }
         captured.extend_from_slice(&buf[..n]);
-        if is_stderr {
-            io::stderr().write_all(&buf[..n])?;
-            io::stderr().flush()?;
-        } else {
-            io::stdout().write_all(&buf[..n])?;
-            io::stdout().flush()?;
-        }
+        write_console_chunk(&buf[..n], is_stderr)?;
     }
     Ok(String::from_utf8_lossy(&captured).to_string())
+}
+
+#[cfg(windows)]
+fn write_console_chunk(bytes: &[u8], is_stderr: bool) -> Result<()> {
+    let text = String::from_utf8_lossy(bytes);
+    if is_stderr {
+        io::stderr().write_all(text.as_bytes())?;
+        io::stderr().flush()?;
+    } else {
+        io::stdout().write_all(text.as_bytes())?;
+        io::stdout().flush()?;
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn write_console_chunk(bytes: &[u8], is_stderr: bool) -> Result<()> {
+    if is_stderr {
+        io::stderr().write_all(bytes)?;
+        io::stderr().flush()?;
+    } else {
+        io::stdout().write_all(bytes)?;
+        io::stdout().flush()?;
+    }
+    Ok(())
 }
 
 async fn summarize_command_output(
