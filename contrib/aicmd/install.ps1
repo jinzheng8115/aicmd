@@ -142,7 +142,8 @@ if (-not (($currentUserPath -split ';') -contains $BinDir)) {
   $pathStatus = "Already in user PATH: $BinDir"
 }
 
-$profileLine = 'Invoke-Expression (& aicmd shell-init powershell)'
+$oldProfileLine = 'Invoke-Expression (& aicmd shell-init powershell)'
+$profileLine = 'Invoke-Expression ((& aicmd shell-init powershell) -join [Environment]::NewLine)'
 if (-not $NoProfile) {
   $profilePath = "$PROFILE"
   if (-not $profilePath) {
@@ -153,7 +154,11 @@ if (-not $NoProfile) {
   if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Force -Path $profilePath | Out-Null }
   $profileText = Get-Content -Path $profilePath -ErrorAction SilentlyContinue | Out-String
   if (-not $profileText) { $profileText = "" }
-  if ($profileText -notmatch [regex]::Escape($profileLine)) {
+  if ($profileText -match [regex]::Escape($oldProfileLine)) {
+    $profileText = $profileText.Replace($oldProfileLine, $profileLine)
+    Set-Content -Path $profilePath -Value $profileText -Encoding UTF8
+    $profileStatus = "Updated PowerShell profile integration: $profilePath"
+  } elseif ($profileText -notmatch [regex]::Escape($profileLine)) {
     Add-Content -Path $profilePath -Value "`n# >>> aicmd shell integration >>>`n$profileLine`n# <<< aicmd shell integration <<<"
     $profileStatus = "Installed into PowerShell profile: $profilePath"
   } else {

@@ -245,7 +245,7 @@ eval "$(aicmd shell-init)"
 
 ```powershell
 # PowerShell
-Invoke-Expression (& aicmd shell-init powershell)
+Invoke-Expression ((& aicmd shell-init powershell) -join [Environment]::NewLine)
 ```
 
 If shell integration is disabled, AICmd can still run commands, but `cd` results cannot update your current terminal directory.
@@ -484,7 +484,7 @@ This section lists each command, what it does, common usage, and important notes
 | `aicmd shell-init [shell]` | Print shell integration code. | `eval "$(aicmd shell-init)"` | Lets `cd` commands update the current terminal directory. |
 | `aicmd update --check` | Check latest version. | `aicmd update --check` | Does not install. |
 | `aicmd update` | Update to the latest Release. | `aicmd update` | Confirms before downloading and overwriting the binary. |
-| `aicmd update --version <TAG>` | Install a specific version. | `aicmd update --version v0.30.11` | Useful for rollback or pinning. |
+| `aicmd update --version <TAG>` | Install a specific version. | `aicmd update --version v0.30.12` | Useful for rollback or pinning. |
 | `aicmd update --dry-run` | Print the update command only. | `aicmd update --dry-run` | Useful for checking the installer URL. |
 
 ## 8. Safety notes
@@ -502,7 +502,7 @@ Recommended:
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.11
+aicmd update --version v0.30.12
 aicmd update --dry-run
 ```
 
@@ -521,16 +521,16 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.11
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.12
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
-$env:AICMD_VERSION = "v0.30.11"
+$env:AICMD_VERSION = "v0.30.12"
 irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
 Remove-Item Env:AICMD_VERSION
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.11
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.12
 ```
 
 ## 10. Troubleshooting
