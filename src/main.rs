@@ -118,6 +118,7 @@ fn sanitize_generated_command(command: &str) -> String {
             out = out.trim_end().to_string();
         }
     }
+    out = out.replace("find /v \"\" /c", "find /c /v \"\"");
     out
 }
 
@@ -765,6 +766,14 @@ mod tests {
         assert_eq!(
             sanitize_generated_command("wmic logicaldisk get caption,freespace,size"),
             "wmic logicaldisk get caption,freespace,size"
+        );
+    }
+
+    #[test]
+    fn sanitize_generated_command_fixes_windows_find_count_order() {
+        assert_eq!(
+            sanitize_generated_command("dir /ad /b 2>nul | find /v \"\" /c"),
+            "dir /ad /b 2>nul | find /c /v \"\""
         );
     }
 }

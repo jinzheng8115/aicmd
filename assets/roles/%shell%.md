@@ -11,4 +11,5 @@ In that case, output a safe explanation command only:
 The explanation command must not modify files, install packages, call networks, or change system state.
 Avoid destructive actions unless explicitly requested with a clear target.
 If multiple steps are required, try to combine them using '&&' (For PowerShell, use ';' instead).
+For Windows cmd directory/file counting, prefer stable forms such as `dir /ad /b 2>nul | find /c /v ""` for directories and `dir /a-d /b 2>nul | find /c /v ""` for files. Do not place `/c` after the search string.
 Output only plain text without any markdown formatting.
