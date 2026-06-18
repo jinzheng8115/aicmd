@@ -158,8 +158,10 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 Windows PowerShell:
 
 ```powershell
-iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
 ```
+
+Note: do not use `iwr ... | iex`. `iwr` / `Invoke-WebRequest` returns a response object, not script text. If you must use `iwr`, use `(iwr URL -UseBasicParsing).Content | iex`.
 
 Default install locations:
 
@@ -525,7 +527,9 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 Windows PowerShell specific version:
 
 ```powershell
-iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+$env:AICMD_VERSION = "v0.30.9"
+irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
+Remove-Item Env:AICMD_VERSION
 # or download install.ps1 and run: .\install.ps1 -Version v0.30.9
 ```
 

@@ -31,8 +31,10 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 Windows PowerShell:
 
 ```powershell
-iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
 ```
+
+Do not use `iwr ... | iex`; `iwr` returns a response object. Use `irm ... | iex`, or `(iwr URL -UseBasicParsing).Content | iex`.
 
 Source/developer install, Rust required:
 

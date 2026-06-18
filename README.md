@@ -158,8 +158,10 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 Windows PowerShell:
 
 ```powershell
-iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
 ```
+
+注意：不要使用 `iwr ... | iex`。`iwr` / `Invoke-WebRequest` 返回的是响应对象，不是脚本文本；如果必须使用 `iwr`，请写成 `(iwr URL -UseBasicParsing).Content | iex`。
 
 默认安装位置：
 
@@ -527,7 +529,9 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 Windows PowerShell 指定版本：
 
 ```powershell
-iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
+$env:AICMD_VERSION = "v0.30.9"
+irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
+Remove-Item Env:AICMD_VERSION
 # 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.9
 ```
 
