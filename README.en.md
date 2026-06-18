@@ -484,7 +484,7 @@ This section lists each command, what it does, common usage, and important notes
 | `aicmd shell-init [shell]` | Print shell integration code. | `eval "$(aicmd shell-init)"` | Lets `cd` commands update the current terminal directory. |
 | `aicmd update --check` | Check latest version. | `aicmd update --check` | Does not install. |
 | `aicmd update` | Update to the latest Release. | `aicmd update` | Confirms before downloading and overwriting the binary. |
-| `aicmd update --version <TAG>` | Install a specific version. | `aicmd update --version v0.30.12` | Useful for rollback or pinning. |
+| `aicmd update --version <TAG>` | Install a specific version. | `aicmd update --version v0.30.13` | Useful for rollback or pinning. |
 | `aicmd update --dry-run` | Print the update command only. | `aicmd update --dry-run` | Useful for checking the installer URL. |
 
 ## 8. Safety notes
@@ -502,7 +502,7 @@ Recommended:
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.12
+aicmd update --version v0.30.13
 aicmd update --dry-run
 ```
 
@@ -521,16 +521,16 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.12
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.13
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
-$env:AICMD_VERSION = "v0.30.12"
+$env:AICMD_VERSION = "v0.30.13"
 irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
 Remove-Item Env:AICMD_VERSION
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.12
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.13
 ```
 
 ## 10. Troubleshooting
@@ -561,6 +561,18 @@ Regenerate `config.yaml`:
 ```bash
 aicmd init --from-env --force
 ```
+
+### `timed out waiting for MCP response`
+
+This means the MCP server process started but did not complete initialization, tool discovery, or tool execution before the timeout. On Windows, the first `npx -y ...` run may take longer because npm needs to download the MCP package. AICmd waits 180 seconds for MCP startup/tool listing and 300 seconds for tool calls by default. You can temporarily increase the timeouts:
+
+```powershell
+$env:AICMD_MCP_START_TIMEOUT_SECS = "300"
+$env:AICMD_MCP_CALL_TIMEOUT_SECS = "600"
+aicmd search "weather in Beijing today"
+```
+
+If it still fails, newer AICmd versions print the exact MCP phase and MCP stderr. Common causes include missing Node/npm, `npx` not in PATH, npm download/network issues, or an invalid MCP API key.
 
 ### Search command not found or MCP config issue
 

@@ -128,6 +128,8 @@ pub fn call_mcp_command(command_name: &str, user_input: &str) -> Result<String> 
         let _ = err_tx.send(lines.join("\n"));
     });
 
+    let start_timeout = mcp_timeout("AICMD_MCP_START_TIMEOUT_SECS", 180);
+    let call_timeout = mcp_timeout("AICMD_MCP_CALL_TIMEOUT_SECS", 300);
     let mut next_id = 1_u64;
     let init_id = send_request(
         &mut stdin,
@@ -139,15 +141,28 @@ pub fn call_mcp_command(command_name: &str, user_input: &str) -> Result<String> 
             "clientInfo": {"name": "aicmd", "version": env!("CARGO_PKG_VERSION")}
         })),
     )?;
-    read_response(&rx, &mut child, &err_rx, init_id, Duration::from_secs(60))?;
+    read_response(
+        &rx,
+        &mut child,
+        &err_rx,
+        init_id,
+        "initialize",
+        start_timeout,
+    )?;
     send_notification(&mut stdin, "notifications/initialized", Some(json!({})))?;
 
     let selected_tool = if let Some(tool) = tool_override {
         tool.to_string()
     } else {
         let list_id = send_request(&mut stdin, &mut next_id, "tools/list", None)?;
-        let tools_result =
-            read_response(&rx, &mut child, &err_rx, list_id, Duration::from_secs(60))?;
+        let tools_result = read_response(
+            &rx,
+            &mut child,
+            &err_rx,
+            list_id,
+            "tools/list",
+            start_timeout,
+        )?;
         choose_tool(
             command_name,
             command_spec,
@@ -163,7 +178,14 @@ pub fn call_mcp_command(command_name: &str, user_input: &str) -> Result<String> 
         "tools/call",
         Some(json!({"name": selected_tool, "arguments": tool_arguments})),
     )?;
-    let result = read_response(&rx, &mut child, &err_rx, call_id, Duration::from_secs(120))?;
+    let result = read_response(
+        &rx,
+        &mut child,
+        &err_rx,
+        call_id,
+        "tools/call",
+        call_timeout,
+    )?;
     let _ = child.kill();
     Ok(extract_text_content(&result))
 }
@@ -273,6 +295,15 @@ fn mcp_process_command(server_command: &str, server_args: &[String]) -> Command 
     command
 }
 
+fn mcp_timeout(env_name: &str, default_secs: u64) -> Duration {
+    let secs = env::var(env_name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_secs);
+    Duration::from_secs(secs)
+}
+
 fn send_request(
     stdin: &mut ChildStdin,
     next_id: &mut u64,
@@ -305,6 +336,7 @@ fn read_response(
     child: &mut Child,
     err_rx: &mpsc::Receiver<String>,
     expected_id: u64,
+    phase: &str,
     timeout: Duration,
 ) -> Result<Value> {
     loop {
@@ -318,7 +350,23 @@ fn read_response(
                 }
                 return Ok(msg.get("result").cloned().unwrap_or_else(|| json!({})));
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => bail!("timed out waiting for MCP response"),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let err = err_rx
+                    .recv_timeout(Duration::from_millis(500))
+                    .unwrap_or_default();
+                if err.trim().is_empty() {
+                    bail!(
+                        "timed out waiting for MCP response during {phase} after {}s",
+                        timeout.as_secs()
+                    );
+                }
+                bail!(
+                    "timed out waiting for MCP response during {phase} after {}s\nMCP stderr:\n{err}",
+                    timeout.as_secs()
+                );
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let err = err_rx.try_recv().unwrap_or_default();
                 let code = child.try_wait()?.and_then(|s| s.code()).unwrap_or_default();

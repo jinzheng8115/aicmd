@@ -486,7 +486,7 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 | `aicmd shell-init [shell]` | 输出 shell 集成代码。 | `eval "$(aicmd shell-init)"` | 用于让 `cd` 类命令影响当前终端目录。 |
 | `aicmd update --check` | 检查最新版本。 | `aicmd update --check` | 不安装。 |
 | `aicmd update` | 更新到最新 Release。 | `aicmd update` | 会二次确认并覆盖本地二进制。 |
-| `aicmd update --version <TAG>` | 安装指定版本。 | `aicmd update --version v0.30.12` | 用于回滚或安装指定 Release。 |
+| `aicmd update --version <TAG>` | 安装指定版本。 | `aicmd update --version v0.30.13` | 用于回滚或安装指定 Release。 |
 | `aicmd update --dry-run` | 显示更新命令但不执行。 | `aicmd update --dry-run` | 用于排查安装器 URL。 |
 
 ## 8. 安全注意事项
@@ -504,7 +504,7 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.12
+aicmd update --version v0.30.13
 aicmd update --dry-run
 ```
 
@@ -523,16 +523,16 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 安装指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.12
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.13
 ```
 
 Windows PowerShell 指定版本：
 
 ```powershell
-$env:AICMD_VERSION = "v0.30.12"
+$env:AICMD_VERSION = "v0.30.13"
 irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
 Remove-Item Env:AICMD_VERSION
-# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.12
+# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.13
 ```
 
 ## 10. 常见问题
@@ -563,6 +563,18 @@ aicmd init --from-env
 ```bash
 aicmd init --from-env --force
 ```
+
+### `timed out waiting for MCP response`
+
+这通常表示 MCP server 已经启动，但在超时时间内没有完成握手、工具列表或工具调用。Windows 上首次运行 `npx -y ...` 时可能需要下载 MCP 包，耗时会更长。AICmd 默认等待 MCP 启动/工具列表 180 秒，工具调用 300 秒。需要时可以临时调大：
+
+```powershell
+$env:AICMD_MCP_START_TIMEOUT_SECS = "300"
+$env:AICMD_MCP_CALL_TIMEOUT_SECS = "600"
+aicmd search "今天北京天气"
+```
+
+如果仍然失败，新版会显示具体阶段和 MCP stderr，常见原因包括 Node/npm 未安装、`npx` 不在 PATH、网络无法下载 npm 包、MCP API key 配置错误。
 
 ### 搜索命令不可用或 MCP 配置问题
 
