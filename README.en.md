@@ -301,6 +301,8 @@ Subcommands also have their own options:
 | `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. |
 | `aicmd shell-init` | `zsh`, `bash`, `powershell` | Print integration code for that shell. Usually not needed after normal install. |
 | `aicmd doctor` | none | Check install, model config, MCP/search, PATH, and shell integration status. |
+| `aicmd session` | `list`, `show`, `--limit` | Inspect current session, saved sessions, and recent messages. |
+| `aicmd last` | none | Show the last non-system message in the current default session. |
 | `aicmd update` | `--check`, `--version`, `--dry-run` | Check or update AICmd with the official installer. |
 
 ### 7.3 Sessions
@@ -319,7 +321,22 @@ Notes:
 - `-s dev` reuses the same session if it already exists.
 - `--empty-session` is destructive and asks for confirmation.
 
-### 7.4 Script workflow: `aicmd do`
+### 7.4 Inspect sessions
+
+AICmd stores the default daily session and `-s` sessions under `~/.aicmd/sessions`. You can inspect history without calling the model:
+
+```bash
+aicmd session                 # show current default session name, file path, and message count
+aicmd session list            # list saved sessions
+aicmd session show            # show the latest 20 messages in the current default session
+aicmd session show dev        # show the latest 20 messages in session dev
+aicmd session show dev --limit 5
+aicmd last                    # show the last non-system message in the current default session
+```
+
+These commands are read-only and do not clear or modify session files.
+
+### 7.5 Script workflow: `aicmd do`
 
 Use this when the task is more than a one-liner, for example processing CSV, logs, images, or multiple files.
 
@@ -342,7 +359,7 @@ aicmd do -f .aicmd/notes/gemini-cli-install.txt "根据这份搜索记录，在�
 
 `-f` reads the saved text file and includes it in the script-generation context. This is useful when the installation or operation should follow a previously searched official guide.
 
-### 7.5 Error diagnosis: `aicmd err`
+### 7.6 Error diagnosis: `aicmd err`
 
 ```bash
 aicmd err -- pnpm test
@@ -351,7 +368,7 @@ aicmd err -- python scripts/import.py data.csv
 
 AICmd runs the command, captures stdout/stderr/exit code, and asks the LLM to generate safe diagnostic or fix commands.
 
-### 7.6 Search
+### 7.7 Search
 
 ```bash
 aicmd search "今天 AI 新闻"
@@ -362,7 +379,7 @@ aicmd search "DeepSeek latest model"
 
 For normal users, `aicmd search` is the only search command to remember.
 
-### 7.7 Model/config commands
+### 7.8 Model/config commands
 
 ```bash
 aicmd config init            # generate ~/.aicmd/config.yaml from .env
@@ -395,7 +412,7 @@ Recommended:
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.5
+aicmd update --version v0.30.6
 aicmd update --dry-run
 ```
 
@@ -414,14 +431,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.5
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.6
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.5
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.6
 ```
 
 ## 10. Troubleshooting

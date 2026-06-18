@@ -9,6 +9,7 @@ mod function;
 mod mcp_cmd;
 mod model_cmd;
 mod render;
+mod session_cmd;
 mod shell_init_cmd;
 mod update_cmd;
 #[macro_use]
@@ -116,6 +117,8 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         "shell-init" => Ok(Some(shell_init_cmd::run_shell_init_command(&args[1..])?)),
         "doctor" => Ok(Some(doctor_cmd::run_doctor_command()?)),
         "update" => Ok(Some(update_cmd::run_update_command(&args[1..])?)),
+        "session" => Ok(Some(session_cmd::run_session_command(&args[1..])?)),
+        "last" => Ok(Some(session_cmd::run_last_command(&args[1..])?)),
         "mcp"
             if args
                 .get(1)
