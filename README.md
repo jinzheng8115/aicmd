@@ -394,7 +394,7 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 
 ```bash
 aicmd update
-aicmd update --version v0.30.2
+aicmd update --version v0.30.3
 aicmd update --dry-run
 ```
 
@@ -413,14 +413,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 安装指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.2
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.3
 ```
 
 Windows PowerShell 指定版本：
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.2
+# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.3
 ```
 
 ## 10. 常见问题

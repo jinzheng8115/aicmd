@@ -4,10 +4,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-const INSTALL_SH_URL: &str =
-    "https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh";
-const INSTALL_PS1_URL: &str =
-    "https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1";
+const INSTALL_RAW_BASE: &str = "https://raw.githubusercontent.com/jinzheng8115/aicmd";
 
 #[derive(Debug, Default)]
 struct UpdateOptions {
@@ -104,8 +101,22 @@ fn installer_command(options: &UpdateOptions) -> InstallerCommand {
     }
 }
 
+fn installer_url(file_name: &str) -> String {
+    format!(
+        "{}/{}/contrib/aicmd/{}",
+        INSTALL_RAW_BASE,
+        current_release_tag(),
+        file_name
+    )
+}
+
+fn current_release_tag() -> String {
+    format!("v{}", env!("CARGO_PKG_VERSION"))
+}
+
 fn posix_installer_command(options: &UpdateOptions) -> InstallerCommand {
-    let mut script = format!("curl -fsSL {INSTALL_SH_URL} | bash");
+    let install_url = installer_url("install.sh");
+    let mut script = format!("curl -fsSL {install_url} | bash");
     if let Some(version) = &options.version {
         script.push_str(" -s -- --version ");
         script.push_str(&shell_quote(version));
@@ -119,11 +130,15 @@ fn posix_installer_command(options: &UpdateOptions) -> InstallerCommand {
 fn windows_installer_command(options: &UpdateOptions) -> InstallerCommand {
     let command = if let Some(version) = &options.version {
         format!(
-            "$p=Join-Path $env:TEMP 'aicmd-install.ps1'; iwr {INSTALL_PS1_URL} -UseBasicParsing -OutFile $p; & $p -Version {}",
+            "$p=Join-Path $env:TEMP 'aicmd-install.ps1'; iwr {} -UseBasicParsing -OutFile $p; & $p -Version {}",
+            installer_url("install.ps1"),
             powershell_quote(version)
         )
     } else {
-        format!("iwr {INSTALL_PS1_URL} -UseBasicParsing | iex")
+        format!(
+            "iwr {} -UseBasicParsing | iex",
+            installer_url("install.ps1")
+        )
     };
     InstallerCommand {
         program: "powershell",
