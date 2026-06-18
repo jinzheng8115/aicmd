@@ -148,9 +148,41 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
     };
     match cmd {
         "search" => {
-            let options = search_cmd::parse_search_run_args(&args[1..])?;
-            let summary = run_mcp_with_llm_summary(config, "search", &options.query).await?;
-            search_cmd::persist_search_result(&options.query, &summary, options.save_name)?;
+            if args.get(1).is_some_and(|v| v == "summarize") {
+                let target = search_cmd::parse_summarize_target(&args[2..])?;
+                let raw = search_cmd::load_raw_search(&target)?;
+                let summary =
+                    summarize_mcp_output(config, "search", &raw.query, &raw.raw_output).await?;
+                let save_name = if target == "last" {
+                    None
+                } else {
+                    Some(Some(target))
+                };
+                search_cmd::persist_search_result(&raw.query, &summary, save_name)?;
+            } else {
+                let options = search_cmd::parse_search_run_args(&args[1..])?;
+                let raw_output = call_mcp_raw("search", &options.query)?;
+                let raw_path = search_cmd::persist_raw_search_result(
+                    &options.query,
+                    &raw_output,
+                    options.save_name.clone(),
+                )?;
+                match summarize_mcp_output(config, "search", &options.query, &raw_output).await {
+                    Ok(summary) => {
+                        search_cmd::persist_search_result(
+                            &options.query,
+                            &summary,
+                            options.save_name,
+                        )?;
+                    }
+                    Err(err) => {
+                        eprintln!("Search completed, but LLM summary failed.");
+                        eprintln!("Raw search saved: {}", raw_path.display());
+                        eprintln!("Retry later: aicmd search summarize last");
+                        return Err(err.context("Search completed but failed to summarize"));
+                    }
+                }
+            }
             Ok(Some(0))
         }
         "mcp" => {
@@ -232,22 +264,36 @@ fn sanitize_mcp_output_for_llm(raw: &str) -> String {
     text
 }
 
+fn call_mcp_raw(mcp_command: &str, query: &str) -> Result<String> {
+    let raw_output = mcp_cmd::call_mcp_command(mcp_command, query)
+        .with_context(|| "Unable to run MCP command")?;
+    if raw_output.trim().is_empty() {
+        bail!("MCP command returned no output");
+    }
+    Ok(raw_output)
+}
+
 async fn run_mcp_with_llm_summary(
     config: &GlobalConfig,
     mcp_command: &str,
     query: &str,
 ) -> Result<String> {
+    let raw_output = call_mcp_raw(mcp_command, query)?;
+    summarize_mcp_output(config, mcp_command, query, &raw_output).await
+}
+
+async fn summarize_mcp_output(
+    config: &GlobalConfig,
+    mcp_command: &str,
+    query: &str,
+    raw_output: &str,
+) -> Result<String> {
     let abort_signal = create_abort_signal();
-    let raw_output = mcp_cmd::call_mcp_command(mcp_command, query)
-        .with_context(|| "Unable to run MCP command")?;
-    let success = true;
-    if raw_output.trim().is_empty() {
-        bail!("MCP command returned no output");
-    }
-    let llm_output = sanitize_mcp_output_for_llm(&raw_output);
+    let llm_output = sanitize_mcp_output_for_llm(raw_output);
     if llm_output.trim().is_empty() {
         bail!("MCP command returned no usable output after filtering");
     }
+    let success = true;
     let status_text = if success { "success" } else { "failed" };
     let prompt = format!(
         "MCP command: {mcp_command}

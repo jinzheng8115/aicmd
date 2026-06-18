@@ -11,6 +11,13 @@ use crate::config::Config;
 const SEARCHES_DIR_ENV: &str = "AICMD_SEARCHES_DIR";
 const SEARCHES_DIR_NAME: &str = "searches";
 const LAST_SEARCH_NAME: &str = ".last";
+const LAST_RAW_SEARCH_NAME: &str = ".last.raw";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawSearchRecord {
+    pub query: String,
+    pub raw_output: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchRunOptions {
@@ -76,6 +83,30 @@ pub fn parse_search_run_args(args: &[String]) -> Result<SearchRunOptions> {
     Ok(SearchRunOptions { query, save_name })
 }
 
+pub fn parse_summarize_target(args: &[String]) -> Result<String> {
+    if args.len() > 1 {
+        bail!("usage: aicmd search summarize [name|last]");
+    }
+    Ok(args.first().cloned().unwrap_or_else(|| "last".to_string()))
+}
+
+pub fn persist_raw_search_result(
+    query: &str,
+    raw_output: &str,
+    save_name: Option<Option<String>>,
+) -> Result<PathBuf> {
+    let content = build_raw_search_record(query, raw_output);
+    let last_path = search_file(LAST_RAW_SEARCH_NAME);
+    write_search_file(&last_path, &content)?;
+    if let Some(name) = save_name {
+        let name = name.unwrap_or_else(|| generated_search_name(query));
+        let name = normalize_search_name(&name)?;
+        let path = raw_search_file(&name);
+        write_search_file(&path, &content)?;
+    }
+    Ok(last_path)
+}
+
 pub fn persist_search_result(
     query: &str,
     summary: &str,
@@ -95,6 +126,20 @@ pub fn persist_search_result(
     Ok(())
 }
 
+pub fn load_raw_search(name: &str) -> Result<RawSearchRecord> {
+    let name = if name == "last" {
+        LAST_RAW_SEARCH_NAME.to_string()
+    } else {
+        format!("{}.raw", normalize_search_name(name)?)
+    };
+    let path = search_file(&name);
+    if !path.exists() {
+        bail!("Raw search not found: {name} ({})", path.display());
+    }
+    parse_raw_search_record(&read_to_string(&path)?)
+        .with_context(|| format!("Failed to parse raw search: {}", path.display()))
+}
+
 fn save_last(name: Option<&str>) -> Result<i32> {
     let last_path = search_file(LAST_SEARCH_NAME);
     if !last_path.exists() {
@@ -108,6 +153,16 @@ fn save_last(name: Option<&str>) -> Result<i32> {
     let name = normalize_search_name(&name)?;
     let path = search_file(&name);
     write_search_file(&path, &content)?;
+    let last_raw_path = search_file(LAST_RAW_SEARCH_NAME);
+    if last_raw_path.exists() {
+        let raw_content = read_to_string(&last_raw_path).with_context(|| {
+            format!(
+                "Failed to read last raw search: {}",
+                last_raw_path.display()
+            )
+        })?;
+        write_search_file(&raw_search_file(&name), &raw_content)?;
+    }
     println!("Saved search: {name}");
     println!("File: {}", path.display());
     Ok(0)
@@ -172,7 +227,7 @@ fn collect_searches(dir: &Path) -> Result<Vec<SavedSearch>> {
         let Some(stem) = path.file_stem().and_then(|v| v.to_str()) else {
             continue;
         };
-        if stem == LAST_SEARCH_NAME {
+        if stem == LAST_SEARCH_NAME || stem == LAST_RAW_SEARCH_NAME || stem.ends_with(".raw") {
             continue;
         }
         let modified = entry.metadata().ok().and_then(|m| m.modified().ok());
@@ -183,6 +238,14 @@ fn collect_searches(dir: &Path) -> Result<Vec<SavedSearch>> {
         });
     }
     Ok(searches)
+}
+
+fn build_raw_search_record(query: &str, raw_output: &str) -> String {
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    format!(
+        "AICmd raw search\nTime: {now}\nQuery: {query}\n\n---\n\n{}\n",
+        raw_output.trim_end()
+    )
 }
 
 fn build_search_record(query: &str, summary: &str) -> String {
@@ -209,6 +272,21 @@ fn generated_search_name_from_content(content: &str) -> String {
         .find_map(|line| line.strip_prefix("Query: "))
         .unwrap_or("search");
     generated_search_name(query)
+}
+
+fn parse_raw_search_record(content: &str) -> Result<RawSearchRecord> {
+    let query = content
+        .lines()
+        .find_map(|line| line.strip_prefix("Query: "))
+        .context("missing Query line")?
+        .to_string();
+    let (_, raw_output) = content
+        .split_once("\n---\n\n")
+        .context("missing raw search separator")?;
+    Ok(RawSearchRecord {
+        query,
+        raw_output: raw_output.trim_end().to_string(),
+    })
 }
 
 fn normalize_search_name(name: &str) -> Result<String> {
@@ -259,6 +337,10 @@ fn search_file(name: &str) -> PathBuf {
     searches_dir().join(format!("{name}.md"))
 }
 
+fn raw_search_file(name: &str) -> PathBuf {
+    search_file(&format!("{name}.raw"))
+}
+
 fn searches_dir() -> PathBuf {
     env::var(SEARCHES_DIR_ENV)
         .map(PathBuf::from)
@@ -277,17 +359,20 @@ fn print_usage() {
     println!(
         r#"Usage: aicmd search <query> [--save [name]]
        aicmd search save [name]
+       aicmd search summarize [name|last]
        aicmd search list
        aicmd search show <name|last>
 
 用法：aicmd search <查询> [--save [名称]]
       aicmd search save [名称]
+      aicmd search summarize [名称|last]
       aicmd search list
       aicmd search show <名称|last>
 
 Commands / 命令:
   --save [name]   Save this search immediately / 搜索后立即保存
   save [name]     Save the last search result / 保存上一次搜索结果
+  summarize       Summarize a saved raw search / 重新整理原始搜索结果
   list            List saved searches / 列出已保存搜索
   show <name>     Show saved search content / 查看已保存搜索
 "#
@@ -328,5 +413,19 @@ mod tests {
             slugify("Gemini CLI 官方安装方式!"),
             "gemini-cli-官方安装方式"
         );
+    }
+
+    #[test]
+    fn parse_summarize_defaults_to_last() {
+        let args = vec![];
+        assert_eq!(parse_summarize_target(&args).unwrap(), "last");
+    }
+
+    #[test]
+    fn parse_raw_search_roundtrip() {
+        let content = build_raw_search_record("docker 如何安装", "raw result\nline 2");
+        let record = parse_raw_search_record(&content).unwrap();
+        assert_eq!(record.query, "docker 如何安装");
+        assert_eq!(record.raw_output, "raw result\nline 2");
     }
 }

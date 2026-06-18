@@ -389,6 +389,10 @@ aicmd search "gemini-cli 官方安装方式" --save gemini-cli
 aicmd search save
 aicmd search save gemini-cli
 
+# If search completed but LLM summarization failed, retry from the raw result later
+aicmd search summarize last
+aicmd search summarize gemini-cli
+
 # Inspect saved results
 aicmd search list
 aicmd search show gemini-cli
@@ -397,6 +401,7 @@ aicmd search show last
 
 `aicmd search` calls the configured search MCP server first, then sends the MCP result to the LLM for final terminal-friendly summary.
 Every search also writes the latest result to `~/.aicmd/searches/.last.md`. `--save` or `aicmd search save` stores a named record such as `~/.aicmd/searches/gemini-cli.md`.
+If MCP search succeeds but LLM summarization fails because the model is overloaded or the API errors, AICmd keeps the raw search result at `~/.aicmd/searches/.last.raw.md`. When the search used `--save gemini-cli`, it also keeps `~/.aicmd/searches/gemini-cli.raw.md`. Later, run `aicmd search summarize last` or `aicmd search summarize gemini-cli` to summarize the saved raw result.
 
 For normal users, `aicmd search` is the only search entry point to remember.
 
@@ -433,7 +438,7 @@ Recommended:
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.7
+aicmd update --version v0.30.8
 aicmd update --dry-run
 ```
 
@@ -452,14 +457,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 For a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.7
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.8
 ```
 
 Windows PowerShell specific version:
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# or download install.ps1 and run: .\install.ps1 -Version v0.30.7
+# or download install.ps1 and run: .\install.ps1 -Version v0.30.8
 ```
 
 ## 10. Troubleshooting

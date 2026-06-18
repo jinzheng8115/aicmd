@@ -392,6 +392,10 @@ aicmd search "gemini-cli 官方安装方式" --save gemini-cli
 aicmd search save
 aicmd search save gemini-cli
 
+# 如果搜索完成但模型整理失败，稍后重新整理原始搜索结果
+aicmd search summarize last
+aicmd search summarize gemini-cli
+
 # 查看保存结果
 aicmd search list
 aicmd search show gemini-cli
@@ -400,6 +404,7 @@ aicmd search show last
 
 `aicmd search` 会先调用已配置的搜索 MCP server，再把 MCP 结果发送给 LLM，输出适合终端阅读的总结。
 每次搜索都会写入最近一次搜索：`~/.aicmd/searches/.last.md`。使用 `--save` 或 `aicmd search save` 时，会保存为命名记录，例如 `~/.aicmd/searches/gemini-cli.md`。
+如果 MCP 搜索已经完成，但 LLM 总结阶段因为模型过载或接口错误失败，AICmd 会保留原始搜索结果：`~/.aicmd/searches/.last.raw.md`。如果搜索时使用了 `--save gemini-cli`，也会保留 `~/.aicmd/searches/gemini-cli.raw.md`。稍后可运行 `aicmd search summarize last` 或 `aicmd search summarize gemini-cli` 重新整理。
 
 对普通用户来说，只需要记住 `aicmd search` 这一个搜索入口。
 
@@ -436,7 +441,7 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.7
+aicmd update --version v0.30.8
 aicmd update --dry-run
 ```
 
@@ -455,14 +460,14 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 安装指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.7
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.8
 ```
 
 Windows PowerShell 指定版本：
 
 ```powershell
 iwr https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 -UseBasicParsing | iex
-# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.7
+# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.8
 ```
 
 ## 10. 常见问题
