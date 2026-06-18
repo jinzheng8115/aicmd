@@ -486,7 +486,7 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 | `aicmd shell-init [shell]` | 输出 shell 集成代码。 | `eval "$(aicmd shell-init)"` | 用于让 `cd` 类命令影响当前终端目录。 |
 | `aicmd update --check` | 检查最新版本。 | `aicmd update --check` | 不安装。 |
 | `aicmd update` | 更新到最新 Release。 | `aicmd update` | 会二次确认并覆盖本地二进制。 |
-| `aicmd update --version <TAG>` | 安装指定版本。 | `aicmd update --version v0.30.10` | 用于回滚或安装指定 Release。 |
+| `aicmd update --version <TAG>` | 安装指定版本。 | `aicmd update --version v0.30.11` | 用于回滚或安装指定 Release。 |
 | `aicmd update --dry-run` | 显示更新命令但不执行。 | `aicmd update --dry-run` | 用于排查安装器 URL。 |
 
 ## 8. 安全注意事项
@@ -504,7 +504,7 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.10
+aicmd update --version v0.30.11
 aicmd update --dry-run
 ```
 
@@ -523,16 +523,16 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 安装指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.10
+curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.sh | bash -s -- --version v0.30.11
 ```
 
 Windows PowerShell 指定版本：
 
 ```powershell
-$env:AICMD_VERSION = "v0.30.10"
+$env:AICMD_VERSION = "v0.30.11"
 irm https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aicmd/install.ps1 | iex
 Remove-Item Env:AICMD_VERSION
-# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.10
+# 或下载 install.ps1 后运行：.\install.ps1 -Version v0.30.11
 ```
 
 ## 10. 常见问题

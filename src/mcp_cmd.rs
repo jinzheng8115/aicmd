@@ -104,14 +104,8 @@ pub fn call_mcp_command(command_name: &str, user_input: &str) -> Result<String> 
         .cloned()
         .unwrap_or_default();
 
-    let mut child = Command::new(server_command)
-        .args(&server_args)
-        .envs(env_from_json(&server_env))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("failed to start MCP server {server_name:?}"))?;
+    let mut child = spawn_mcp_server(server_command, &server_args, &server_env)
+        .with_context(|| format!("failed to start MCP server {server_name:?}: {server_command}"))?;
     let mut stdin = child.stdin.take().context("failed to open MCP stdin")?;
     let stdout = child.stdout.take().context("failed to open MCP stdout")?;
     let stderr = child.stderr.take().context("failed to open MCP stderr")?;
@@ -247,6 +241,36 @@ fn env_from_json(values: &Map<String, Value>) -> HashMap<String, String> {
             }
         })
         .collect()
+}
+
+fn spawn_mcp_server(
+    server_command: &str,
+    server_args: &[String],
+    server_env: &Map<String, Value>,
+) -> Result<Child> {
+    let envs = env_from_json(server_env);
+    let mut command = mcp_process_command(server_command, server_args);
+    command
+        .envs(envs)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to spawn MCP command: {server_command}"))
+}
+
+#[cfg(windows)]
+fn mcp_process_command(server_command: &str, server_args: &[String]) -> Command {
+    let mut command = Command::new("cmd");
+    command.arg("/C").arg(server_command).args(server_args);
+    command
+}
+
+#[cfg(not(windows))]
+fn mcp_process_command(server_command: &str, server_args: &[String]) -> Command {
+    let mut command = Command::new(server_command);
+    command.args(server_args);
+    command
 }
 
 fn send_request(
