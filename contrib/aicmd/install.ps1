@@ -2,11 +2,19 @@ param(
   [switch]$FromSource,
   [string]$Version = $env:AICMD_VERSION,
   [string]$Repo = $(if ($env:AICMD_REPO) { $env:AICMD_REPO } else { "jinzheng8115/aicmd" }),
-  [string]$BinDir = $(if ($env:AICMD_INSTALL_BIN_DIR) { $env:AICMD_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }),
+  [string]$BinDir = $env:AICMD_INSTALL_BIN_DIR,
   [switch]$NoProfile
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-UserHome() {
+  if ($HOME) { return $HOME }
+  if ($env:USERPROFILE) { return $env:USERPROFILE }
+  $profileDir = [Environment]::GetFolderPath("UserProfile")
+  if ($profileDir) { return $profileDir }
+  throw "Unable to detect the current user's home directory"
+}
 
 function Write-DefaultMcpConfig($Path) {
   $content = @'
@@ -51,9 +59,14 @@ function New-Wrapper($Name, $ArgsLine) {
 }
 
 function Get-Target() {
-  $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+  $archValue = $env:PROCESSOR_ARCHITEW6432
+  if (-not $archValue) { $archValue = $env:PROCESSOR_ARCHITECTURE }
+  if (-not $archValue) { throw "Unable to detect Windows architecture" }
+  $arch = "$archValue".ToLowerInvariant()
   switch ($arch) {
+    "amd64" { return "x86_64-pc-windows-msvc" }
     "x64" { return "x86_64-pc-windows-msvc" }
+    "x86_64" { return "x86_64-pc-windows-msvc" }
     "arm64" { return "aarch64-pc-windows-msvc" }
     default { throw "Unsupported Windows architecture: $arch" }
   }
@@ -63,6 +76,11 @@ function Get-LatestVersion() {
   if ($Version) { return $Version }
   $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{"User-Agent"="aicmd-installer"}
   return $release.tag_name
+}
+
+function Invoke-AICmdInstall() {
+if (-not $BinDir) {
+  $BinDir = Join-Path (Get-UserHome) ".local\bin"
 }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
@@ -98,7 +116,7 @@ $wrappers += New-Wrapper "aicmd-err" "err"
 $wrappers += New-Wrapper "aicmd-do" "do"
 $wrappers += New-Wrapper "aicmd-shell-init" "shell-init"
 
-$configDir = if ($env:AICMD_CONFIG_DIR) { $env:AICMD_CONFIG_DIR } else { Join-Path $HOME ".aicmd" }
+$configDir = if ($env:AICMD_CONFIG_DIR) { $env:AICMD_CONFIG_DIR } else { Join-Path (Get-UserHome) ".aicmd" }
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 $mcpPath = if ($env:AICMD_MCP_CONFIG_FILE) { $env:AICMD_MCP_CONFIG_FILE } else { Join-Path $configDir "mcp.json" }
 if (-not (Test-Path $mcpPath)) {
@@ -126,15 +144,20 @@ if (-not (($currentUserPath -split ';') -contains $BinDir)) {
 
 $profileLine = 'Invoke-Expression (& aicmd shell-init powershell)'
 if (-not $NoProfile) {
-  $profileDir = Split-Path -Parent $PROFILE
+  $profilePath = "$PROFILE"
+  if (-not $profilePath) {
+    $profilePath = Join-Path (Get-UserHome) "Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+  }
+  $profileDir = Split-Path -Parent $profilePath
   if ($profileDir) { New-Item -ItemType Directory -Force -Path $profileDir | Out-Null }
-  if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
-  $profileText = Get-Content -Raw -Path $PROFILE
+  if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Force -Path $profilePath | Out-Null }
+  $profileText = Get-Content -Path $profilePath -ErrorAction SilentlyContinue | Out-String
+  if (-not $profileText) { $profileText = "" }
   if ($profileText -notmatch [regex]::Escape($profileLine)) {
-    Add-Content -Path $PROFILE -Value "`n# >>> aicmd shell integration >>>`n$profileLine`n# <<< aicmd shell integration <<<"
-    $profileStatus = "Installed into PowerShell profile: $PROFILE"
+    Add-Content -Path $profilePath -Value "`n# >>> aicmd shell integration >>>`n$profileLine`n# <<< aicmd shell integration <<<"
+    $profileStatus = "Installed into PowerShell profile: $profilePath"
   } else {
-    $profileStatus = "PowerShell profile already contains AICmd integration: $PROFILE"
+    $profileStatus = "PowerShell profile already contains AICmd integration: $profilePath"
   }
 } else {
   $profileStatus = "Skipped PowerShell profile integration. Add manually: $profileLine"
@@ -153,3 +176,15 @@ Write-Host "  $configStatus"
 Write-Host "  $mcpStatus"
 Write-Host "Make sure $BinDir is in PATH, then run:"
 Write-Host "  aicmd 列出当前目录最大的 10 个文件"
+}
+
+try {
+  Invoke-AICmdInstall
+} catch {
+  [Console]::Error.WriteLine("AICmd install failed: $($_.Exception.Message)")
+  if ($_.InvocationInfo) {
+    [Console]::Error.WriteLine("At $($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber)")
+    [Console]::Error.WriteLine("$($_.InvocationInfo.Line)")
+  }
+  throw
+}
