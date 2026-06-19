@@ -14,7 +14,7 @@ aicmd <你想做的事>           # 生成一条命令，确认后执行
 aicmd do <复杂任务>          # 多步骤、脚本、文件处理任务
 aicmd search <需要查询的问题> # 通过 MCP 搜索，再由 LLM 整理
 aicmd setup                 # 首次配置或重新配置
-aicmd doctor                # 检查安装、模型、MCP、PATH、shell 集成
+aicmd doctor                # 检查安装、模型、temperature、summary、MCP、缓存、PATH
 ```
 
 常见例子：
@@ -295,7 +295,7 @@ aicmd config summary status  # 查看 AI summary 默认开关
 aicmd config summary off     # 默认关闭 AI summary
 aicmd config summary on      # 默认开启 AI summary
 aicmd config mcp             # 输出 mcp.json 路径
-aicmd config doctor          # 等同于 aicmd doctor
+aicmd config doctor          # 等同于 aicmd doctor，包含模型、MCP、缓存等离线检查
 ```
 
 ### 6.6 更新

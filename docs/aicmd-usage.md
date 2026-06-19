@@ -117,7 +117,7 @@ aicmd <task>          # generate one command / 生成一条命令
 aicmd do <task>       # complex script task / 复杂脚本任务
 aicmd search <query>  # MCP search + LLM summary / MCP 搜索 + LLM 整理
 aicmd setup           # first-time setup / 首次配置
-aicmd doctor          # diagnose installation / 诊断安装状态
+aicmd doctor          # diagnose install/config/cache/MCP / 诊断安装、配置、缓存和 MCP
 ```
 
 ## 6. Regular command workflow / 普通命令工作流
@@ -493,6 +493,10 @@ Recommended habits:
 ```
 
 ## 18. Troubleshooting / 排障
+
+`aicmd doctor` performs offline checks for binary path, version, config, model, temperature, AI summary, MCP/search, command cache, saved searches directory, PATH, and shell integration.
+
+`aicmd doctor` 会执行离线检查，包括二进制路径、版本、配置、模型、temperature、AI summary、MCP/search、命令缓存、搜索记录目录、PATH 和 shell 集成。
 
 Check installation:
 

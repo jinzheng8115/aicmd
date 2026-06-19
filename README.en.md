@@ -14,7 +14,7 @@ aicmd <what you want>       # generate one command and ask before execution
 aicmd do <complex task>     # multi-step scripts, installs, file/data tasks
 aicmd search <question>     # call MCP search, then summarize with the LLM
 aicmd setup                # first-time setup or reconfiguration
-aicmd doctor               # check install, model, MCP, PATH, and shell integration
+aicmd doctor               # check install, model, temperature, summary, MCP, cache, and PATH
 ```
 
 Examples:
@@ -295,7 +295,7 @@ aicmd config summary status  # show AI summary default
 aicmd config summary off     # disable AI summary by default
 aicmd config summary on      # enable AI summary by default
 aicmd config mcp             # print mcp.json path
-aicmd config doctor          # same as aicmd doctor
+aicmd config doctor          # same as aicmd doctor; includes model, MCP, and cache checks
 ```
 
 ### 6.6 Update
