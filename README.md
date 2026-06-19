@@ -286,7 +286,7 @@ aicmd config doctor          # 等同于 aicmd doctor
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.30.20
+aicmd update --version v0.4.0
 aicmd update --dry-run
 ```
 
