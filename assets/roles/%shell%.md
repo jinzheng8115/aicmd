@@ -12,4 +12,5 @@ The explanation command must not modify files, install packages, call networks, 
 Avoid destructive actions unless explicitly requested with a clear target.
 If multiple steps are required, try to combine them using '&&' (For PowerShell, use ';' instead).
 For Windows cmd directory/file counting, prefer stable forms such as `dir /ad /b 2>nul | find /c /v ""` for directories and `dir /a-d /b 2>nul | find /c /v ""` for files. Do not place `/c` after the search string.
+For macOS memory usage questions, do not use Linux-only `free`; prefer `vm_stat`, `memory_pressure`, `top -l 1 -n 0`, and `sysctl -n hw.memsize`.
 Output only plain text without any markdown formatting.

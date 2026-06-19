@@ -8,6 +8,71 @@ use std::collections::HashMap;
 use std::fs::{read_to_string, write};
 use std::path::Path;
 
+const MAX_CONTEXT_MESSAGES: usize = 8;
+const MAX_CONTEXT_MESSAGE_CHARS: usize = 1200;
+
+fn input_needs_session_context(text: &str) -> bool {
+    let text = text.to_lowercase();
+    let markers = [
+        "刚才",
+        "上次",
+        "上一",
+        "之前",
+        "继续",
+        "基于",
+        "根据上",
+        "上面的",
+        "前面",
+        "这个结果",
+        "这次错误",
+        "报错",
+        "修复",
+        "previous",
+        "last",
+        "above",
+        "continue",
+        "same",
+        "this result",
+        "that result",
+        "error",
+        "fix",
+    ];
+    markers.iter().any(|marker| text.contains(marker))
+}
+
+fn trim_text_for_context(value: &str, max_chars: usize) -> String {
+    let mut out: String = value.chars().take(max_chars).collect();
+    if value.chars().count() > max_chars {
+        out.push_str("\n[context truncated / 上下文已截断]");
+    }
+    out
+}
+
+fn trim_message_for_context(message: &Message) -> Message {
+    match &message.content {
+        MessageContent::Text(text) if !message.role.is_system() => Message::new(
+            message.role,
+            MessageContent::Text(trim_text_for_context(text, MAX_CONTEXT_MESSAGE_CHARS)),
+        ),
+        _ => message.clone(),
+    }
+}
+
+fn compact_messages_for_context(messages: &[Message]) -> Vec<Message> {
+    let mut system_messages = vec![];
+    let mut other_messages = vec![];
+    for message in messages {
+        if message.role.is_system() {
+            system_messages.push(message.clone());
+        } else {
+            other_messages.push(trim_message_for_context(message));
+        }
+    }
+    let keep_from = other_messages.len().saturating_sub(MAX_CONTEXT_MESSAGES);
+    system_messages.extend(other_messages.into_iter().skip(keep_from));
+    system_messages
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,7 +230,11 @@ impl Session {
     }
 
     pub fn build_messages(&self, input: &Input) -> Vec<Message> {
-        let mut messages = self.messages.clone();
+        if !input_needs_session_context(&input.text()) {
+            return input.role().build_messages(input);
+        }
+
+        let mut messages = compact_messages_for_context(&self.messages);
         let mut need_add_msg = true;
         let len = messages.len();
         if len == 0 {
@@ -176,6 +245,49 @@ impl Session {
             messages.push(Message::new(MessageRole::User, input.message_content()));
         }
         messages
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_context_keeps_system_and_recent_messages() {
+        let mut messages = vec![Message::new(
+            MessageRole::System,
+            MessageContent::Text("system".to_string()),
+        )];
+        for i in 0..12 {
+            messages.push(Message::new(
+                MessageRole::User,
+                MessageContent::Text(format!("message-{i}")),
+            ));
+        }
+        let compact = compact_messages_for_context(&messages);
+        assert_eq!(compact.len(), 9);
+        assert!(compact[0].role.is_system());
+        assert!(compact[1].content.to_text().contains("message-4"));
+        assert!(compact[8].content.to_text().contains("message-11"));
+    }
+
+    #[test]
+    fn compact_context_truncates_long_text_messages() {
+        let messages = vec![Message::new(
+            MessageRole::Assistant,
+            MessageContent::Text("x".repeat(MAX_CONTEXT_MESSAGE_CHARS + 20)),
+        )];
+        let compact = compact_messages_for_context(&messages);
+        let text = compact[0].content.to_text();
+        assert!(text.contains("[context truncated / 上下文已截断]"));
+        assert!(text.chars().count() < MAX_CONTEXT_MESSAGE_CHARS + 80);
+    }
+
+    #[test]
+    fn detects_when_user_needs_session_context() {
+        assert!(!input_needs_session_context("目前内存使用率"));
+        assert!(input_needs_session_context("根据刚才的结果继续处理"));
+        assert!(input_needs_session_context("fix the previous error"));
     }
 }
 
