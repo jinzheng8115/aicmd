@@ -567,6 +567,12 @@ async fn prompt_search_follow_up(
                     "Using search result as task / 使用搜索结果作为任务: {query}"
                 ))
             );
+            println!(
+                "{}",
+                dimmed_text(
+                    "Generating execution script from search result and system environment. This may take 10-30 seconds. / 正在根据搜索结果和当前系统环境生成执行脚本，可能需要 10-30 秒。"
+                )
+            );
             let args = vec![
                 "do".to_string(),
                 "--from-search".to_string(),
