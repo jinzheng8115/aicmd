@@ -7,6 +7,7 @@ mod do_cmd;
 mod doctor_cmd;
 mod err_cmd;
 mod function;
+mod help_cmd;
 mod mcp_cmd;
 mod model_cmd;
 mod render;
@@ -356,6 +357,7 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
     };
     match cmd {
         "init" => Ok(Some(model_cmd::run_model_command(args)?)),
+        "help" => Ok(Some(help_cmd::run_help_command(&args[1..])?)),
         "model" => Ok(Some(model_cmd::run_model_command(&args[1..])?)),
         "config" => Ok(Some(config_cmd::run_config_command(&args[1..])?)),
         "setup" => Ok(Some(setup_cmd::run_setup_command(&args[1..])?)),

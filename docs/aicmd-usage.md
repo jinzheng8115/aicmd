@@ -118,9 +118,30 @@ aicmd do <task>       # complex script task / 复杂脚本任务
 aicmd search <query>  # MCP search + LLM summary / MCP 搜索 + LLM 整理
 aicmd setup           # first-time setup / 首次配置
 aicmd doctor          # diagnose install/config/cache/MCP / 诊断安装、配置、缓存和 MCP
+aicmd help me         # built-in help / 内置帮助
 ```
 
-## 6. Regular command workflow / 普通命令工作流
+## 6. Built-in help / 内置帮助
+
+Built-in help works before model/config initialization, so it is safe to use even when config is broken.
+
+内置帮助在模型/配置初始化之前运行，所以即使配置损坏也可以安全使用。
+
+```bash
+aicmd help me
+aicmd help setup
+aicmd help search
+aicmd help do
+aicmd help session
+aicmd help fix
+aicmd help doctor
+```
+
+Chinese aliases are also supported for common topics, such as `aicmd help 配置`, `aicmd help 搜索`, and `aicmd help 修复`.
+
+常见中文主题也支持，例如 `aicmd help 配置`、`aicmd help 搜索`、`aicmd help 修复`。
+
+## 7. Regular command workflow / 普通命令工作流
 
 Example:
 
@@ -162,7 +183,7 @@ aicmd --summary 当前目录有多少文件     # force AI summary once / 本次
 aicmd --no-cache 当前目录有多少文件    # bypass successful command cache / 不复用缓存命令
 ```
 
-## 7. Successful command cache / 成功命令缓存
+## 8. Successful command cache / 成功命令缓存
 
 AICmd stores successful regular commands in:
 
@@ -204,7 +225,7 @@ Bypass cache:
 aicmd --no-cache 当前目录有多少文件
 ```
 
-## 8. Failure repair loop / 失败修复循环
+## 9. Failure repair loop / 失败修复循环
 
 If a command exits with non-zero status, AICmd shows:
 
@@ -248,7 +269,7 @@ Automatic repair is limited to two attempts per command flow.
 
 每条命令流程最多自动修复两次。
 
-## 9. Script workflow: `aicmd do` / 脚本任务：`aicmd do`
+## 10. Script workflow: `aicmd do` / 脚本任务：`aicmd do`
 
 Use `do` for multi-step tasks, file processing, and installation flows:
 
@@ -267,7 +288,7 @@ aicmd do -o scripts/task.sh "清洗 CSV"
 
 `--from-search` 会读取 `~/.aicmd/searches/<name>.txt`，并附带当前系统环境，例如 OS、架构、当前目录、`brew/node/npm/git/curl` 是否存在。
 
-## 10. Search and MCP / 搜索和 MCP
+## 11. Search and MCP / 搜索和 MCP
 
 MCP config file:
 
@@ -330,7 +351,7 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 
 `aicmd mcp-raw <command> ...` 会打印 MCP 原始输出，主要用于调试。
 
-## 11. Sessions / 会话
+## 12. Sessions / 会话
 
 AICmd uses a daily session by default, such as `cmd-20260619`.
 
@@ -356,7 +377,7 @@ aicmd session show dev --limit 5
 aicmd last
 ```
 
-## 12. Config commands / 配置命令
+## 13. Config commands / 配置命令
 
 ```bash
 aicmd config status          # safe status without secrets / 安全查看状态，不显示密钥
@@ -387,7 +408,7 @@ Search / 搜索
 Session / 会话
 ```
 
-## 13. Error diagnosis: `aicmd err` / 报错诊断：`aicmd err`
+## 14. Error diagnosis: `aicmd err` / 报错诊断：`aicmd err`
 
 ```bash
 aicmd err -- pnpm test
@@ -398,7 +419,7 @@ aicmd err -- python scripts/import.py data.csv
 
 `aicmd err` 会真实执行命令，捕获 stdout/stderr/exit code，然后让模型生成诊断或修复命令供你检查。
 
-## 14. Shell integration / Shell 集成
+## 15. Shell integration / Shell 集成
 
 Shell integration lets commands such as `cd ..` affect the current terminal. Normal installs usually configure it automatically. If needed:
 
@@ -412,7 +433,7 @@ Without shell integration, AICmd can still run commands, but directory changes d
 
 没有 shell 集成时，AICmd 仍能执行命令，但目录变化不会保留在当前 shell。
 
-## 15. Update / 更新
+## 16. Update / 更新
 
 ```bash
 aicmd update --check
@@ -421,7 +442,7 @@ aicmd update --version v0.4.1
 aicmd update --dry-run
 ```
 
-## 16. Unsupported upstream AIChat options / 不支持的上游 AIChat 选项
+## 17. Unsupported upstream AIChat options / 不支持的上游 AIChat 选项
 
 The following broad AIChat-style workflows are not part of AICmd's public CLI:
 
@@ -458,7 +479,7 @@ aicmd -e 当前目录下有多少文件
 aicmd 当前目录下有多少文件
 ```
 
-## 17. Safety model / 安全模型
+## 18. Safety model / 安全模型
 
 AICmd keeps a human in the loop:
 
@@ -492,7 +513,7 @@ Recommended habits:
 - 如果可能修改或删除文件，请明确说明限制。
 ```
 
-## 18. Troubleshooting / 排障
+## 19. Troubleshooting / 排障
 
 `aicmd doctor` performs offline checks for binary path, version, config, model, temperature, AI summary, MCP/search, command cache, saved searches directory, PATH, and shell integration.
 
@@ -552,7 +573,7 @@ If `cd ..` runs but current directory does not change:
 eval "$(aicmd shell-init)"
 ```
 
-## 19. Quick reference / 快速参考
+## 20. Quick reference / 快速参考
 
 ```bash
 # Basic command generation / 基础命令生成

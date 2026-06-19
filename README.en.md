@@ -15,12 +15,15 @@ aicmd do <complex task>     # multi-step scripts, installs, file/data tasks
 aicmd search <question>     # call MCP search, then summarize with the LLM
 aicmd setup                # first-time setup or reconfiguration
 aicmd doctor               # check install, model, temperature, summary, MCP, cache, and PATH
+aicmd help me              # show built-in help when unsure
 ```
 
 Examples:
 
 ```bash
 aicmd how many files are in this directory
+aicmd help me
+aicmd help search
 aicmd list the 10 largest files in this directory
 aicmd do "read data/orders.csv, aggregate amount by user, write output/user_totals.csv"
 aicmd search "how to install copilot-cli"

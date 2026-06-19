@@ -15,12 +15,15 @@ aicmd do <复杂任务>          # 多步骤、脚本、文件处理任务
 aicmd search <需要查询的问题> # 通过 MCP 搜索，再由 LLM 整理
 aicmd setup                 # 首次配置或重新配置
 aicmd doctor                # 检查安装、模型、temperature、summary、MCP、缓存、PATH
+aicmd help me               # 不确定怎么用时查看帮助
 ```
 
 常见例子：
 
 ```bash
 aicmd 当前目录有多少文件
+aicmd help me
+aicmd help search
 aicmd 列出当前目录最大的 10 个文件
 aicmd do "读取 data/orders.csv，按用户统计金额，输出 output/user_totals.csv"
 aicmd search "copilot-cli 如何安装"
