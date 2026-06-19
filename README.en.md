@@ -94,7 +94,7 @@ AICMD_MODEL_IDS=gpt-4o,gpt-4.1
 AICMD_OPENAI_API_STYLE=chat
 ```
 
-`aicmd init --from-env` generates `config.yaml` with `temperature: 0.1` by default, leaves `top_p` unset, and enables `ai_summary: true`. To tune model behavior or disable AI summary by default, edit `~/.aicmd/config.yaml` after installation.
+`aicmd init --from-env` generates `config.yaml` with `temperature: 0.1` by default, leaves `top_p` unset, and enables `ai_summary: true`. To tune model behavior, edit `~/.aicmd/config.yaml` after installation. To disable command AI summary by default, you can also run `aicmd config summary off`.
 
 If you cloned the repository, you can copy the template:
 
@@ -460,6 +460,9 @@ aicmd config path            # print ~/.aicmd/config.yaml path
 aicmd config dir             # print ~/.aicmd directory
 aicmd config show            # print config.yaml
 aicmd config edit            # edit config.yaml
+aicmd config summary status  # show AI summary default
+aicmd config summary off     # disable AI summary by default
+aicmd config summary on      # enable AI summary by default
 aicmd config mcp             # print ~/.aicmd/mcp.json path
 aicmd config doctor          # same as aicmd doctor
 aicmd doctor                 # check local AICmd runtime status
@@ -508,6 +511,9 @@ This section lists each command, what it does, common usage, and important notes
 | `aicmd config dir` | Print the AICmd config directory. | `aicmd config dir` | Usually `~/.aicmd`. |
 | `aicmd config show` | Print current config. | `aicmd config show` | May contain API keys; do not paste publicly. |
 | `aicmd config edit` | Edit current config. | `aicmd config edit` | Uses `$EDITOR`. |
+| `aicmd config summary status` | Show the default AI summary setting. | `aicmd config summary status` | Read-only; does not call the model. |
+| `aicmd config summary off` | Disable AI summary by default. | `aicmd config summary off` | Persistently edits `~/.aicmd/config.yaml`. |
+| `aicmd config summary on` | Enable AI summary by default. | `aicmd config summary on` | Persistently edits `~/.aicmd/config.yaml`. |
 | `aicmd config mcp` | Print MCP config path. | `aicmd config mcp` | Usually `~/.aicmd/mcp.json`. |
 | `aicmd config doctor` | Run diagnostics. | `aicmd config doctor` | Same as `aicmd doctor`. |
 | `aicmd model ...` | Compatibility model config entry point. | `aicmd model show` | Regular users should prefer `aicmd config ...`. |

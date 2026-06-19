@@ -94,7 +94,7 @@ AICMD_MODEL_IDS=gpt-4o,gpt-4.1
 AICMD_OPENAI_API_STYLE=chat
 ```
 
-`aicmd init --from-env` 生成的 `config.yaml` 默认使用 `temperature: 0.1`，`top_p` 保持不设置，并启用 `ai_summary: true`。如需调整模型行为或默认关闭命令执行后的 AI summary，安装后直接编辑 `~/.aicmd/config.yaml`。
+`aicmd init --from-env` 生成的 `config.yaml` 默认使用 `temperature: 0.1`，`top_p` 保持不设置，并启用 `ai_summary: true`。如需调整模型行为，安装后可以编辑 `~/.aicmd/config.yaml`。如需默认关闭命令执行后的 AI summary，也可以运行 `aicmd config summary off`。
 
 如果你 clone 了仓库，也可以复制模板：
 
@@ -462,6 +462,9 @@ aicmd config path            # 输出 ~/.aicmd/config.yaml 路径
 aicmd config dir             # 输出 ~/.aicmd 目录
 aicmd config show            # 输出 config.yaml
 aicmd config edit            # 编辑 config.yaml
+aicmd config summary status  # 查看 AI summary 默认开关
+aicmd config summary off     # 默认关闭 AI summary
+aicmd config summary on      # 默认开启 AI summary
 aicmd config mcp             # 输出 ~/.aicmd/mcp.json 路径
 aicmd config doctor          # 等同于 aicmd doctor
 aicmd doctor                 # 检查本机 AICmd 运行状态
@@ -510,6 +513,9 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 | `aicmd config dir` | 输出 AICmd 配置目录。 | `aicmd config dir` | 通常是 `~/.aicmd`。 |
 | `aicmd config show` | 输出当前配置。 | `aicmd config show` | 可能包含 API key，不要贴到公开场合。 |
 | `aicmd config edit` | 编辑当前配置。 | `aicmd config edit` | 使用 `$EDITOR`。 |
+| `aicmd config summary status` | 查看 AI summary 默认开关。 | `aicmd config summary status` | 只读，不调用模型。 |
+| `aicmd config summary off` | 默认关闭 AI summary。 | `aicmd config summary off` | 持久修改 `~/.aicmd/config.yaml`。 |
+| `aicmd config summary on` | 默认开启 AI summary。 | `aicmd config summary on` | 持久修改 `~/.aicmd/config.yaml`。 |
 | `aicmd config mcp` | 输出 MCP 配置路径。 | `aicmd config mcp` | 通常是 `~/.aicmd/mcp.json`。 |
 | `aicmd config doctor` | 运行诊断。 | `aicmd config doctor` | 等价于 `aicmd doctor`。 |
 | `aicmd model ...` | 模型配置兼容入口。 | `aicmd model show` | 推荐普通用户优先使用 `aicmd config ...`。 |
