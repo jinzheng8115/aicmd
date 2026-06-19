@@ -10,6 +10,7 @@ mod function;
 mod mcp_cmd;
 mod model_cmd;
 mod render;
+mod repair_cmd;
 mod search_cmd;
 mod session_cmd;
 mod setup_cmd;
@@ -458,7 +459,7 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             let default_session = default_session_name();
             config.write().use_session(Some(&default_session))?;
             let input = Input::from_str(config, &report, None);
-            shell_execute(config, &SHELL, input, create_abort_signal(), None).await?;
+            shell_execute(config, &SHELL, input, create_abort_signal(), None, 0).await?;
             Ok(Some(0))
         }
         "do" => {
@@ -603,7 +604,7 @@ async fn run_do_shortcut(
     let default_session = default_session_name();
     config.write().use_session(Some(&default_session))?;
     let input = Input::from_str(config, &request.prompt, None);
-    shell_execute(config, &SHELL, input, abort_signal, None).await
+    shell_execute(config, &SHELL, input, abort_signal, None, 0).await
 }
 
 async fn summarize_mcp_output(
@@ -849,17 +850,8 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             .filter(|value| !value.is_empty())
     };
     let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
-    shell_execute(&config, &SHELL, input, abort_signal.clone(), cache_task).await?;
+    shell_execute(&config, &SHELL, input, abort_signal.clone(), cache_task, 0).await?;
     Ok(())
-}
-
-fn build_failure_revision_prompt(command: &str, code: i32, stdout: &str, stderr: &str) -> String {
-    const OUTPUT_LIMIT: usize = 3_000;
-    format!(
-        "The previously generated command failed. Based on the error output, regenerate a more suitable and safer command.\n上一次生成的命令执行失败。请根据错误输出重新生成一个更合适、更安全的命令。\n\nFailed command / 失败命令：\n{command}\n\nExit code / 退出码：{code}\n\nSTDOUT：\n{}\n\nSTDERR：\n{}",
-        truncate_for_session(stdout.trim(), OUTPUT_LIMIT),
-        truncate_for_session(stderr.trim(), OUTPUT_LIMIT)
-    )
 }
 
 #[async_recursion::async_recursion]
@@ -869,6 +861,7 @@ async fn shell_execute(
     input: Input,
     abort_signal: AbortSignal,
     cache_task: Option<String>,
+    repair_attempts: u8,
 ) -> Result<()> {
     if let Some(task) = cache_task.as_deref() {
         if !config.read().dry_run && !config.read().print_command && *IS_STDOUT_TERMINAL {
@@ -885,6 +878,7 @@ async fn shell_execute(
                             record.command,
                             cache_task,
                             false,
+                            repair_attempts,
                         )
                         .await;
                     }
@@ -911,6 +905,7 @@ async fn shell_execute(
         eval_str,
         cache_task,
         true,
+        repair_attempts,
     )
     .await
 }
@@ -990,6 +985,7 @@ async fn handle_generated_command(
     eval_str: String,
     cache_task: Option<String>,
     record_assistant_message: bool,
+    repair_attempts: u8,
 ) -> Result<()> {
     let eval_str = sanitize_generated_command(&eval_str);
 
@@ -1083,30 +1079,104 @@ async fn handle_generated_command(
                         }
                     }
                     if code != 0 && *IS_STDOUT_TERMINAL {
-                        let fix_prompt = format!(
-                            "{}{}{}",
-                            color_text("r", first_letter_color),
-                            "evise with error",
-                            "(根据错误修改)"
-                        );
-                        let quit_prompt = format!(
-                            "{}{}{}",
-                            color_text("q", first_letter_color),
-                            "uit",
-                            "(退出)"
-                        );
-                        let prompt = format!(
-                            "Command failed. {}: ",
-                            [fix_prompt, quit_prompt].join(&dimmed_text(" | "))
-                        );
-                        let next = read_single_key(&['r', 'q'], 'r', &prompt)?;
-                        if next == 'r' {
-                            let failure_prompt =
-                                build_failure_revision_prompt(&eval_str, code, &stdout, &stderr);
-                            let text = format!("{}\n\n{failure_prompt}", input.text());
-                            input.set_text(text);
-                            return shell_execute(config, shell, input, abort_signal.clone(), None)
-                                .await;
+                        loop {
+                            let first_letter_color = nu_ansi_term::Color::Cyan;
+                            let mut option_keys = vec!['e', 'c', 'q'];
+                            let mut options = vec![
+                                format!(
+                                    "{}{}{}",
+                                    color_text("e", first_letter_color),
+                                    "xplain",
+                                    "(解释)"
+                                ),
+                                format!(
+                                    "{}{}{}",
+                                    color_text("c", first_letter_color),
+                                    "opy",
+                                    "(复制)"
+                                ),
+                                format!(
+                                    "{}{}{}",
+                                    color_text("q", first_letter_color),
+                                    "uit",
+                                    "(退出)"
+                                ),
+                            ];
+                            if repair_attempts < 2 {
+                                option_keys.insert(0, 'f');
+                                options.insert(
+                                    0,
+                                    format!(
+                                        "{}{}{}",
+                                        color_text("f", first_letter_color),
+                                        "ix",
+                                        "(修复)"
+                                    ),
+                                );
+                            } else {
+                                println!(
+                                    "{}",
+                                    dimmed_text(
+                                        "Repair limit reached / 已达到自动修复次数上限。Please inspect the error manually or revise the task. / 请手动检查错误，或修改任务描述。"
+                                    )
+                                );
+                            }
+                            let prompt = format!(
+                                "Command failed / 命令执行失败。{}: ",
+                                options.join(&dimmed_text(" | "))
+                            );
+                            let next = read_single_key(&option_keys, 'e', &prompt)?;
+                            match next {
+                                'f' if repair_attempts < 2 => {
+                                    let cwd = env::current_dir()
+                                        .map(|path| path.display().to_string())
+                                        .unwrap_or_else(|_| "unknown".to_string());
+                                    let user_task = input.text();
+                                    let repair_prompt = repair_cmd::build_repair_prompt(
+                                        &repair_cmd::RepairContext {
+                                            user_task: &user_task,
+                                            shell: &shell.name,
+                                            os: env::consts::OS,
+                                            cwd: &cwd,
+                                            command: &eval_str,
+                                            exit_code: code,
+                                            stdout: &stdout,
+                                            stderr: &stderr,
+                                        },
+                                    );
+                                    input.set_text(repair_prompt);
+                                    return shell_execute(
+                                        config,
+                                        shell,
+                                        input,
+                                        abort_signal.clone(),
+                                        None,
+                                        repair_attempts + 1,
+                                    )
+                                    .await;
+                                }
+                                'e' => {
+                                    if let Err(err) = summarize_command_output(
+                                        config,
+                                        &eval_str,
+                                        code,
+                                        &stdout,
+                                        &stderr,
+                                        abort_signal.clone(),
+                                    )
+                                    .await
+                                    {
+                                        eprintln!("Failure explanation failed: {err:#}");
+                                    }
+                                    continue;
+                                }
+                                'c' => {
+                                    set_text(&eval_str)?;
+                                    println!("{}", dimmed_text("✓ Copied the failed command."));
+                                    continue;
+                                }
+                                _ => break,
+                            }
                         }
                     }
                     process::exit(code);
@@ -1115,7 +1185,15 @@ async fn handle_generated_command(
                     let revision = Text::new("Enter your revision:").prompt()?;
                     let text = format!("{}\n{revision}", input.text());
                     input.set_text(text);
-                    return shell_execute(config, shell, input, abort_signal.clone(), None).await;
+                    return shell_execute(
+                        config,
+                        shell,
+                        input,
+                        abort_signal.clone(),
+                        None,
+                        repair_attempts,
+                    )
+                    .await;
                 }
                 'd' => {
                     let role = config.read().retrieve_role(EXPLAIN_SHELL_ROLE)?;
