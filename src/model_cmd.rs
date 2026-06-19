@@ -211,7 +211,7 @@ fn config_from_env(values: &HashMap<String, String>) -> Result<String> {
 
 model: {default_model}
 
-temperature: null
+temperature: 0.1
 top_p: null
 stream: false
 save: true
@@ -258,7 +258,7 @@ fn default_config() -> &'static str {
 
 model: openai:gpt-4o
 
-temperature: null
+temperature: 0.1
 top_p: null
 stream: false
 save: true
@@ -376,4 +376,34 @@ fn init_config(force: bool, from_env: bool) -> Result<()> {
     }
     println!("edit config with: aicmd model edit");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_config_defaults_temperature_to_0_1() {
+        let values = HashMap::from([
+            ("AICMD_MODEL_PROVIDER".to_string(), "openai".to_string()),
+            ("AICMD_MODEL_NAME".to_string(), "deepseek".to_string()),
+            (
+                "AICMD_MODEL_API_BASE".to_string(),
+                "https://api.deepseek.com/v1".to_string(),
+            ),
+            ("AICMD_MODEL_API_KEY".to_string(), "sk-test".to_string()),
+            ("AICMD_MODEL_IDS".to_string(), "deepseek-chat".to_string()),
+        ]);
+
+        let config = config_from_env(&values).expect("config should be generated from env");
+        assert!(config.contains("\ntemperature: 0.1\n"));
+        assert!(!config.contains("\ntemperature: null\n"));
+    }
+
+    #[test]
+    fn starter_config_defaults_temperature_to_0_1() {
+        let config = default_config();
+        assert!(config.contains("\ntemperature: 0.1\n"));
+        assert!(!config.contains("\ntemperature: null\n"));
+    }
 }

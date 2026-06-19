@@ -94,6 +94,8 @@ AICMD_MODEL_IDS=gpt-4o,gpt-4.1
 AICMD_OPENAI_API_STYLE=chat
 ```
 
+`aicmd init --from-env` 生成的 `config.yaml` 默认使用 `temperature: 0.1`，`top_p` 保持不设置。如需调整模型行为，安装后直接编辑 `~/.aicmd/config.yaml`。
+
 如果你 clone 了仓库，也可以复制模板：
 
 ```bash
