@@ -214,6 +214,7 @@ model: {default_model}
 temperature: 0.1
 top_p: null
 stream: false
+ai_summary: true
 save: true
 wrap: no
 highlight: true
@@ -261,6 +262,7 @@ model: openai:gpt-4o
 temperature: 0.1
 top_p: null
 stream: false
+ai_summary: true
 save: true
 wrap: no
 highlight: true
@@ -398,6 +400,7 @@ mod tests {
         let config = config_from_env(&values).expect("config should be generated from env");
         assert!(config.contains("\ntemperature: 0.1\n"));
         assert!(!config.contains("\ntemperature: null\n"));
+        assert!(config.contains("\nai_summary: true\n"));
     }
 
     #[test]
@@ -405,5 +408,6 @@ mod tests {
         let config = default_config();
         assert!(config.contains("\ntemperature: 0.1\n"));
         assert!(!config.contains("\ntemperature: null\n"));
+        assert!(config.contains("\nai_summary: true\n"));
     }
 }

@@ -50,6 +50,7 @@ pub struct Config {
     pub dry_run: bool,
     #[serde(skip)]
     pub print_command: bool,
+    pub ai_summary: bool,
     pub stream: bool,
     pub wrap: Option<String>,
     pub wrap_code: bool,
@@ -87,6 +88,7 @@ impl Default for Config {
 
             dry_run: false,
             print_command: false,
+            ai_summary: true,
             stream: true,
             wrap: None,
             wrap_code: false,
@@ -569,6 +571,9 @@ impl Config {
 
         if let Some(Some(v)) = read_env_bool(&get_env_name("dry_run")) {
             self.dry_run = v;
+        }
+        if let Some(Some(v)) = read_env_bool(&get_env_name("ai_summary")) {
+            self.ai_summary = v;
         }
         if let Some(Some(v)) = read_env_bool(&get_env_name("stream")) {
             self.stream = v;

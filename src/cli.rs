@@ -24,6 +24,12 @@ pub struct Cli {
     /// Print only the generated command without interactive actions
     #[clap(long = "print")]
     pub print_command: bool,
+    /// Enable AI summary after command execution
+    #[clap(long = "summary", conflicts_with = "no_summary")]
+    pub summary: bool,
+    /// Disable AI summary after command execution
+    #[clap(long = "no-summary")]
+    pub no_summary: bool,
     /// List all sessions
     #[clap(long)]
     pub list_sessions: bool,

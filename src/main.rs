@@ -791,6 +791,12 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     if cli.print_command {
         config.write().print_command = true;
     }
+    if cli.summary {
+        config.write().ai_summary = true;
+    }
+    if cli.no_summary {
+        config.write().ai_summary = false;
+    }
 
     config.write().use_role(SHELL_ROLE)?;
     let default_session = default_session_name();
@@ -911,21 +917,25 @@ async fn shell_execute(
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }
-                    let summary = match summarize_command_output(
-                        config,
-                        &eval_str,
-                        code,
-                        &stdout,
-                        &stderr,
-                        abort_signal.clone(),
-                    )
-                    .await
-                    {
-                        Ok(summary) => summary,
-                        Err(err) => {
-                            eprintln!("AI summary failed: {err:#}");
-                            None
+                    let summary = if config.read().ai_summary {
+                        match summarize_command_output(
+                            config,
+                            &eval_str,
+                            code,
+                            &stdout,
+                            &stderr,
+                            abort_signal.clone(),
+                        )
+                        .await
+                        {
+                            Ok(summary) => summary,
+                            Err(err) => {
+                                eprintln!("AI summary failed: {err:#}");
+                                None
+                            }
                         }
+                    } else {
+                        None
                     };
                     let session_note = build_execution_session_note(
                         &eval_str,

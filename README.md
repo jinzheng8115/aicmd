@@ -94,7 +94,7 @@ AICMD_MODEL_IDS=gpt-4o,gpt-4.1
 AICMD_OPENAI_API_STYLE=chat
 ```
 
-`aicmd init --from-env` 生成的 `config.yaml` 默认使用 `temperature: 0.1`，`top_p` 保持不设置。如需调整模型行为，安装后直接编辑 `~/.aicmd/config.yaml`。
+`aicmd init --from-env` 生成的 `config.yaml` 默认使用 `temperature: 0.1`，`top_p` 保持不设置，并启用 `ai_summary: true`。如需调整模型行为或默认关闭命令执行后的 AI summary，安装后直接编辑 `~/.aicmd/config.yaml`。
 
 如果你 clone 了仓库，也可以复制模板：
 
@@ -292,7 +292,7 @@ execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出
 
 执行前，AICmd 会显示风险等级，例如 `Risk: read-only / 只读`、`Risk: changes system / 会修改系统或文件` 或 `Risk: destructive / 可能造成破坏`。高风险命令会要求二次确认。
 
-执行后，AICmd 会先输出原始命令结果，再让 LLM 做 summary。命令、退出码、截断后的 stdout/stderr 和 summary 会写入当前 session，方便下一轮继续引用“刚才的执行结果”。如果命令失败，AICmd 会提示 `revise with error(根据错误修改) | quit(退出)`；选择 `r` 后，会把失败命令、退出码、stdout/stderr 一起交给 LLM 生成修正版命令。
+执行后，AICmd 会先输出原始命令结果。默认情况下还会让 LLM 做 AI summary；如果本次不需要，可以加 `--no-summary`。命令、退出码、截断后的 stdout/stderr 和 summary（如果启用）会写入当前 session，方便下一轮继续引用“刚才的执行结果”。如果命令失败，AICmd 会提示 `revise with error(根据错误修改) | quit(退出)`；选择 `r` 后，会把失败命令、退出码、stdout/stderr 一起交给 LLM 生成修正版命令。
 
 ### 7.2 全局系统参数
 
@@ -306,11 +306,13 @@ execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出
 | `-f, --file <FILE>` | 把文件、目录或 URL 作为上下文传给模型。 | `aicmd -f README.md 总结这个文件` |
 | `--dry-run` | 只显示将要发送的内容，不调用 LLM。用于调试 prompt、session、配置行为。 | `aicmd --dry-run 当前目录有多少文件` |
 | `--print` | 只输出生成的命令，不进入确认菜单，也不执行命令。 | `aicmd --print 当前目录有多少文件` |
+| `--summary` | 本次执行后启用 AI summary。 | `aicmd --summary 当前目录有多少文件` |
+| `--no-summary` | 本次执行后不调用 LLM 做 AI summary。 | `aicmd --no-summary 当前目录有多少文件` |
 | `--list-sessions` | 列出已保存的 session。 | `aicmd --list-sessions` |
 | `-h, --help` | 显示帮助。 | `aicmd --help` |
 | `-V, --version` | 显示版本。 | `aicmd --version` |
 
-当前 CLI 有 9 个全局系统参数。
+当前 CLI 有 11 个全局系统参数。
 
 子命令也有自己的参数：
 
@@ -482,6 +484,8 @@ aicmd model path             # 输出 ~/.aicmd/config.yaml 路径
 | `aicmd -f <FILE> <任务>` | 给普通请求附加文件、目录或 URL 上下文。 | `aicmd -f README.md 总结这个文件` | 适合一次性让模型读取文件。复杂脚本任务优先用 `aicmd do -f`。 |
 | `aicmd --dry-run <任务>` | 预览请求，不执行最终命令。 | `aicmd --dry-run 当前目录有多少文件` | 会显示当前 prompt/session 上下文，适合排查上下文是否过长。 |
 | `aicmd --print <任务>` | 只生成并打印命令。 | `aicmd --print 当前目录有多少文件` | 不进入确认菜单、不执行命令，适合脚本化或手动复制。 |
+| `aicmd --no-summary <任务>` | 执行命令但跳过 AI summary。 | `aicmd --no-summary 当前目录有多少文件` | 适合短命令或不想再次调用模型的场景。 |
+| `aicmd --summary <任务>` | 本次执行后强制启用 AI summary。 | `aicmd --summary 当前目录有多少文件` | 可覆盖 `config.yaml` 里的 `ai_summary: false`。 |
 | `aicmd do <任务>` | 为复杂任务生成脚本并进入确认执行流程。 | `aicmd do "处理 input.csv，输出 cleaned.csv"` | 默认脚本写入 `.aicmd/task-时间戳.sh` 或 `.ps1`。 |
 | `aicmd do --plan <任务>` | 只生成执行计划。 | `aicmd do --plan "安装 Docker"` | 不创建脚本、不安装软件、不修改文件。 |
 | `aicmd do --dry-run <任务>` | 预览 `do` 生成的任务 prompt。 | `aicmd do --dry-run "统计日志"` | 用于检查任务描述、参考文件、搜索记录是否已注入。 |

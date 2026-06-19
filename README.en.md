@@ -94,7 +94,7 @@ AICMD_MODEL_IDS=gpt-4o,gpt-4.1
 AICMD_OPENAI_API_STYLE=chat
 ```
 
-`aicmd init --from-env` generates `config.yaml` with `temperature: 0.1` by default and leaves `top_p` unset. To tune model behavior, edit `~/.aicmd/config.yaml` after installation.
+`aicmd init --from-env` generates `config.yaml` with `temperature: 0.1` by default, leaves `top_p` unset, and enables `ai_summary: true`. To tune model behavior or disable AI summary by default, edit `~/.aicmd/config.yaml` after installation.
 
 If you cloned the repository, you can copy the template:
 
@@ -292,7 +292,7 @@ Choices:
 
 Before execution, AICmd shows a risk hint such as `Risk: read-only / 只读`, `Risk: changes system / 会修改系统或文件`, or `Risk: destructive / 可能造成破坏`. Destructive commands require an extra confirmation.
 
-After execution, AICmd prints raw command output and asks the LLM to summarize it. The command, exit code, truncated stdout/stderr, and summary are stored in the current session so the next turn can refer to the previous execution result. If the command fails, AICmd prompts `revise with error(根据错误修改) | quit(退出)`; choosing `r` sends the failed command, exit code, stdout, and stderr back to the LLM to generate a revised command.
+After execution, AICmd prints raw command output. By default it also asks the LLM for an AI summary; add `--no-summary` when you do not need it. The command, exit code, truncated stdout/stderr, and summary if enabled are stored in the current session so the next turn can refer to the previous execution result. If the command fails, AICmd prompts `revise with error(根据错误修改) | quit(退出)`; choosing `r` sends the failed command, exit code, stdout, and stderr back to the LLM to generate a revised command.
 
 ### 7.2 Global options
 
@@ -306,11 +306,13 @@ These options belong to `aicmd` itself. They control how AICmd runs; they are no
 | `-f, --file <FILE>` | Attach a file, directory, or URL as context for the request. | `aicmd -f README.md summarize this file` |
 | `--dry-run` | Show the message/prompt that would be sent, but do not call the LLM. Useful for debugging prompt/session/config behavior. | `aicmd --dry-run 当前目录有多少文件` |
 | `--print` | Print only the generated command; do not enter the confirmation menu or execute it. | `aicmd --print 当前目录有多少文件` |
+| `--summary` | Enable AI summary after this command execution. | `aicmd --summary 当前目录有多少文件` |
+| `--no-summary` | Do not call the LLM for AI summary after this command execution. | `aicmd --no-summary 当前目录有多少文件` |
 | `--list-sessions` | List saved sessions. | `aicmd --list-sessions` |
 | `-h, --help` | Print help. | `aicmd --help` |
 | `-V, --version` | Print version. | `aicmd --version` |
 
-There are 9 global options in the current CLI.
+There are 11 global options in the current CLI.
 
 Subcommands also have their own options:
 
@@ -480,6 +482,8 @@ This section lists each command, what it does, common usage, and important notes
 | `aicmd -f <FILE> <task>` | Attach a file, directory, or URL as context. | `aicmd -f README.md summarize this file` | Useful for one-off file context. For script tasks, prefer `aicmd do -f`. |
 | `aicmd --dry-run <task>` | Preview the request without executing the final command. | `aicmd --dry-run 当前目录有多少文件` | Useful for checking prompt, session, and context size. |
 | `aicmd --print <task>` | Generate and print the command only. | `aicmd --print 当前目录有多少文件` | Does not enter the confirmation menu or execute the command; useful for scripts or manual copying. |
+| `aicmd --no-summary <task>` | Execute the command but skip AI summary. | `aicmd --no-summary 当前目录有多少文件` | Useful for short commands or when you do not want another model call. |
+| `aicmd --summary <task>` | Force AI summary for this execution. | `aicmd --summary 当前目录有多少文件` | Overrides `ai_summary: false` in `config.yaml`. |
 | `aicmd do <task>` | Generate a task script and enter the confirmation flow. | `aicmd do "处理 input.csv，输出 cleaned.csv"` | Default script path is `.aicmd/task-timestamp.sh` or `.ps1`. |
 | `aicmd do --plan <task>` | Generate an execution plan only. | `aicmd do --plan "安装 Docker"` | Does not create scripts, install software, or modify files. |
 | `aicmd do --dry-run <task>` | Preview the `do` task prompt. | `aicmd do --dry-run "统计日志"` | Checks whether task text, files, and search records are injected. |
