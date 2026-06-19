@@ -1,6 +1,7 @@
 use crate::{config::Config, doctor_cmd, model_cmd};
 
 use anyhow::{bail, Context, Result};
+use serde_yaml::Value;
 use std::{env, fs, path::PathBuf};
 
 pub fn run_config_command(args: &[String]) -> Result<i32> {
@@ -25,6 +26,7 @@ pub fn run_config_command(args: &[String]) -> Result<i32> {
             println!("{}", mcp_config_path().display());
             Ok(0)
         }
+        "status" => run_status_command(),
         "summary" | "ai-summary" => run_summary_command(&args[1..]),
         "doctor" => doctor_cmd::run_doctor_command(),
         _ => {
@@ -33,6 +35,90 @@ pub fn run_config_command(args: &[String]) -> Result<i32> {
             Ok(2)
         }
     }
+}
+
+fn run_status_command() -> Result<i32> {
+    let config_path = Config::config_file();
+    let config_content = read_config_file(&config_path)?;
+    let config_yaml: Value = serde_yaml::from_str(&config_content)
+        .with_context(|| format!("failed to parse config: {}", config_path.display()))?;
+    let model = yaml_string(&config_yaml, "model").unwrap_or_else(|| "unknown".to_string());
+    let temperature = yaml_scalar_display(&config_yaml, "temperature")
+        .unwrap_or_else(|| "provider default / 使用模型服务默认值".to_string());
+    let ai_summary = yaml_bool(&config_yaml, "ai_summary").unwrap_or(true);
+    let mcp_path = mcp_config_path();
+    let mcp_status = if mcp_path.exists() {
+        "configured / 已配置"
+    } else {
+        "missing / 未配置"
+    };
+    let search_status = if mcp_path.exists() && mcp_config_has_search_command(&mcp_path) {
+        "configured / 已配置"
+    } else {
+        "missing / 未配置"
+    };
+    let session = current_default_session_name();
+
+    println!("AICmd config status / AICmd 配置状态");
+    println!("Config file / 配置文件: {}", config_path.display());
+    println!("Default model / 默认模型: {model}");
+    println!("Temperature / 温度: {temperature}");
+    println!(
+        "AI summary / AI 总结: {}",
+        if ai_summary {
+            "on / 开启"
+        } else {
+            "off / 关闭"
+        }
+    );
+    println!("MCP config / MCP 配置: {mcp_status}");
+    println!("Search / 搜索: {search_status}");
+    println!("Session / 会话: {session}");
+    Ok(0)
+}
+
+fn yaml_string(value: &Value, key: &str) -> Option<String> {
+    value.get(key)?.as_str().map(str::to_string)
+}
+
+fn yaml_bool(value: &Value, key: &str) -> Option<bool> {
+    value.get(key)?.as_bool()
+}
+
+fn yaml_scalar_display(value: &Value, key: &str) -> Option<String> {
+    let value = value.get(key)?;
+    if value.is_null() {
+        return None;
+    }
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+    if let Some(number) = value.as_f64() {
+        return Some(number.to_string());
+    }
+    if let Some(enabled) = value.as_bool() {
+        return Some(enabled.to_string());
+    }
+    None
+}
+
+fn mcp_config_has_search_command(path: &PathBuf) -> bool {
+    let Ok(content) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+    let root = value.get("mcp").unwrap_or(&value);
+    root.get("commands")
+        .and_then(|v| v.as_object())
+        .is_some_and(|commands| commands.contains_key("search"))
+}
+
+fn current_default_session_name() -> String {
+    let beijing = chrono::Utc::now()
+        .with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).expect("valid timezone"));
+    format!("cmd-{}", beijing.format("%Y%m%d"))
 }
 
 fn run_summary_command(args: &[String]) -> Result<i32> {
@@ -143,6 +229,7 @@ Commands / 命令:
   dir                Print config directory / 输出配置目录
   show               Print config.yaml / 输出 config.yaml
   edit               Open config.yaml in $EDITOR / 用 $EDITOR 编辑 config.yaml
+  status             Show active safe settings / 查看当前安全配置状态
   summary [status]   Show AI summary default / 查看 AI summary 默认状态
   summary on         Enable AI summary by default / 默认开启 AI summary
   summary off        Disable AI summary by default / 默认关闭 AI summary
