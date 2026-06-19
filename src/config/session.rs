@@ -252,6 +252,49 @@ impl Session {
     }
 }
 
+impl RoleLike for Session {
+    fn to_role(&self) -> Role {
+        let role_name = self.role_name.as_deref().unwrap_or_default();
+        let mut role = Role::new(role_name, &self.role_prompt);
+        role.sync(self);
+        role
+    }
+
+    fn model(&self) -> &Model {
+        &self.model
+    }
+
+    fn temperature(&self) -> Option<f64> {
+        self.temperature
+    }
+
+    fn top_p(&self) -> Option<f64> {
+        self.top_p
+    }
+
+    fn set_model(&mut self, model: Model) {
+        if self.model().id() != model.id() {
+            self.model = model;
+            self.dirty = true;
+            self.update_tokens();
+        }
+    }
+
+    fn set_temperature(&mut self, value: Option<f64>) {
+        if self.temperature != value {
+            self.temperature = value;
+            self.dirty = true;
+        }
+    }
+
+    fn set_top_p(&mut self, value: Option<f64>) {
+        if self.top_p != value {
+            self.top_p = value;
+            self.dirty = true;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,48 +338,5 @@ mod tests {
         ));
         assert!(input_needs_session_context("根据刚才的结果继续处理"));
         assert!(input_needs_session_context("fix the previous error"));
-    }
-}
-
-impl RoleLike for Session {
-    fn to_role(&self) -> Role {
-        let role_name = self.role_name.as_deref().unwrap_or_default();
-        let mut role = Role::new(role_name, &self.role_prompt);
-        role.sync(self);
-        role
-    }
-
-    fn model(&self) -> &Model {
-        &self.model
-    }
-
-    fn temperature(&self) -> Option<f64> {
-        self.temperature
-    }
-
-    fn top_p(&self) -> Option<f64> {
-        self.top_p
-    }
-
-    fn set_model(&mut self, model: Model) {
-        if self.model().id() != model.id() {
-            self.model = model;
-            self.dirty = true;
-            self.update_tokens();
-        }
-    }
-
-    fn set_temperature(&mut self, value: Option<f64>) {
-        if self.temperature != value {
-            self.temperature = value;
-            self.dirty = true;
-        }
-    }
-
-    fn set_top_p(&mut self, value: Option<f64>) {
-        if self.top_p != value {
-            self.top_p = value;
-            self.dirty = true;
-        }
     }
 }

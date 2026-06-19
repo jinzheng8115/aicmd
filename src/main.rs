@@ -875,10 +875,12 @@ async fn shell_execute(
                             shell,
                             input,
                             abort_signal,
-                            record.command,
-                            cache_task,
-                            false,
-                            repair_attempts,
+                            ShellExecutionOptions {
+                                eval_str: record.command,
+                                cache_task,
+                                record_assistant_message: false,
+                                repair_attempts,
+                            },
                         )
                         .await;
                     }
@@ -902,10 +904,12 @@ async fn shell_execute(
         shell,
         input,
         abort_signal,
-        eval_str,
-        cache_task,
-        true,
-        repair_attempts,
+        ShellExecutionOptions {
+            eval_str,
+            cache_task,
+            record_assistant_message: true,
+            repair_attempts,
+        },
     )
     .await
 }
@@ -915,6 +919,14 @@ enum CachedCommandAction {
     Reuse,
     New,
     Quit,
+}
+
+#[derive(Debug, Clone)]
+struct ShellExecutionOptions {
+    eval_str: String,
+    cache_task: Option<String>,
+    record_assistant_message: bool,
+    repair_attempts: u8,
 }
 
 async fn prompt_cached_command(
@@ -982,11 +994,14 @@ async fn handle_generated_command(
     shell: &Shell,
     mut input: Input,
     abort_signal: AbortSignal,
-    eval_str: String,
-    cache_task: Option<String>,
-    record_assistant_message: bool,
-    repair_attempts: u8,
+    options: ShellExecutionOptions,
 ) -> Result<()> {
+    let ShellExecutionOptions {
+        eval_str,
+        cache_task,
+        record_assistant_message,
+        repair_attempts,
+    } = options;
     let eval_str = sanitize_generated_command(&eval_str);
 
     if record_assistant_message {
