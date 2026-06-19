@@ -8,7 +8,7 @@ use std::{
     time::SystemTime,
 };
 
-use crate::config::Config;
+use crate::{config::Config, utils::strip_ansi_codes};
 
 const SEARCHES_DIR_ENV: &str = "AICMD_SEARCHES_DIR";
 const SEARCHES_DIR_NAME: &str = "searches";
@@ -354,6 +354,7 @@ fn build_raw_search_record(query: &str, raw_output: &str) -> String {
 
 fn build_search_record(query: &str, summary: &str) -> String {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let summary = strip_ansi_codes(summary);
     format!(
         "AICmd saved search\nTime: {now}\nQuery: {query}\n\n---\n\n{}\n",
         summary.trim_end()

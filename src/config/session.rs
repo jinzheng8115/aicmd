@@ -12,7 +12,11 @@ const MAX_CONTEXT_MESSAGES: usize = 8;
 const MAX_CONTEXT_MESSAGE_CHARS: usize = 1200;
 
 fn input_needs_session_context(text: &str) -> bool {
-    let text = text.to_lowercase();
+    let text = text
+        .split("\n\n参考文件内容 / Reference file contents:")
+        .next()
+        .unwrap_or(text)
+        .to_lowercase();
     let markers = [
         "刚才",
         "上次",
@@ -28,14 +32,14 @@ fn input_needs_session_context(text: &str) -> bool {
         "报错",
         "修复",
         "previous",
-        "last",
+        "previous error",
+        "last result",
+        "last command",
         "above",
         "continue",
-        "same",
         "this result",
         "that result",
-        "error",
-        "fix",
+        "fix the previous",
     ];
     markers.iter().any(|marker| text.contains(marker))
 }
@@ -286,6 +290,9 @@ mod tests {
     #[test]
     fn detects_when_user_needs_session_context() {
         assert!(!input_needs_session_context("目前内存使用率"));
+        assert!(!input_needs_session_context(
+            "根据参考搜索结果，生成一条命令\n\n参考文件内容 / Reference file contents:\n--- FILE: /tmp/.last.txt ---"
+        ));
         assert!(input_needs_session_context("根据刚才的结果继续处理"));
         assert!(input_needs_session_context("fix the previous error"));
     }

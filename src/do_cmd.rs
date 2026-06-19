@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use chrono::Local;
 use std::{fs, path::PathBuf};
 
-use crate::search_cmd;
+use crate::{search_cmd, utils::strip_ansi_codes};
 
 pub struct DoRequest {
     pub dry_run: bool,
@@ -77,12 +77,39 @@ pub fn build_do_request(args: &[String], shell_name: &str) -> Result<DoRequest> 
         bail!(usage());
     }
     let task = task_parts.join(" ");
+    let has_search_context = !search_refs.is_empty();
     let file_context = read_file_context(&resolve_context_files(&files, &search_refs)?)?;
     let script_kind = script_kind(shell_name);
     let script_path = output.unwrap_or_else(|| default_script_path(script_kind.extension));
+    let prompt = build_prompt(
+        &task,
+        &file_context,
+        script_kind,
+        &script_path,
+        plan,
+        has_search_context,
+    );
+    Ok(DoRequest { dry_run, prompt })
+}
+
+fn build_prompt(
+    task: &str,
+    file_context: &str,
+    script_kind: ScriptKind,
+    script_path: &str,
+    plan: bool,
+    has_search_context: bool,
+) -> String {
     let prompt = if plan {
         format!(
             "为这个任务制定执行计划，不要创建脚本，不要执行实际任务，不要安装软件，不要修改文件或系统状态。任务: {task}。请只输出一条安全的 {kind} 命令，用 cat <<'EOF' 或 printf 打印中文计划。计划必须包含：目标、准备检查、执行步骤、风险/权限、验证方式、下一步建议。如果任务信息不足，请在计划中说明缺少什么。{file_context}",
+            kind = script_kind.display,
+            task = task,
+            file_context = file_context,
+        )
+    } else if has_search_context {
+        format!(
+            "根据参考搜索结果，生成一条最合适、最安全的 {kind} 终端命令来完成这个任务: {task}。要求：优先使用搜索结果中的官方或直接来源；不要强制创建脚本，除非任务确实需要多步骤脚本；安装或修改系统状态前要选择可审查、可确认的命令；如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请只输出一条安全的说明命令，解释原因和下一步建议。{file_context}",
             kind = script_kind.display,
             task = task,
             file_context = file_context,
@@ -96,7 +123,7 @@ pub fn build_do_request(args: &[String], shell_name: &str) -> Result<DoRequest> 
             file_context = file_context,
         )
     };
-    Ok(DoRequest { dry_run, prompt })
+    prompt
 }
 
 fn resolve_context_files(files: &[String], search_refs: &[String]) -> Result<Vec<String>> {
@@ -134,6 +161,7 @@ fn read_file_context(files: &[String]) -> Result<String> {
         }
         let content = fs::read_to_string(&path)
             .with_context(|| format!("failed to read --file for aicmd do: {file}"))?;
+        let content = strip_ansi_codes(&content);
         out.push_str(&format!(
             "\n--- FILE: {file} ---\n{content}\n--- END FILE: {file} ---\n"
         ));
@@ -169,4 +197,39 @@ fn default_script_path(extension: &str) -> String {
 
 fn usage() -> &'static str {
     "Usage: aicmd do [--dry-run] [--plan] [-f FILE] [--from-search NAME] [--output PATH] <task>\n\nAsk AICmd to generate shell commands that create a script for a local file/data task, then run it after AICmd's normal confirmation flow."
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_context_prompt_does_not_force_script_creation() {
+        let prompt = build_prompt(
+            "如何安装 copilot-cli",
+            "\n\n参考文件内容 / Reference file contents:\n官方安装方式...",
+            script_kind("zsh"),
+            ".aicmd/task-test.sh",
+            false,
+            true,
+        );
+
+        assert!(prompt.contains("根据参考搜索结果"));
+        assert!(prompt.contains("不要强制创建脚本"));
+        assert!(!prompt.contains("创建一个 zsh 脚本"));
+    }
+
+    #[test]
+    fn normal_do_prompt_still_creates_script() {
+        let prompt = build_prompt(
+            "处理 input.csv",
+            "",
+            script_kind("zsh"),
+            ".aicmd/task-test.sh",
+            false,
+            false,
+        );
+
+        assert!(prompt.contains("创建一个 zsh 脚本"));
+    }
 }

@@ -34,6 +34,8 @@ pub static CODE_BLOCK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?ms)```\w*(.*)```").unwrap());
 pub static THINK_TAG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)^\s*<think>.*?</think>(\s*|$)").unwrap());
+pub static ANSI_ESCAPE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").unwrap());
 pub static IS_STDOUT_TERMINAL: LazyLock<bool> = LazyLock::new(|| std::io::stdout().is_terminal());
 pub static NO_COLOR: LazyLock<bool> = LazyLock::new(|| {
     env::var("NO_COLOR")
@@ -113,6 +115,10 @@ pub fn clean_terminal_markdown(text: &str) -> String {
         value.push('\n');
     }
     value
+}
+
+pub fn strip_ansi_codes(text: &str) -> Cow<'_, str> {
+    ANSI_ESCAPE_RE.replace_all(text, "")
 }
 
 fn clean_markdown_line(line: &str) -> String {
@@ -263,7 +269,7 @@ pub fn decode_bin<T: serde::de::DeserializeOwned>(data: &[u8]) -> Result<T> {
 
 #[cfg(test)]
 mod terminal_markdown_tests {
-    use super::clean_terminal_markdown;
+    use super::{clean_terminal_markdown, strip_ansi_codes};
 
     #[test]
     fn removes_common_markdown_markers_for_terminal_output() {
@@ -277,5 +283,11 @@ mod terminal_markdown_tests {
         assert!(output.contains("使用 Homebrew 安装 Docker"));
         assert!(output.contains("打开终端"));
         assert!(output.contains("brew install docker"));
+    }
+
+    #[test]
+    fn strips_ansi_escape_codes_for_saved_context() {
+        let input = "\u{1b}[1;34m安装方式\u{1b}[0m";
+        assert_eq!(strip_ansi_codes(input), "安装方式");
     }
 }
