@@ -11,6 +11,7 @@ mod model_cmd;
 mod render;
 mod search_cmd;
 mod session_cmd;
+mod setup_cmd;
 mod shell_init_cmd;
 mod update_cmd;
 #[macro_use]
@@ -255,6 +256,7 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         "init" => Ok(Some(model_cmd::run_model_command(args)?)),
         "model" => Ok(Some(model_cmd::run_model_command(&args[1..])?)),
         "config" => Ok(Some(config_cmd::run_config_command(&args[1..])?)),
+        "setup" => Ok(Some(setup_cmd::run_setup_command(&args[1..])?)),
         "shell-init" => Ok(Some(shell_init_cmd::run_shell_init_command(&args[1..])?)),
         "doctor" => Ok(Some(doctor_cmd::run_doctor_command()?)),
         "update" => Ok(Some(update_cmd::run_update_command(&args[1..])?)),
@@ -298,6 +300,7 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
     };
     match cmd {
         "search" => {
+            let mut show_follow_up = false;
             if args.get(1).is_some_and(|v| v == "summarize") {
                 let target = search_cmd::parse_summarize_target(&args[2..])?;
                 let raw = search_cmd::load_raw_search(&target)?;
@@ -310,6 +313,7 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
                 };
                 search_cmd::persist_search_result(&raw.query, &summary, save_name)?;
             } else {
+                show_follow_up = true;
                 let options = search_cmd::parse_search_run_args(&args[1..])?;
                 let raw_output = call_mcp_raw("search", &options.query)?;
                 let raw_path = search_cmd::persist_raw_search_result(
@@ -332,6 +336,9 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
                         return Err(err.context("Search completed but failed to summarize"));
                     }
                 }
+            }
+            if show_follow_up {
+                prompt_search_follow_up(config, create_abort_signal()).await?;
             }
             Ok(Some(0))
         }
@@ -357,15 +364,7 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             Ok(Some(0))
         }
         "do" => {
-            let request = do_cmd::build_do_request(args, &SHELL.name)?;
-            if request.dry_run {
-                config.write().dry_run = true;
-            }
-            config.write().use_role(SHELL_ROLE)?;
-            let default_session = default_session_name();
-            config.write().use_session(Some(&default_session))?;
-            let input = Input::from_str(config, &request.prompt, None);
-            shell_execute(config, &SHELL, input, create_abort_signal()).await?;
+            run_do_shortcut(config, args, create_abort_signal()).await?;
             Ok(Some(0))
         }
         _ => Ok(None),
@@ -430,6 +429,68 @@ async fn run_mcp_with_llm_summary(
 ) -> Result<String> {
     let raw_output = call_mcp_raw(mcp_command, query)?;
     summarize_mcp_output(config, mcp_command, query, &raw_output).await
+}
+
+async fn prompt_search_follow_up(config: &GlobalConfig, abort_signal: AbortSignal) -> Result<()> {
+    if !*IS_STDOUT_TERMINAL {
+        return Ok(());
+    }
+    let first_letter_color = nu_ansi_term::Color::Cyan;
+    let options = [
+        ("s", "ave", "保存"),
+        ("d", "o", "基于结果执行"),
+        ("o", "pen", "打开"),
+        ("q", "uit", "退出"),
+    ];
+    let prompt_text = options
+        .iter()
+        .map(|(key, rest, zh)| format!("{}{}({})", color_text(key, first_letter_color), rest, zh))
+        .collect::<Vec<String>>()
+        .join(&dimmed_text(" | "));
+    let answer = read_single_key(&['s', 'd', 'o', 'q'], 'q', &format!("{prompt_text}: "))?;
+    match answer {
+        's' => {
+            let name = Text::new("Save name (empty = auto):")
+                .prompt()
+                .unwrap_or_default();
+            let name = name.trim();
+            search_cmd::save_last(if name.is_empty() { None } else { Some(name) })?;
+        }
+        'd' => {
+            let task = Text::new("Task using this search result:").prompt()?;
+            if task.trim().is_empty() {
+                bail!("No task provided");
+            }
+            let args = vec![
+                "do".to_string(),
+                "--from-search".to_string(),
+                "last".to_string(),
+                task,
+            ];
+            run_do_shortcut(config, &args, abort_signal).await?;
+        }
+        'o' => {
+            search_cmd::open_search(Some("last"))?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn run_do_shortcut(
+    config: &GlobalConfig,
+    args: &[String],
+    abort_signal: AbortSignal,
+) -> Result<()> {
+    let request = do_cmd::build_do_request(args, &SHELL.name)?;
+    if request.dry_run {
+        config.write().dry_run = true;
+    }
+    config.write().use_role(SHELL_ROLE)?;
+    let default_session = default_session_name();
+    config.write().use_session(Some(&default_session))?;
+    let input = Input::from_str(config, &request.prompt, None);
+    shell_execute(config, &SHELL, input, abort_signal).await
 }
 
 async fn summarize_mcp_output(

@@ -173,7 +173,7 @@ pub fn raw_search_path(name: &str) -> Result<PathBuf> {
     Ok(search_file(&name))
 }
 
-fn save_last(name: Option<&str>) -> Result<i32> {
+pub fn save_last(name: Option<&str>) -> Result<i32> {
     let last_path = search_file(LAST_SEARCH_NAME);
     if !last_path.exists() {
         bail!("No last search found. Run `aicmd search <query>` first.");
@@ -271,7 +271,7 @@ fn remove_search(name: Option<&str>) -> Result<i32> {
     Ok(0)
 }
 
-fn open_search(name: Option<&str>) -> Result<i32> {
+pub fn open_search(name: Option<&str>) -> Result<i32> {
     let Some(name) = name else {
         bail!("usage: aicmd search open <name|last>");
     };

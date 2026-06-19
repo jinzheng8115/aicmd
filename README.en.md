@@ -7,6 +7,20 @@ AICmd turns natural language into safe, reviewable terminal commands. You descri
 Upstream: [sigoden/aichat](https://github.com/sigoden/aichat)
 License: MIT OR Apache-2.0
 
+## Quick start: regular users only need 5 entry points
+
+AICmd should not make you memorize more commands. For daily use, start with these:
+
+```bash
+aicmd <what you want>       # generate one terminal command and run it after confirmation
+aicmd do <complex task>     # use this for scripts, multi-step work, or file processing
+aicmd search <question>     # use this when web/MCP-backed evidence is needed
+aicmd setup                 # first-time setup or reconfiguration
+aicmd doctor                # check install, model, MCP, and shell integration
+```
+
+Other commands remain available, but they are mainly advanced or troubleshooting references.
+
 ## 1. What AICmd is for
 
 - Generate terminal commands from natural language.
@@ -177,9 +191,17 @@ $EDITOR .env
 contrib/aicmd/install.sh --from-source
 ```
 
-## 5. After installation: generate `config.yaml`
+## 5. After installation: run `aicmd setup`
 
-After installing the binary, generate the runtime model config from `.env`. If a `mcp.json` file exists in the same directory, it is copied to `~/.aicmd/mcp.json` at the same time.
+After installing the binary, start with:
+
+```bash
+aicmd setup
+```
+
+`setup` checks config paths, finds `.env`, and guides you through generating the runtime model config. If `mcp.json` exists next to `.env`, initialization also copies it to `~/.aicmd/mcp.json`.
+
+Advanced or scripted setup can still call init directly:
 
 ```bash
 aicmd init --from-env
@@ -197,8 +219,8 @@ AICmd will ask for confirmation before writing. This is intentional because `con
 If your `.env` is not in the current directory, point AICmd to it. AICmd also looks for `mcp.json` next to that `.env`; you can override the MCP source with `AICMD_MCP_SOURCE=/path/to/mcp.json`.
 
 ```bash
-AICMD_MODEL_ENV=/path/to/.env aicmd init --from-env
-AICMD_MODEL_ENV=/path/to/.env AICMD_MCP_SOURCE=/path/to/mcp.json aicmd init --from-env
+AICMD_MODEL_ENV=/path/to/.env aicmd setup
+AICMD_MODEL_ENV=/path/to/.env AICMD_MCP_SOURCE=/path/to/mcp.json aicmd setup
 ```
 
 If `config.yaml` already exists and you want to regenerate it:
@@ -207,12 +229,13 @@ If `config.yaml` already exists and you want to regenerate it:
 aicmd init --from-env --force
 ```
 
-Useful checks:
+Common checks:
 
 ```bash
-aicmd model path      # show config.yaml path
-aicmd model show      # print config.yaml
-aicmd model edit      # edit config.yaml
+aicmd doctor          # recommended: check install, model, MCP/search, PATH, and shell integration
+aicmd config path     # print config.yaml path
+aicmd config show     # print config.yaml
+aicmd config edit     # edit config.yaml
 ```
 
 ## 6. Shell integration
@@ -299,6 +322,7 @@ Subcommands also have their own options:
 | `aicmd model init` / `aicmd init` | `--from-env` | Require `.env` and generate `~/.aicmd/config.yaml` from it. |
 | `aicmd model init` / `aicmd init` | `--force` | Overwrite existing `config.yaml`; AICmd asks for confirmation. |
 | `aicmd shell-init` | `zsh`, `bash`, `powershell` | Print integration code for that shell. Usually not needed after normal install. |
+| `aicmd setup` | none | First-time setup entry point: find `.env` and guide config generation. |
 | `aicmd doctor` | none | Check install, model config, MCP/search, PATH, and shell integration status. |
 | `aicmd session` | `list`, `show`, `--limit` | Inspect current session, saved sessions, and recent messages. |
 | `aicmd last` | none | Show the last non-system message in the current default session. |
@@ -408,7 +432,16 @@ aicmd search rm gemini-cli
 ```
 
 `aicmd search` calls the configured search MCP server first, then sends the MCP result to the LLM for final terminal-friendly summary.
-Every search also writes the latest result to `~/.aicmd/searches/.last.txt`. `--save` or `aicmd search save` stores a named record such as `~/.aicmd/searches/gemini-cli.txt`.
+
+In an interactive terminal, AICmd now shows a follow-up menu after search completes:
+
+```text
+save(保存) | do(基于结果执行) | open(打开) | quit(退出):
+```
+
+This means normal users do not need to remember `search save` or `do --from-search`: press `s` to save a result, or `d` to start a task using the search result.
+
+Every search also writes the latest result to `~/.aicmd/searches/.last.txt`. The menu save action, `--save`, or `aicmd search save` stores a named record such as `~/.aicmd/searches/gemini-cli.txt`.
 If MCP search succeeds but LLM summarization fails because the model is overloaded or the API errors, AICmd keeps the raw search result at `~/.aicmd/searches/.last.raw.txt`. When the search used `--save gemini-cli`, it also keeps `~/.aicmd/searches/gemini-cli.raw.txt`. Later, run `aicmd search summarize last` or `aicmd search summarize gemini-cli` to summarize the saved raw result.
 `aicmd search list` shows each record status: `summary`, `raw`, or `summary+raw`. `aicmd search rm <name>` removes both `<name>.txt` and `<name>.raw.txt`.
 
@@ -472,7 +505,8 @@ This section lists each command, what it does, common usage, and important notes
 | `aicmd config mcp` | Print MCP config path. | `aicmd config mcp` | Usually `~/.aicmd/mcp.json`. |
 | `aicmd config doctor` | Run diagnostics. | `aicmd config doctor` | Same as `aicmd doctor`. |
 | `aicmd model ...` | Compatibility model config entry point. | `aicmd model show` | Regular users should prefer `aicmd config ...`. |
-| `aicmd init --from-env` | Initialize config from `.env`. | `aicmd init --from-env` | Same as `aicmd model init --from-env`. |
+| `aicmd setup` | First-time setup or reconfiguration guidance. | `aicmd setup` | Recommended for regular users; suggests `aicmd doctor` afterward. |
+| `aicmd init --from-env` | Initialize config from `.env`. | `aicmd init --from-env` | Same as `aicmd model init --from-env`; advanced/scripted setup path. |
 | `aicmd mcp list` | List MCP commands. | `aicmd mcp list` | Reads `~/.aicmd/mcp.json`. |
 | `aicmd mcp <command> <input>` | Call MCP and summarize with the LLM. | `aicmd mcp search "OpenAI latest news"` | For web search, prefer `aicmd search`. |
 | `aicmd mcp-raw <command> <input>` | Print raw MCP output. | `aicmd mcp-raw search "OpenAI latest news"` | For debugging MCP; no LLM summary. |
