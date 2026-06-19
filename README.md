@@ -53,11 +53,17 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 | 会话记录 | `~/.aicmd/sessions` |
 | 搜索记录 | `~/.aicmd/searches` |
 
-源码安装适合开发者：
+如果已经把项目 clone 到本地，也可以直接运行仓库里的安装脚本。默认仍然是二进制安装，会下载 GitHub Release，不需要 Rust：
 
 ```bash
 git clone https://github.com/jinzheng8115/aicmd.git
 cd aicmd
+contrib/aicmd/install.sh
+```
+
+如果你要本地源码构建，才需要 Rust，并使用：
+
+```bash
 contrib/aicmd/install.sh --from-source
 ```
 

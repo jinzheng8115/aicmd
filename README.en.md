@@ -53,11 +53,17 @@ Default locations:
 | Sessions | `~/.aicmd/sessions` |
 | Searches | `~/.aicmd/searches` |
 
-Source install for development:
+If you already cloned the repository, you can also run the installer from the local checkout. By default it still performs a binary install from the GitHub Release and does not require Rust:
 
 ```bash
 git clone https://github.com/jinzheng8115/aicmd.git
 cd aicmd
+contrib/aicmd/install.sh
+```
+
+Use source builds only for local development. This requires Rust:
+
+```bash
 contrib/aicmd/install.sh --from-source
 ```
 
