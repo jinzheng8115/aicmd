@@ -457,7 +457,7 @@ async fn prompt_search_follow_up(config: &GlobalConfig, abort_signal: AbortSigna
             search_cmd::save_last(if name.is_empty() { None } else { Some(name) })?;
         }
         'd' => {
-            let task = Text::new("Task using this search result:").prompt()?;
+            let task = Text::new("基于刚才的搜索结果，你想让 AICmd 做什么？ / What should AICmd do using this search result?").prompt()?;
             if task.trim().is_empty() {
                 bail!("No task provided");
             }
