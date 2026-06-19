@@ -417,7 +417,7 @@ Without shell integration, AICmd can still run commands, but directory changes d
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.4.0
+aicmd update --version v0.4.1
 aicmd update --dry-run
 ```
 
