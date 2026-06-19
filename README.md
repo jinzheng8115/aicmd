@@ -61,12 +61,6 @@ cd aicmd
 contrib/aicmd/install.sh
 ```
 
-如果你要本地源码构建，才需要 Rust，并使用：
-
-```bash
-contrib/aicmd/install.sh --from-source
-```
-
 ## 4. 首次配置
 
 ### 4.1 准备 `.env`

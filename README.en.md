@@ -61,12 +61,6 @@ cd aicmd
 contrib/aicmd/install.sh
 ```
 
-Use source builds only for local development. This requires Rust:
-
-```bash
-contrib/aicmd/install.sh --from-source
-```
-
 ## 4. First-time configuration
 
 ### 4.1 Prepare `.env`
