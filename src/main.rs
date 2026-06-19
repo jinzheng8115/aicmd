@@ -31,6 +31,7 @@ use crate::utils::*;
 
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
+use fancy_regex::Regex;
 use inquire::Text;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
@@ -39,7 +40,7 @@ use std::{
     fs::OpenOptions,
     io::{self, BufRead, BufReader, Read, Write},
     process::{self, Command, Stdio},
-    sync::Arc,
+    sync::{Arc, LazyLock},
     thread,
 };
 
@@ -120,7 +121,60 @@ fn sanitize_generated_command(command: &str) -> String {
         }
     }
     out = out.replace("find /v \"\" /c", "find /c /v \"\"");
+    out = remove_leading_missing_target_exit_guard(&out);
     out
+}
+
+fn remove_leading_missing_target_exit_guard(command: &str) -> String {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?ms)\A(?:\s*#.*\n|\s*)*if\s+!\s+command\s+-v\s+(?P<cmd>[A-Za-z0-9_.+-]+)\s+.*?;\s*then\s*(?P<body>.*?)\n\s*fi\s*",
+        )
+        .unwrap()
+    });
+    let Some(caps) = RE.captures(command).ok().flatten() else {
+        return command.to_string();
+    };
+    let Some(full_match) = caps.get(0) else {
+        return command.to_string();
+    };
+    let cmd = caps.name("cmd").map(|m| m.as_str()).unwrap_or_default();
+    let body = caps.name("body").map(|m| m.as_str()).unwrap_or_default();
+    let rest = command[full_match.end()..].trim_start();
+    if rest.is_empty()
+        || is_install_dependency_command(cmd)
+        || !body.to_lowercase().contains("exit 1")
+        || !looks_like_install_command(rest)
+    {
+        return command.to_string();
+    }
+    rest.to_string()
+}
+
+fn is_install_dependency_command(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        "brew" | "npm" | "node" | "git" | "curl" | "wget" | "python" | "python3" | "pip" | "pip3"
+    )
+}
+
+fn looks_like_install_command(command: &str) -> bool {
+    let command = command.to_lowercase();
+    [
+        "brew install",
+        "npm install",
+        "apt install",
+        "apt-get install",
+        "dnf install",
+        "yum install",
+        "pip install",
+        "pip3 install",
+        "cargo install",
+        "| bash",
+        "| sh",
+    ]
+    .iter()
+    .any(|marker| command.contains(marker))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -994,5 +1048,34 @@ mod tests {
             sanitize_generated_command("dir /ad /b 2>nul | find /v \"\" /c"),
             "dir /ad /b 2>nul | find /c /v \"\""
         );
+    }
+
+    #[test]
+    fn sanitize_generated_command_removes_impossible_install_precheck() {
+        let input = r#"# 首先检查是否已安装 Copilot CLI
+if ! command -v copilot-cli &> /dev/null; then
+    echo "Copilot CLI is not installed. Please install it first."
+    exit 1
+fi
+
+# 安装 Copilot CLI
+brew install copilot-cli
+copilot --version"#;
+
+        assert_eq!(
+            sanitize_generated_command(input),
+            "# 安装 Copilot CLI\nbrew install copilot-cli\ncopilot --version"
+        );
+    }
+
+    #[test]
+    fn sanitize_generated_command_keeps_dependency_precheck() {
+        let input = r#"if ! command -v brew &> /dev/null; then
+    echo "Homebrew is required."
+    exit 1
+fi
+brew install copilot-cli"#;
+
+        assert_eq!(sanitize_generated_command(input), input);
     }
 }

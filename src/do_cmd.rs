@@ -109,7 +109,7 @@ fn build_prompt(
         )
     } else if has_search_context {
         format!(
-            "根据参考搜索结果，生成一条最合适、最安全的 {kind} 终端命令来完成这个任务: {task}。要求：优先使用搜索结果中的官方或直接来源；不要强制创建脚本，除非任务确实需要多步骤脚本；安装或修改系统状态前要选择可审查、可确认的命令；如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请只输出一条安全的说明命令，解释原因和下一步建议。{file_context}",
+            "根据参考搜索结果，生成一条最合适、最安全的 {kind} 终端命令来完成这个任务: {task}。要求：优先使用搜索结果中的官方或直接来源；不要强制创建脚本，除非任务确实需要多步骤脚本；安装或修改系统状态前要选择可审查、可确认的命令；如果任务是安装/设置软件，不要因为目标命令当前不存在就退出，因为安装它正是任务目标；可以先检查 brew/npm/node/git 等依赖，或使用 `if command -v 目标命令 >/dev/null 2>&1; then 目标命令 --version; else 安装命令 && 目标命令 --version; fi` 这种幂等结构；如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请只输出一条安全的说明命令，解释原因和下一步建议。{file_context}",
             kind = script_kind.display,
             task = task,
             file_context = file_context,
@@ -216,6 +216,7 @@ mod tests {
 
         assert!(prompt.contains("根据参考搜索结果"));
         assert!(prompt.contains("不要强制创建脚本"));
+        assert!(prompt.contains("不要因为目标命令当前不存在就退出"));
         assert!(!prompt.contains("创建一个 zsh 脚本"));
     }
 
