@@ -18,9 +18,12 @@ pub struct Cli {
     /// Include files, directories, or URLs
     #[clap(short = 'f', long, value_name = "FILE")]
     pub file: Vec<String>,
-    /// Display the message without sending it
+    /// Display the full prompt without sending it
     #[clap(long)]
     pub dry_run: bool,
+    /// Print only the generated command without interactive actions
+    #[clap(long = "print")]
+    pub print_command: bool,
     /// List all sessions
     #[clap(long)]
     pub list_sessions: bool,

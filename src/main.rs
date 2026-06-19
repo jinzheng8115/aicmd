@@ -122,6 +122,107 @@ fn sanitize_generated_command(command: &str) -> String {
     out
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandRiskLevel {
+    ReadOnly,
+    ChangesSystem,
+    Destructive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CommandRisk {
+    level: CommandRiskLevel,
+    reasons: Vec<&'static str>,
+}
+
+impl CommandRisk {
+    fn label(&self) -> &'static str {
+        match self.level {
+            CommandRiskLevel::ReadOnly => "read-only / 只读",
+            CommandRiskLevel::ChangesSystem => "changes system / 会修改系统或文件",
+            CommandRiskLevel::Destructive => "destructive / 可能造成破坏",
+        }
+    }
+
+    fn requires_confirmation(&self) -> bool {
+        matches!(self.level, CommandRiskLevel::Destructive)
+    }
+
+    fn display(&self) -> String {
+        if self.reasons.is_empty() {
+            format!("Risk: {}", self.label())
+        } else {
+            format!("Risk: {} ({})", self.label(), self.reasons.join(", "))
+        }
+    }
+}
+
+fn classify_command_risk(command: &str) -> CommandRisk {
+    let lower = command.to_lowercase();
+    let mut level = CommandRiskLevel::ReadOnly;
+    let mut reasons = Vec::new();
+
+    let destructive_patterns = [
+        ("rm -rf", "recursive force delete"),
+        ("rm -fr", "recursive force delete"),
+        ("mkfs", "format filesystem"),
+        ("dd if=", "raw disk write/copy"),
+        ("diskutil erase", "erase disk"),
+        ("docker system prune", "docker prune"),
+        ("git reset --hard", "discard git changes"),
+        ("git clean -fd", "delete untracked files"),
+        ("chmod -r", "recursive permission change"),
+        ("chown -r", "recursive owner change"),
+        ("drop database", "drop database"),
+        ("truncate table", "truncate table"),
+        ("delete from", "database delete"),
+    ];
+    for (pattern, reason) in destructive_patterns {
+        if lower.contains(pattern) {
+            level = CommandRiskLevel::Destructive;
+            reasons.push(reason);
+        }
+    }
+
+    let changing_patterns = [
+        ("sudo ", "sudo"),
+        (" >", "redirect write"),
+        (">>", "append write"),
+        ("tee ", "write file"),
+        ("mkdir ", "create directory"),
+        ("touch ", "create/update file"),
+        ("mv ", "move/rename"),
+        ("cp ", "copy"),
+        ("rm ", "delete"),
+        ("chmod ", "permission change"),
+        ("chown ", "owner change"),
+        ("install ", "install"),
+        ("npm install", "install package"),
+        ("brew install", "install package"),
+        ("apt install", "install package"),
+        ("apt-get install", "install package"),
+        ("pip install", "install package"),
+        ("curl ", "network"),
+        ("wget ", "network"),
+        ("docker run", "start container"),
+        ("docker compose up", "start containers"),
+        ("systemctl ", "service control"),
+        ("launchctl ", "service control"),
+    ];
+    if !matches!(level, CommandRiskLevel::Destructive) {
+        for (pattern, reason) in changing_patterns {
+            if lower.contains(pattern) {
+                level = CommandRiskLevel::ChangesSystem;
+                reasons.push(reason);
+            }
+        }
+    }
+
+    reasons.sort_unstable();
+    reasons.dedup();
+    CommandRisk { level, reasons }
+}
+
 fn confirm_action(message: &str) -> Result<bool> {
     if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
         let mut tty_reader = BufReader::new(tty.try_clone()?);
@@ -512,6 +613,10 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         config.write().dry_run = true;
     }
 
+    if cli.print_command {
+        config.write().print_command = true;
+    }
+
     config.write().use_role(SHELL_ROLE)?;
     let default_session = default_session_name();
     if matches!(cli.session, Some(None)) && text.is_none() && cli.file.is_empty() {
@@ -559,6 +664,15 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     Ok(())
 }
 
+fn build_failure_revision_prompt(command: &str, code: i32, stdout: &str, stderr: &str) -> String {
+    const OUTPUT_LIMIT: usize = 3_000;
+    format!(
+        "上一次生成的命令执行失败，请根据错误输出重新生成一个更合适、更安全的命令。\n\n失败命令：\n{command}\n\n退出码：{code}\n\nSTDOUT：\n{}\n\nSTDERR：\n{}",
+        truncate_for_session(stdout.trim(), OUTPUT_LIMIT),
+        truncate_for_session(stderr.trim(), OUTPUT_LIMIT)
+    )
+}
+
 #[async_recursion::async_recursion]
 async fn shell_execute(
     config: &GlobalConfig,
@@ -580,6 +694,10 @@ async fn shell_execute(
         config.read().print_markdown(&eval_str)?;
         return Ok(());
     }
+    if config.read().print_command {
+        println!("{eval_str}");
+        return Ok(());
+    }
     if *IS_STDOUT_TERMINAL {
         let options = [
             ("e", "xecute", "执行"),
@@ -589,6 +707,7 @@ async fn shell_execute(
             ("q", "uit", "退出"),
         ];
         let command = color_text(eval_str.trim(), nu_ansi_term::Color::Rgb(255, 165, 0));
+        let risk = classify_command_risk(&eval_str);
         let first_letter_color = nu_ansi_term::Color::Cyan;
         let prompt_text = options
             .iter()
@@ -599,11 +718,18 @@ async fn shell_execute(
             .join(&dimmed_text(" | "));
         loop {
             println!("{command}");
+            println!("{}", dimmed_text(&risk.display()));
             let answer_char =
                 read_single_key(&['e', 'r', 'd', 'c', 'q'], 'e', &format!("{prompt_text}: "))?;
 
             match answer_char {
                 'e' => {
+                    if risk.requires_confirmation()
+                        && !confirm_action("High-risk command. Continue? / 高风险命令，确认执行？")?
+                    {
+                        println!("cancelled / 已取消");
+                        continue;
+                    }
                     let eval_command = command_with_cwd_capture(shell, &eval_str);
                     debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
                     let (code, stdout, stderr) = run_shell_command_capture(shell, &eval_command)?;
@@ -634,6 +760,32 @@ async fn shell_execute(
                         summary.as_deref(),
                     );
                     config.write().append_session_note(session_note)?;
+                    if code != 0 && *IS_STDOUT_TERMINAL {
+                        let fix_prompt = format!(
+                            "{}{}{}",
+                            color_text("r", first_letter_color),
+                            "evise with error",
+                            "(根据错误修改)"
+                        );
+                        let quit_prompt = format!(
+                            "{}{}{}",
+                            color_text("q", first_letter_color),
+                            "uit",
+                            "(退出)"
+                        );
+                        let prompt = format!(
+                            "Command failed. {}: ",
+                            [fix_prompt, quit_prompt].join(&dimmed_text(" | "))
+                        );
+                        let next = read_single_key(&['r', 'q'], 'r', &prompt)?;
+                        if next == 'r' {
+                            let failure_prompt =
+                                build_failure_revision_prompt(&eval_str, code, &stdout, &stderr);
+                            let text = format!("{}\n\n{failure_prompt}", input.text());
+                            input.set_text(text);
+                            return shell_execute(config, shell, input, abort_signal.clone()).await;
+                        }
+                    }
                     process::exit(code);
                 }
                 'r' => {

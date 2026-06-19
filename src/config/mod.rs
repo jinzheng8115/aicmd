@@ -48,6 +48,8 @@ pub struct Config {
     pub top_p: Option<f64>,
 
     pub dry_run: bool,
+    #[serde(skip)]
+    pub print_command: bool,
     pub stream: bool,
     pub wrap: Option<String>,
     pub wrap_code: bool,
@@ -84,6 +86,7 @@ impl Default for Config {
             top_p: None,
 
             dry_run: false,
+            print_command: false,
             stream: true,
             wrap: None,
             wrap_code: false,
