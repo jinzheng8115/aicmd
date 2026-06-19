@@ -93,6 +93,61 @@ pub fn extract_code_block(text: &str) -> &str {
         .unwrap_or(text)
 }
 
+pub fn clean_terminal_markdown(text: &str) -> String {
+    let mut in_fence = false;
+    let mut out = Vec::new();
+    for raw_line in text.lines() {
+        let mut line = raw_line.to_string();
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if !in_fence {
+            line = clean_markdown_line(&line);
+        }
+        out.push(line);
+    }
+    let mut value = out.join("\n");
+    if text.ends_with('\n') {
+        value.push('\n');
+    }
+    value
+}
+
+fn clean_markdown_line(line: &str) -> String {
+    let indent_len = line.len() - line.trim_start().len();
+    let (indent, rest) = line.split_at(indent_len);
+    let mut text = rest.to_string();
+
+    if let Some(stripped) = strip_heading_marker(&text) {
+        text = stripped.to_string();
+    }
+
+    text = strip_list_marker(&text).to_string();
+    text = text.replace("**", "").replace("__", "");
+    text = text.replace('`', "");
+    format!("{indent}{text}")
+}
+
+fn strip_heading_marker(value: &str) -> Option<&str> {
+    let trimmed = value.trim_start_matches('#');
+    let hashes = value.len() - trimmed.len();
+    if (1..=6).contains(&hashes) && trimmed.starts_with(' ') {
+        Some(trimmed.trim_start())
+    } else {
+        None
+    }
+}
+
+fn strip_list_marker(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2 && matches!(bytes[0], b'-' | b'*') && bytes[1] == b' ' {
+        return &value[2..];
+    }
+    value
+}
+
 pub fn convert_option_string(value: &str) -> Option<String> {
     if value.is_empty() {
         None
@@ -181,4 +236,23 @@ pub fn set_proxy(
 pub fn decode_bin<T: serde::de::DeserializeOwned>(data: &[u8]) -> Result<T> {
     let (v, _) = bincode::serde::decode_from_slice(data, bincode::config::legacy())?;
     Ok(v)
+}
+
+#[cfg(test)]
+mod terminal_markdown_tests {
+    use super::clean_terminal_markdown;
+
+    #[test]
+    fn removes_common_markdown_markers_for_terminal_output() {
+        let input = "### 安装 Docker 的步骤\n\n#### 1. 使用 Homebrew 安装 Docker\n- **打开终端**\n```bash\nbrew install docker\n```\n";
+        let output = clean_terminal_markdown(input);
+        assert!(!output.contains("###"));
+        assert!(!output.contains("####"));
+        assert!(!output.contains("**"));
+        assert!(!output.contains("```"));
+        assert!(output.contains("安装 Docker 的步骤"));
+        assert!(output.contains("使用 Homebrew 安装 Docker"));
+        assert!(output.contains("打开终端"));
+        assert!(output.contains("brew install docker"));
+    }
 }

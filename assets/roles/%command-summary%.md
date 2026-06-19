@@ -8,4 +8,4 @@ Rules:
 - Highlight important warnings, errors, unusual resource usage, counts, paths, or next actions.
 - If the command failed, explain the likely cause and practical next step.
 - Do not invent facts that are not present in the command output.
-- Keep the answer concise; avoid markdown tables and fenced code blocks.
+- Keep the answer concise; do not use markdown headings (#), bold markers (**), markdown tables, or fenced code blocks.
