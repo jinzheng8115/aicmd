@@ -10,7 +10,7 @@ pub fn build_error_report(args: &[String]) -> Result<String> {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let status = output.status.code().unwrap_or_default();
     Ok(format!(
-        "下面这条命令执行失败或需要检查。请生成安全的 {shell} 诊断/修复命令，不要直接删除数据。\nCommand: {command}\nExit code: {status}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n",
+        "The following command failed or needs inspection. Generate a safe {shell} diagnostic/fix command; do not directly delete data.\n下面这条命令执行失败或需要检查。请生成安全的 {shell} 诊断/修复命令，不要直接删除数据。\nCommand / 命令: {command}\nExit code / 退出码: {status}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n",
         shell = crate::utils::SHELL.name,
         command = display_command(&command_args),
     ))

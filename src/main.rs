@@ -621,9 +621,9 @@ async fn summarize_mcp_output(
     let prompt = format!(
         "MCP command: {mcp_command}
 MCP status: {status_text}
-用户请求：{query}
+User request / 用户请求：{query}
 
-MCP 返回内容：
+MCP returned content / MCP 返回内容：
 {llm_output}"
     );
     let role = config.read().retrieve_role(MCP_SUMMARY_ROLE)?;
@@ -734,7 +734,9 @@ async fn summarize_command_output(
     if combined.trim().is_empty() {
         return Ok(None);
     }
-    let prompt = format!("执行的命令：\n{command}\n\n退出码：{code}\n\n命令输出：\n{combined}");
+    let prompt = format!(
+        "Executed command / 执行的命令：\n{command}\n\nExit code / 退出码：{code}\n\nCommand output / 命令输出：\n{combined}"
+    );
     let role = config.read().retrieve_role(COMMAND_SUMMARY_ROLE)?;
     let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
@@ -840,7 +842,7 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
 fn build_failure_revision_prompt(command: &str, code: i32, stdout: &str, stderr: &str) -> String {
     const OUTPUT_LIMIT: usize = 3_000;
     format!(
-        "上一次生成的命令执行失败，请根据错误输出重新生成一个更合适、更安全的命令。\n\n失败命令：\n{command}\n\n退出码：{code}\n\nSTDOUT：\n{}\n\nSTDERR：\n{}",
+        "The previously generated command failed. Based on the error output, regenerate a more suitable and safer command.\n上一次生成的命令执行失败。请根据错误输出重新生成一个更合适、更安全的命令。\n\nFailed command / 失败命令：\n{command}\n\nExit code / 退出码：{code}\n\nSTDOUT：\n{}\n\nSTDERR：\n{}",
         truncate_for_session(stdout.trim(), OUTPUT_LIMIT),
         truncate_for_session(stderr.trim(), OUTPUT_LIMIT)
     )

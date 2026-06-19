@@ -109,14 +109,14 @@ fn build_prompt(
 ) -> String {
     let prompt = if plan {
         format!(
-            "为这个任务制定执行计划，不要创建脚本，不要执行实际任务，不要安装软件，不要修改文件或系统状态。任务: {task}。请只输出一条安全的 {kind} 命令，用 cat <<'EOF' 或 printf 打印中文计划。计划必须包含：目标、准备检查、执行步骤、风险/权限、验证方式、下一步建议。如果任务信息不足，请在计划中说明缺少什么。{file_context}",
+            "Create an execution plan for this task. Do not create scripts, run the actual task, install software, or change files/system state.\n为这个任务制定执行计划。不要创建脚本，不要执行实际任务，不要安装软件，不要修改文件或系统状态。\nTask / 任务: {task}\nOutput only one safe {kind} command that prints the plan in Chinese using cat <<'EOF' or printf.\n请只输出一条安全的 {kind} 命令，用 cat <<'EOF' 或 printf 打印中文计划。\nThe plan must include: goal, preflight checks, execution steps, risks/permissions, verification, and next actions.\n计划必须包含：目标、准备检查、执行步骤、风险/权限、验证方式、下一步建议。\nIf required task information is missing, explain what is missing in the plan.\n如果任务信息不足，请在计划中说明缺少什么。{file_context}",
             kind = script_kind.display,
             task = task,
             file_context = file_context,
         )
     } else if has_search_context {
         format!(
-            "根据参考搜索结果和当前系统环境，创建一个可审查的 {kind} 脚本 {path} 来完成这个任务: {task}。要求：只输出一条可直接执行的终端命令；这条命令必须创建脚本、写入脚本内容、设置可执行权限并执行脚本；不要输出 markdown 代码块、解释段落或自然语言步骤。脚本要求：使用 shebang；打印清晰步骤；先根据当前系统环境检查必要依赖；优先使用搜索结果中的官方或直接来源；安装或修改系统状态前选择可审查、可确认的命令；安装/设置软件时，不要因为目标命令当前不存在就退出，因为安装它正是任务目标；可以先检查 brew/npm/node/git/curl 等依赖，或使用 `if command -v 目标命令 >/dev/null 2>&1; then 目标命令 --version; else 安装命令 && 目标命令 --version; fi` 这种幂等结构；如果依赖的包管理器不存在，不要调用不存在的包管理器安装自己；安装后必须包含验证步骤；如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请不要创建会修改系统的脚本，只输出一条安全说明命令解释原因和下一步建议。{system_context}{file_context}",
+            "Based on the referenced search result and current system environment, create a reviewable {kind} script {path} to complete this task: {task}.\n根据参考搜索结果和当前系统环境，创建一个可审查的 {kind} 脚本 {path} 来完成这个任务: {task}。\nRequirements / 要求：\n- Output only one directly executable terminal command.\n- 只输出一条可直接执行的终端命令。\n- The command must create the script, write script contents, make it executable, and execute it.\n- 这条命令必须创建脚本、写入脚本内容、设置可执行权限并执行脚本。\n- Do not output markdown code blocks, explanatory prose, or natural-language steps.\n- 不要输出 markdown 代码块、解释段落或自然语言步骤。\nScript requirements / 脚本要求：\n- Use a shebang and print clear steps.\n- 使用 shebang，并打印清晰步骤。\n- Check necessary dependencies according to the current system environment before acting.\n- 先根据当前系统环境检查必要依赖。\n- Prefer official or direct sources from the search result.\n- 优先使用搜索结果中的官方或直接来源。\n- Choose reviewable and confirmable commands before installing or changing system state.\n- 安装或修改系统状态前选择可审查、可确认的命令。\n- For install/setup tasks, do not exit just because the target command is not installed; installing it is the goal.\n- 安装/设置软件时，不要因为目标命令当前不存在就退出，因为安装它正是任务目标。\n- You may check dependencies such as brew/npm/node/git/curl, or use an idempotent pattern such as `if command -v TARGET >/dev/null 2>&1; then TARGET --version; else INSTALL_COMMAND && TARGET --version; fi`.\n- 可以先检查 brew/npm/node/git/curl 等依赖，或使用 `if command -v 目标命令 >/dev/null 2>&1; then 目标命令 --version; else 安装命令 && 目标命令 --version; fi` 这种幂等结构。\n- If a required package manager is missing, do not call that missing package manager to install itself.\n- 如果依赖的包管理器不存在，不要调用不存在的包管理器安装自己。\n- Include a verification step after installation.\n- 安装后必须包含验证步骤。\n- If the search result is insufficient, unsafe, requires login/credentials/paid permission, or the correct method cannot be determined, do not create a script that modifies the system; output only one safe explanation command with the reason and next action.\n- 如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请不要创建会修改系统的脚本，只输出一条安全说明命令解释原因和下一步建议。{system_context}{file_context}",
             kind = script_kind.display,
             path = script_path,
             task = task,
@@ -125,7 +125,7 @@ fn build_prompt(
         )
     } else {
         format!(
-            "创建一个 {kind} 脚本 {path} 来完成这个任务: {task}。要求：先检查输入文件是否存在；必要时创建输出目录；不要删除或覆盖原始文件，除非任务明确要求；脚本写入后设置为可执行或可运行；最后执行这个脚本。如果任务缺少必要信息、无法安全完成、不适合本地脚本、依赖不可用的凭据或服务，或者找不到合适的实现方式，不要硬写脚本；请只输出一条安全的说明命令，解释无法执行的原因，并告诉用户需要补充什么或下一步建议。{file_context}",
+            "Create a {kind} script {path} to complete this task: {task}.\n创建一个 {kind} 脚本 {path} 来完成这个任务: {task}。\nRequirements / 要求：\n- Check whether input files exist first.\n- 先检查输入文件是否存在。\n- Create output directories when needed.\n- 必要时创建输出目录。\n- Do not delete or overwrite original files unless the task explicitly asks for it.\n- 不要删除或覆盖原始文件，除非任务明确要求。\n- After writing the script, make it executable or runnable, then execute it.\n- 脚本写入后设置为可执行或可运行，最后执行这个脚本。\n- If the task lacks required information, cannot be completed safely, is unsuitable for a local script, depends on unavailable credentials/services, or no suitable implementation can be found, do not force a script.\n- 如果任务缺少必要信息、无法安全完成、不适合本地脚本、依赖不可用的凭据或服务，或者找不到合适的实现方式，不要硬写脚本。\n- In that case, output only one safe explanation command explaining why it cannot be executed and what the user should provide or try next.\n- 这种情况下，请只输出一条安全的说明命令，解释无法执行的原因，并告诉用户需要补充什么或下一步建议。{file_context}",
             kind = script_kind.display,
             path = script_path,
             task = task,
