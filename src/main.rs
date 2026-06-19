@@ -300,7 +300,6 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
     };
     match cmd {
         "search" => {
-            let mut show_follow_up = false;
             if args.get(1).is_some_and(|v| v == "summarize") {
                 let target = search_cmd::parse_summarize_target(&args[2..])?;
                 let raw = search_cmd::load_raw_search(&target)?;
@@ -313,7 +312,6 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
                 };
                 search_cmd::persist_search_result(&raw.query, &summary, save_name)?;
             } else {
-                show_follow_up = true;
                 let options = search_cmd::parse_search_run_args(&args[1..])?;
                 let raw_output = call_mcp_raw("search", &options.query)?;
                 let raw_path = search_cmd::persist_raw_search_result(
@@ -336,9 +334,8 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
                         return Err(err.context("Search completed but failed to summarize"));
                     }
                 }
-            }
-            if show_follow_up {
-                prompt_search_follow_up(config, create_abort_signal()).await?;
+                prompt_search_follow_up(config, create_abort_signal(), Some(&options.query))
+                    .await?;
             }
             Ok(Some(0))
         }
@@ -431,7 +428,11 @@ async fn run_mcp_with_llm_summary(
     summarize_mcp_output(config, mcp_command, query, &raw_output).await
 }
 
-async fn prompt_search_follow_up(config: &GlobalConfig, abort_signal: AbortSignal) -> Result<()> {
+async fn prompt_search_follow_up(
+    config: &GlobalConfig,
+    abort_signal: AbortSignal,
+    query: Option<&str>,
+) -> Result<()> {
     if !*IS_STDOUT_TERMINAL {
         return Ok(());
     }
@@ -457,15 +458,20 @@ async fn prompt_search_follow_up(config: &GlobalConfig, abort_signal: AbortSigna
             search_cmd::save_last(if name.is_empty() { None } else { Some(name) })?;
         }
         'd' => {
-            let task = Text::new("基于刚才的搜索结果，你想让 AICmd 做什么？ / What should AICmd do using this search result?").prompt()?;
-            if task.trim().is_empty() {
-                bail!("No task provided");
-            }
+            let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) else {
+                bail!("No search query available for do action");
+            };
+            println!(
+                "{}",
+                dimmed_text(&format!(
+                    "Using search result as task / 使用搜索结果作为任务: {query}"
+                ))
+            );
             let args = vec![
                 "do".to_string(),
                 "--from-search".to_string(),
                 "last".to_string(),
-                task,
+                query.to_string(),
             ];
             run_do_shortcut(config, &args, abort_signal).await?;
         }
