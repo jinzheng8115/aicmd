@@ -120,9 +120,55 @@ fn sanitize_generated_command(command: &str) -> String {
             out = out.trim_end().to_string();
         }
     }
+    out = remove_markdown_and_prose_from_command(&out);
     out = out.replace("find /v \"\" /c", "find /c /v \"\"");
     out = remove_leading_missing_target_exit_guard(&out);
     out
+}
+
+fn remove_markdown_and_prose_from_command(command: &str) -> String {
+    command
+        .lines()
+        .filter(|line| keep_generated_command_line(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn keep_generated_command_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.starts_with("```") {
+        return false;
+    }
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return true;
+    }
+    if contains_cjk(trimmed) && !is_shell_line_that_may_contain_cjk(trimmed) {
+        return false;
+    }
+    true
+}
+
+fn contains_cjk(text: &str) -> bool {
+    text.chars().any(|ch| {
+        ('\u{4e00}'..='\u{9fff}').contains(&ch)
+            || ('\u{3400}'..='\u{4dbf}').contains(&ch)
+            || ('\u{3040}'..='\u{30ff}').contains(&ch)
+            || ('\u{ac00}'..='\u{d7af}').contains(&ch)
+    })
+}
+
+fn is_shell_line_that_may_contain_cjk(trimmed: &str) -> bool {
+    let command_prefixes = [
+        "echo ", "printf ", "cat ", "read ", "export ", "local ", "declare ", "typeset ",
+    ];
+    command_prefixes
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+        || trimmed.contains("<<")
+        || trimmed.contains("=\"")
+        || trimmed.contains("='")
 }
 
 fn remove_leading_missing_target_exit_guard(command: &str) -> String {
@@ -1077,5 +1123,26 @@ fi
 brew install copilot-cli"#;
 
         assert_eq!(sanitize_generated_command(input), input);
+    }
+
+    #[test]
+    fn sanitize_generated_command_removes_markdown_fences_and_prose() {
+        let input = r#"# 检查 Homebrew 是否已安装
+if command -v brew >/dev/null 2>&1; then
+    echo "Homebrew 已安装"
+else
+    echo "Homebrew 未安装，请先安装 Homebrew"
+    exit 1
+fi
+```
+如果 Homebrew 已安装，则继续执行以下步骤：
+```zsh
+# 安装 Copilot CLI
+brew install copilot-cli@prerelease"#;
+
+        assert_eq!(
+            sanitize_generated_command(input),
+            "# 检查 Homebrew 是否已安装\nif command -v brew >/dev/null 2>&1; then\n    echo \"Homebrew 已安装\"\nelse\n    echo \"Homebrew 未安装，请先安装 Homebrew\"\n    exit 1\nfi\n# 安装 Copilot CLI\nbrew install copilot-cli@prerelease"
+        );
     }
 }
