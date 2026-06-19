@@ -120,21 +120,28 @@ fn clean_markdown_line(line: &str) -> String {
     let (indent, rest) = line.split_at(indent_len);
     let mut text = rest.to_string();
 
-    if let Some(stripped) = strip_heading_marker(&text) {
-        text = stripped.to_string();
+    let heading =
+        strip_heading_marker(&text).map(|(level, stripped)| (level, stripped.to_string()));
+    let heading_level = heading.as_ref().map(|(level, _)| *level);
+    if let Some((_, stripped)) = heading {
+        text = stripped;
     }
 
     text = strip_list_marker(&text).to_string();
     text = text.replace("**", "").replace("__", "");
     text = text.replace('`', "");
+    let text = match heading_level {
+        Some(level) => heading_text(&text, level),
+        None => text,
+    };
     format!("{indent}{text}")
 }
 
-fn strip_heading_marker(value: &str) -> Option<&str> {
+fn strip_heading_marker(value: &str) -> Option<(usize, &str)> {
     let trimmed = value.trim_start_matches('#');
     let hashes = value.len() - trimmed.len();
     if (1..=6).contains(&hashes) && trimmed.starts_with(' ') {
-        Some(trimmed.trim_start())
+        Some((hashes, trimmed.trim_start()))
     } else {
         None
     }
@@ -196,6 +203,22 @@ pub fn color_text(input: &str, color: nu_ansi_term::Color) -> String {
         return input.to_string();
     }
     nu_ansi_term::Style::new()
+        .fg(color)
+        .paint(input)
+        .to_string()
+}
+
+pub fn heading_text(input: &str, level: usize) -> String {
+    if *NO_COLOR {
+        return input.to_string();
+    }
+    let color = if level <= 1 {
+        nu_ansi_term::Color::Cyan
+    } else {
+        nu_ansi_term::Color::Blue
+    };
+    nu_ansi_term::Style::new()
+        .bold()
         .fg(color)
         .paint(input)
         .to_string()
