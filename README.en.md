@@ -119,7 +119,7 @@ aicmd init --from-env --force
 Generated `config.yaml` defaults include:
 
 ```yaml
-temperature: 0.1
+temperature: 0
 top_p: null
 stream: false
 ai_summary: true

@@ -211,7 +211,7 @@ fn config_from_env(values: &HashMap<String, String>) -> Result<String> {
 
 model: {default_model}
 
-temperature: 0.1
+temperature: 0
 top_p: null
 stream: false
 ai_summary: true
@@ -259,7 +259,7 @@ fn default_config() -> &'static str {
 
 model: openai:gpt-4o
 
-temperature: 0.1
+temperature: 0
 top_p: null
 stream: false
 ai_summary: true
@@ -385,7 +385,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn env_config_defaults_temperature_to_0_1() {
+    fn env_config_defaults_temperature_to_0() {
         let values = HashMap::from([
             ("AICMD_MODEL_PROVIDER".to_string(), "openai".to_string()),
             ("AICMD_MODEL_NAME".to_string(), "deepseek".to_string()),
@@ -398,15 +398,15 @@ mod tests {
         ]);
 
         let config = config_from_env(&values).expect("config should be generated from env");
-        assert!(config.contains("\ntemperature: 0.1\n"));
+        assert!(config.contains("\ntemperature: 0\n"));
         assert!(!config.contains("\ntemperature: null\n"));
         assert!(config.contains("\nai_summary: true\n"));
     }
 
     #[test]
-    fn starter_config_defaults_temperature_to_0_1() {
+    fn starter_config_defaults_temperature_to_0() {
         let config = default_config();
-        assert!(config.contains("\ntemperature: 0.1\n"));
+        assert!(config.contains("\ntemperature: 0\n"));
         assert!(!config.contains("\ntemperature: null\n"));
         assert!(config.contains("\nai_summary: true\n"));
     }

@@ -119,7 +119,7 @@ aicmd init --from-env --force
 生成的 `config.yaml` 默认包含：
 
 ```yaml
-temperature: 0.1
+temperature: 0
 top_p: null
 stream: false
 ai_summary: true
