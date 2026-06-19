@@ -851,15 +851,15 @@ async fn shell_execute(
     config.write().before_chat_completion(&input)?;
     let (eval_str, _) =
         call_chat_completions(&input, false, true, client.as_ref(), abort_signal.clone()).await?;
+    if config.read().dry_run {
+        config.read().print_markdown(&eval_str)?;
+        return Ok(());
+    }
     let eval_str = sanitize_generated_command(&eval_str);
 
     config.write().after_chat_completion(&input, &eval_str)?;
     if eval_str.is_empty() {
         bail!("No command generated");
-    }
-    if config.read().dry_run {
-        config.read().print_markdown(&eval_str)?;
-        return Ok(());
     }
     if config.read().print_command {
         println!("{eval_str}");

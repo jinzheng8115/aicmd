@@ -378,7 +378,7 @@ aicmd do --from-search gemini-cli "根据这份搜索记录，在本机安装 ge
 aicmd do --from-search last "根据最近一次搜索记录生成执行脚本"
 ```
 
-AICmd 会让 LLM 生成“创建脚本并运行脚本”的命令，并走正常确认流程。
+AICmd 会让 LLM 生成“创建脚本并运行脚本”的命令，并走正常确认流程。使用 `--from-search` 时，AICmd 会同时提供搜索结果和当前系统环境探测结果，例如操作系统、架构、当前目录，以及 `brew`、`node`、`npm`、`git`、`curl` 等常见依赖是否存在，帮助模型生成更贴近本机环境的安装或执行脚本。
 
 先搜索、保存记录、再用 `do` 执行：
 

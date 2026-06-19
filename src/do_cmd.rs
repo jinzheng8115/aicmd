@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use chrono::Local;
-use std::{fs, path::PathBuf};
+use std::{env, fs, path::PathBuf, process::Command};
 
 use crate::{search_cmd, utils::strip_ansi_codes};
 
@@ -81,9 +81,15 @@ pub fn build_do_request(args: &[String], shell_name: &str) -> Result<DoRequest> 
     let file_context = read_file_context(&resolve_context_files(&files, &search_refs)?)?;
     let script_kind = script_kind(shell_name);
     let script_path = output.unwrap_or_else(|| default_script_path(script_kind.extension));
+    let system_context = if has_search_context && !plan {
+        build_system_context(shell_name)
+    } else {
+        String::new()
+    };
     let prompt = build_prompt(
         &task,
         &file_context,
+        &system_context,
         script_kind,
         &script_path,
         plan,
@@ -95,6 +101,7 @@ pub fn build_do_request(args: &[String], shell_name: &str) -> Result<DoRequest> 
 fn build_prompt(
     task: &str,
     file_context: &str,
+    system_context: &str,
     script_kind: ScriptKind,
     script_path: &str,
     plan: bool,
@@ -109,9 +116,11 @@ fn build_prompt(
         )
     } else if has_search_context {
         format!(
-            "根据参考搜索结果，生成一条最合适、最安全的 {kind} 终端命令来完成这个任务: {task}。要求：只输出可直接执行的终端命令，不要输出 markdown 代码块、解释段落或自然语言步骤；优先使用搜索结果中的官方或直接来源；不要强制创建脚本，除非任务确实需要多步骤脚本；安装或修改系统状态前要选择可审查、可确认的命令；如果任务是安装/设置软件，不要因为目标命令当前不存在就退出，因为安装它正是任务目标；可以先检查 brew/npm/node/git 等依赖，或使用 `if command -v 目标命令 >/dev/null 2>&1; then 目标命令 --version; else 安装命令 && 目标命令 --version; fi` 这种幂等结构；如果依赖的包管理器不存在，不要调用不存在的包管理器安装自己，请输出安全说明命令；如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请只输出一条安全的说明命令，解释原因和下一步建议。{file_context}",
+            "根据参考搜索结果和当前系统环境，创建一个可审查的 {kind} 脚本 {path} 来完成这个任务: {task}。要求：只输出一条可直接执行的终端命令；这条命令必须创建脚本、写入脚本内容、设置可执行权限并执行脚本；不要输出 markdown 代码块、解释段落或自然语言步骤。脚本要求：使用 shebang；打印清晰步骤；先根据当前系统环境检查必要依赖；优先使用搜索结果中的官方或直接来源；安装或修改系统状态前选择可审查、可确认的命令；安装/设置软件时，不要因为目标命令当前不存在就退出，因为安装它正是任务目标；可以先检查 brew/npm/node/git/curl 等依赖，或使用 `if command -v 目标命令 >/dev/null 2>&1; then 目标命令 --version; else 安装命令 && 目标命令 --version; fi` 这种幂等结构；如果依赖的包管理器不存在，不要调用不存在的包管理器安装自己；安装后必须包含验证步骤；如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请不要创建会修改系统的脚本，只输出一条安全说明命令解释原因和下一步建议。{system_context}{file_context}",
             kind = script_kind.display,
+            path = script_path,
             task = task,
+            system_context = system_context,
             file_context = file_context,
         )
     } else {
@@ -124,6 +133,58 @@ fn build_prompt(
         )
     };
     prompt
+}
+
+fn build_system_context(shell_name: &str) -> String {
+    let mut out = String::from("\n\n当前系统环境 / Current system environment:\n");
+    out.push_str(&format!("shell: {shell_name}\n"));
+    out.push_str(&format!("os: {}\n", env::consts::OS));
+    out.push_str(&format!("arch: {}\n", env::consts::ARCH));
+    if let Ok(dir) = env::current_dir() {
+        out.push_str(&format!("cwd: {}\n", dir.display()));
+    }
+    for (name, command) in [
+        ("uname", "uname -a 2>/dev/null || true"),
+        ("brew", "command -v brew >/dev/null 2>&1 && { command -v brew; brew --version | head -n 1; } || echo missing"),
+        ("node", "command -v node >/dev/null 2>&1 && { command -v node; node --version; } || echo missing"),
+        ("npm", "command -v npm >/dev/null 2>&1 && { command -v npm; npm --version; } || echo missing"),
+        ("git", "command -v git >/dev/null 2>&1 && { command -v git; git --version; } || echo missing"),
+        ("curl", "command -v curl >/dev/null 2>&1 && command -v curl || echo missing"),
+        ("wget", "command -v wget >/dev/null 2>&1 && command -v wget || echo missing"),
+    ] {
+        out.push_str(&format!("{name}: {}\n", run_probe(command)));
+    }
+    out
+}
+
+fn run_probe(command: &str) -> String {
+    let output = Command::new("sh").arg("-lc").arg(command).output();
+    let Ok(output) = output else {
+        return "unknown".to_string();
+    };
+    let mut text = String::new();
+    text.push_str(&String::from_utf8_lossy(&output.stdout));
+    if text.trim().is_empty() {
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+    let text = strip_ansi_codes(&text);
+    let mut text = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    const MAX_LEN: usize = 240;
+    if text.chars().count() > MAX_LEN {
+        text = text.chars().take(MAX_LEN).collect::<String>();
+        text.push_str("...");
+    }
+    if text.is_empty() {
+        "unknown".to_string()
+    } else {
+        text
+    }
 }
 
 fn resolve_context_files(files: &[String], search_refs: &[String]) -> Result<Vec<String>> {
@@ -208,6 +269,7 @@ mod tests {
         let prompt = build_prompt(
             "如何安装 copilot-cli",
             "\n\n参考文件内容 / Reference file contents:\n官方安装方式...",
+            "\n\n当前系统环境 / Current system environment:\nbrew: /opt/homebrew/bin/brew | Homebrew 4.5.0\n",
             script_kind("zsh"),
             ".aicmd/task-test.sh",
             false,
@@ -215,15 +277,17 @@ mod tests {
         );
 
         assert!(prompt.contains("根据参考搜索结果"));
-        assert!(prompt.contains("不要强制创建脚本"));
+        assert!(prompt.contains("创建一个可审查的 zsh 脚本 .aicmd/task-test.sh"));
+        assert!(prompt.contains("当前系统环境"));
         assert!(prompt.contains("不要因为目标命令当前不存在就退出"));
-        assert!(!prompt.contains("创建一个 zsh 脚本"));
+        assert!(prompt.contains("设置可执行权限并执行脚本"));
     }
 
     #[test]
     fn normal_do_prompt_still_creates_script() {
         let prompt = build_prompt(
             "处理 input.csv",
+            "",
             "",
             script_kind("zsh"),
             ".aicmd/task-test.sh",
@@ -232,5 +296,14 @@ mod tests {
         );
 
         assert!(prompt.contains("创建一个 zsh 脚本"));
+    }
+
+    #[test]
+    fn system_context_includes_core_environment_fields() {
+        let context = build_system_context("zsh");
+        assert!(context.contains("当前系统环境"));
+        assert!(context.contains("shell: zsh"));
+        assert!(context.contains("os:"));
+        assert!(context.contains("arch:"));
     }
 }

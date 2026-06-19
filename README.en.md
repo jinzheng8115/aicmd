@@ -376,7 +376,7 @@ aicmd do --from-search gemini-cli "根据这份搜索记录，在本机安装 ge
 aicmd do --from-search last "根据最近一次搜索记录生成执行脚本"
 ```
 
-AICmd asks the LLM to generate commands that create a script, review it, and execute it through the normal confirmation flow.
+AICmd asks the LLM to generate commands that create a script, review it, and execute it through the normal confirmation flow. With `--from-search`, AICmd passes both the saved search result and a current system probe, including OS, architecture, current directory, and whether common dependencies such as `brew`, `node`, `npm`, `git`, and `curl` are available, so the model can generate a script that better matches the local environment.
 
 Search first, save notes, then execute with `do`:
 
