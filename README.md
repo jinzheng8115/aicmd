@@ -52,6 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/jinzheng8115/aicmd/main/contrib/aic
 | MCP 配置 | `~/.aicmd/mcp.json` |
 | 会话记录 | `~/.aicmd/sessions` |
 | 搜索记录 | `~/.aicmd/searches` |
+| 成功命令缓存 | `~/.aicmd/command-cache.yaml` |
 
 如果已经把项目 clone 到本地，也可以直接运行仓库里的安装脚本。默认仍然是二进制安装，会下载 GitHub Release，不需要 Rust：
 
@@ -141,6 +142,7 @@ aicmd --no-summary 当前目录有多少文件
 
 ```bash
 aicmd doctor
+aicmd config status
 aicmd config path
 aicmd config show
 aicmd config edit
@@ -209,6 +211,7 @@ aicmd 当前目录有多少文件
 aicmd --print 当前目录有多少文件      # 只打印命令，不执行
 aicmd --dry-run 当前目录有多少文件    # 查看将发送给模型的 prompt
 aicmd --no-summary 当前目录有多少文件 # 执行后跳过 AI summary
+aicmd --no-cache 当前目录有多少文件   # 不复用之前成功的命令
 ```
 
 执行前会出现：
@@ -218,6 +221,19 @@ execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出
 ```
 
 AICmd 会显示风险等级。高风险命令会要求二次确认。
+
+如果同一个普通任务之前成功执行过，AICmd 可能会先提示复用之前的命令，减少同一句话生成不同命令的问题：
+
+```text
+Found a previously successful command / 找到一条之前成功执行过的命令:
+reuse(复用) | new(重新生成) | describe(解释) | quit(退出):
+```
+
+如果命令执行失败，AICmd 会提供失败处理菜单。`fix` 会基于失败命令、exit code、stdout/stderr 和当前系统环境生成修复命令，但仍需要你确认后才会执行：
+
+```text
+fix(修复) | explain(解释) | copy(复制) | quit(退出):
+```
 
 ### 6.2 脚本任务：`aicmd do`
 
@@ -270,6 +286,7 @@ aicmd last
 ```bash
 aicmd config init            # 从 .env 生成 config.yaml
 aicmd config init --force    # 覆盖已有配置，会二次确认
+aicmd config status          # 安全查看当前模型、温度、summary、MCP、session 状态
 aicmd config path            # 输出 config.yaml 路径
 aicmd config dir             # 输出 ~/.aicmd 目录
 aicmd config show            # 输出 config.yaml，注意可能包含 API key

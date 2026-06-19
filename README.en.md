@@ -52,6 +52,7 @@ Default locations:
 | MCP config | `~/.aicmd/mcp.json` |
 | Sessions | `~/.aicmd/sessions` |
 | Searches | `~/.aicmd/searches` |
+| Successful command cache | `~/.aicmd/command-cache.yaml` |
 
 If you already cloned the repository, you can also run the installer from the local checkout. By default it still performs a binary install from the GitHub Release and does not require Rust:
 
@@ -141,6 +142,7 @@ Inspect config:
 
 ```bash
 aicmd doctor
+aicmd config status
 aicmd config path
 aicmd config show
 aicmd config edit
@@ -209,6 +211,7 @@ aicmd how many files are in this directory
 aicmd --print how many files are in this directory      # print only, do not execute
 aicmd --dry-run how many files are in this directory    # preview the prompt
 aicmd --no-summary how many files are in this directory # skip AI summary after execution
+aicmd --no-cache how many files are in this directory   # do not reuse a successful cached command
 ```
 
 Before execution, AICmd asks:
@@ -218,6 +221,19 @@ execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出
 ```
 
 AICmd shows a risk level. Destructive commands require an extra confirmation.
+
+If the same regular task succeeded before, AICmd may offer to reuse the previous command to reduce variation for the same request:
+
+```text
+Found a previously successful command / 找到一条之前成功执行过的命令:
+reuse(复用) | new(重新生成) | describe(解释) | quit(退出):
+```
+
+If execution fails, AICmd shows a failure menu. `fix` asks the model to generate a revised command from the failed command, exit code, stdout/stderr, and current environment. The revised command still requires your confirmation before execution:
+
+```text
+fix(修复) | explain(解释) | copy(复制) | quit(退出):
+```
 
 ### 6.2 Script workflow: `aicmd do`
 
@@ -270,6 +286,7 @@ aicmd last
 ```bash
 aicmd config init            # generate config.yaml from .env
 aicmd config init --force    # overwrite config, asks for confirmation
+aicmd config status          # safely show model, temperature, summary, MCP, and session status
 aicmd config path            # print config.yaml path
 aicmd config dir             # print ~/.aicmd directory
 aicmd config show            # print config.yaml; may contain API keys
