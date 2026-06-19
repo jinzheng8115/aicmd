@@ -1,5 +1,6 @@
 mod cli;
 mod client;
+mod command_cache;
 mod config;
 mod config_cmd;
 mod do_cmd;
@@ -457,7 +458,7 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             let default_session = default_session_name();
             config.write().use_session(Some(&default_session))?;
             let input = Input::from_str(config, &report, None);
-            shell_execute(config, &SHELL, input, create_abort_signal()).await?;
+            shell_execute(config, &SHELL, input, create_abort_signal(), None).await?;
             Ok(Some(0))
         }
         "do" => {
@@ -602,7 +603,7 @@ async fn run_do_shortcut(
     let default_session = default_session_name();
     config.write().use_session(Some(&default_session))?;
     let input = Input::from_str(config, &request.prompt, None);
-    shell_execute(config, &SHELL, input, abort_signal).await
+    shell_execute(config, &SHELL, input, abort_signal, None).await
 }
 
 async fn summarize_mcp_output(
@@ -840,8 +841,15 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         }
         return Ok(());
     }
+    let cache_task = if cli.no_cache || !cli.file.is_empty() {
+        None
+    } else {
+        text.as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
     let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
-    shell_execute(&config, &SHELL, input, abort_signal.clone()).await?;
+    shell_execute(&config, &SHELL, input, abort_signal.clone(), cache_task).await?;
     Ok(())
 }
 
@@ -858,9 +866,35 @@ fn build_failure_revision_prompt(command: &str, code: i32, stdout: &str, stderr:
 async fn shell_execute(
     config: &GlobalConfig,
     shell: &Shell,
-    mut input: Input,
+    input: Input,
     abort_signal: AbortSignal,
+    cache_task: Option<String>,
 ) -> Result<()> {
+    if let Some(task) = cache_task.as_deref() {
+        if !config.read().dry_run && !config.read().print_command && *IS_STDOUT_TERMINAL {
+            if let Some(record) = command_cache::lookup(task, &shell.name, env::consts::OS) {
+                match prompt_cached_command(config, &input, &record.command, abort_signal.clone())
+                    .await?
+                {
+                    CachedCommandAction::Reuse => {
+                        return handle_generated_command(
+                            config,
+                            shell,
+                            input,
+                            abort_signal,
+                            record.command,
+                            cache_task,
+                            false,
+                        )
+                        .await;
+                    }
+                    CachedCommandAction::New => {}
+                    CachedCommandAction::Quit => return Ok(()),
+                }
+            }
+        }
+    }
+
     let client = input.create_client()?;
     config.write().before_chat_completion(&input)?;
     let (eval_str, _) =
@@ -869,9 +903,99 @@ async fn shell_execute(
         config.read().print_markdown(&eval_str)?;
         return Ok(());
     }
+    handle_generated_command(
+        config,
+        shell,
+        input,
+        abort_signal,
+        eval_str,
+        cache_task,
+        true,
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CachedCommandAction {
+    Reuse,
+    New,
+    Quit,
+}
+
+async fn prompt_cached_command(
+    config: &GlobalConfig,
+    input: &Input,
+    command: &str,
+    abort_signal: AbortSignal,
+) -> Result<CachedCommandAction> {
+    println!(
+        "{}",
+        dimmed_text("Found a previously successful command / 找到一条之前成功执行过的命令:")
+    );
+    println!(
+        "{}",
+        color_text(command.trim(), nu_ansi_term::Color::Rgb(255, 165, 0))
+    );
+    let first_letter_color = nu_ansi_term::Color::Cyan;
+    let options = [
+        ("r", "euse", "复用"),
+        ("n", "ew", "重新生成"),
+        ("d", "escribe", "解释"),
+        ("q", "uit", "退出"),
+    ];
+    let prompt_text = options
+        .iter()
+        .map(|(key, rest, zh)| format!("{}{}({})", color_text(key, first_letter_color), rest, zh))
+        .collect::<Vec<String>>()
+        .join(&dimmed_text(" | "));
+    loop {
+        let answer = read_single_key(&['r', 'n', 'd', 'q'], 'r', &format!("{prompt_text}: "))?;
+        match answer {
+            'r' => return Ok(CachedCommandAction::Reuse),
+            'n' => return Ok(CachedCommandAction::New),
+            'd' => {
+                let role = config.read().retrieve_role(EXPLAIN_SHELL_ROLE)?;
+                let explain_input = Input::from_str(config, command, Some(role));
+                let client = input.create_client()?;
+                if explain_input.stream() {
+                    call_chat_completions_streaming(
+                        &explain_input,
+                        client.as_ref(),
+                        abort_signal.clone(),
+                    )
+                    .await?;
+                } else {
+                    call_chat_completions(
+                        &explain_input,
+                        true,
+                        false,
+                        client.as_ref(),
+                        abort_signal.clone(),
+                    )
+                    .await?;
+                }
+                println!();
+            }
+            _ => return Ok(CachedCommandAction::Quit),
+        }
+    }
+}
+
+#[async_recursion::async_recursion]
+async fn handle_generated_command(
+    config: &GlobalConfig,
+    shell: &Shell,
+    mut input: Input,
+    abort_signal: AbortSignal,
+    eval_str: String,
+    cache_task: Option<String>,
+    record_assistant_message: bool,
+) -> Result<()> {
     let eval_str = sanitize_generated_command(&eval_str);
 
-    config.write().after_chat_completion(&input, &eval_str)?;
+    if record_assistant_message {
+        config.write().after_chat_completion(&input, &eval_str)?;
+    }
     if eval_str.is_empty() {
         bail!("No command generated");
     }
@@ -879,6 +1003,7 @@ async fn shell_execute(
         println!("{eval_str}");
         return Ok(());
     }
+    let client = input.create_client()?;
     if *IS_STDOUT_TERMINAL {
         let options = [
             ("e", "xecute", "执行"),
@@ -945,6 +1070,18 @@ async fn shell_execute(
                         summary.as_deref(),
                     );
                     config.write().append_session_note(session_note)?;
+                    if code == 0 {
+                        if let Some(task) = cache_task.as_deref() {
+                            if let Err(err) = command_cache::record_success(
+                                task,
+                                &shell.name,
+                                env::consts::OS,
+                                &eval_str,
+                            ) {
+                                eprintln!("Command cache update failed: {err:#}");
+                            }
+                        }
+                    }
                     if code != 0 && *IS_STDOUT_TERMINAL {
                         let fix_prompt = format!(
                             "{}{}{}",
@@ -968,7 +1105,8 @@ async fn shell_execute(
                                 build_failure_revision_prompt(&eval_str, code, &stdout, &stderr);
                             let text = format!("{}\n\n{failure_prompt}", input.text());
                             input.set_text(text);
-                            return shell_execute(config, shell, input, abort_signal.clone()).await;
+                            return shell_execute(config, shell, input, abort_signal.clone(), None)
+                                .await;
                         }
                     }
                     process::exit(code);
@@ -977,7 +1115,7 @@ async fn shell_execute(
                     let revision = Text::new("Enter your revision:").prompt()?;
                     let text = format!("{}\n{revision}", input.text());
                     input.set_text(text);
-                    return shell_execute(config, shell, input, abort_signal.clone()).await;
+                    return shell_execute(config, shell, input, abort_signal.clone(), None).await;
                 }
                 'd' => {
                     let role = config.read().retrieve_role(EXPLAIN_SHELL_ROLE)?;

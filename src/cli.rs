@@ -30,6 +30,9 @@ pub struct Cli {
     /// Disable AI summary after command execution
     #[clap(long = "no-summary")]
     pub no_summary: bool,
+    /// Do not reuse a previously successful command
+    #[clap(long = "no-cache")]
+    pub no_cache: bool,
     /// List all sessions
     #[clap(long)]
     pub list_sessions: bool,
