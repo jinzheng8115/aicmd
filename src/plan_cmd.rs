@@ -5,10 +5,10 @@ use crate::{
 };
 
 use anyhow::{bail, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PlanMode {
     Direct,
@@ -28,7 +28,7 @@ impl fmt::Display for PlanMode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionPlan {
     pub mode: PlanMode,
@@ -38,6 +38,21 @@ pub struct ExecutionPlan {
     pub query: String,
     #[serde(default)]
     pub problem: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteKind {
+    Command,
+    Search,
+    Diagnose,
+}
+
+pub fn route_kind(mode: &PlanMode) -> RouteKind {
+    match mode {
+        PlanMode::Direct | PlanMode::Script => RouteKind::Command,
+        PlanMode::Search => RouteKind::Search,
+        PlanMode::Diagnose => RouteKind::Diagnose,
+    }
 }
 
 pub fn parse_execution_plan(raw: &str) -> Result<ExecutionPlan> {
@@ -121,5 +136,13 @@ mod tests {
             parse_planner_response("```json\n{\"mode\":\"direct\",\"command\":\"pwd\"}\n```")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn maps_plan_modes_to_routes() {
+        assert_eq!(route_kind(&PlanMode::Direct), RouteKind::Command);
+        assert_eq!(route_kind(&PlanMode::Script), RouteKind::Command);
+        assert_eq!(route_kind(&PlanMode::Search), RouteKind::Search);
+        assert_eq!(route_kind(&PlanMode::Diagnose), RouteKind::Diagnose);
     }
 }

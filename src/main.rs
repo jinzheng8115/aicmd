@@ -30,6 +30,7 @@ use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
     EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_ROLE,
 };
+use crate::plan_cmd::{request_execution_plan, route_kind, ExecutionPlan, RouteKind};
 use crate::render::render_error;
 use crate::utils::*;
 
@@ -856,8 +857,62 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             .filter(|value| !value.is_empty())
     };
     let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
-    shell_execute(&config, &SHELL, input, abort_signal.clone(), cache_task, 0).await?;
+    let plan = request_execution_plan(&config, &input, abort_signal.clone())
+        .await
+        .context("Invalid execution plan / 无效执行计划")?;
+    route_execution_plan(&config, &SHELL, input, plan, abort_signal, cache_task).await?;
     Ok(())
+}
+
+async fn route_execution_plan(
+    config: &GlobalConfig,
+    shell: &Shell,
+    input: Input,
+    plan: ExecutionPlan,
+    abort_signal: AbortSignal,
+    cache_task: Option<String>,
+) -> Result<()> {
+    if config.read().dry_run {
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+        return Ok(());
+    }
+
+    if config.read().print_command {
+        match route_kind(&plan.mode) {
+            RouteKind::Command => println!("{}", plan.command),
+            RouteKind::Search => println!("mode: search\nquery: {}", plan.query),
+            RouteKind::Diagnose => println!("mode: diagnose\nproblem: {}", plan.problem),
+        }
+        return Ok(());
+    }
+
+    match route_kind(&plan.mode) {
+        RouteKind::Command => {
+            handle_generated_command(
+                config,
+                shell,
+                input,
+                abort_signal,
+                ShellExecutionOptions {
+                    eval_str: plan.command,
+                    cache_task,
+                    record_assistant_message: true,
+                    repair_attempts: 0,
+                    from_cache: false,
+                },
+            )
+            .await
+        }
+        RouteKind::Search => {
+            let raw_output = call_mcp_raw("search", &plan.query)?;
+            summarize_mcp_output(config, "search", &plan.query, &raw_output).await?;
+            prompt_search_follow_up(config, abort_signal, Some(&plan.query)).await
+        }
+        RouteKind::Diagnose => {
+            let input = Input::from_str(config, &plan.problem, None);
+            shell_execute(config, shell, input, abort_signal, None, 0).await
+        }
+    }
 }
 
 #[async_recursion::async_recursion]
