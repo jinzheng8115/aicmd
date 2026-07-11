@@ -10,6 +10,7 @@ mod function;
 mod help_cmd;
 mod mcp_cmd;
 mod model_cmd;
+mod plan_cmd;
 mod render;
 mod repair_cmd;
 mod search_cmd;
