@@ -21,6 +21,13 @@ pub fn interpolate_variables(text: &mut String) {
                 "__arch__" => env::consts::ARCH.to_string(),
                 "__shell__" => SHELL.name.clone(),
                 "__locale__" => sys_locale::get_locale().unwrap_or_default(),
+                "__terminal_language__" => {
+                    if is_chinese() {
+                        "zh".to_string()
+                    } else {
+                        "en".to_string()
+                    }
+                }
                 "__now__" => now(),
                 "__cwd__" => env::current_dir()
                     .map(|v| v.display().to_string())

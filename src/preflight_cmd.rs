@@ -311,4 +311,17 @@ mod tests {
         assert!(!run_checks(&[check(PreflightType::GitClean, ".")], &root).passed());
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn failure_output_uses_only_one_terminal_language() {
+        let report = run_checks(
+            &[check(PreflightType::PathExists, "definitely-missing")],
+            Path::new("."),
+        );
+        let output = format_report(&report);
+        assert_ne!(
+            output.contains("执行前检查失败"),
+            output.contains("Preflight failed")
+        );
+    }
 }

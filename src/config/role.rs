@@ -301,6 +301,10 @@ Input 1
         let planner = Role::builtin(SHELL_ROLE)?;
         let command = Role::builtin(SHELL_COMMAND_ROLE)?;
         assert!(planner.prompt().contains("exactly one JSON object"));
+        assert!(planner.prompt().contains("\"preflight\""));
+        assert!(planner.prompt().contains("command_exists"));
+        assert!(planner.prompt().contains("path_exists"));
+        assert!(!planner.prompt().contains("__terminal_language__"));
         assert!(command.prompt().contains("\"command\""));
         assert!(command.prompt().contains("\"preflight\""));
         Ok(())
