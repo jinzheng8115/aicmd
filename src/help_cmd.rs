@@ -156,7 +156,8 @@ Useful flags / 常用参数:
   aicmd --no-summary <task>    Skip AI summary once / 本次跳过 AI summary
   aicmd --no-cache <task>      Do not reuse successful command cache / 不复用成功命令缓存
 
-AI summary is off by default. / AI summary 默认关闭。
+AI summary is on by default. Use `--no-summary` or `aicmd config summary off` when it is not needed.
+AI summary 默认开启。不需要时使用 `--no-summary` 或 `aicmd config summary off`。
 
 Command confirmation / 命令确认:
   Run? [Y/n/?]                 Enter/Y runs; N skips; ? shows revise, explain, copy, quit

@@ -128,19 +128,19 @@ aicmd init --from-env --force
 temperature: 0
 top_p: null
 stream: false
-ai_summary: false
+ai_summary: true
 ```
 
-默认不请求命令执行后的 AI summary。需要时可单次开启：
+默认请求命令执行后的 AI summary。用户可以按需关闭：
 
 ```bash
-aicmd --summary 当前目录有多少文件
+aicmd --no-summary 当前目录有多少文件
 ```
 
-如需默认开启：
+如需默认关闭：
 
 ```bash
-aicmd config summary on
+aicmd config summary off
 ```
 
 检查配置：
@@ -215,7 +215,7 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 aicmd 当前目录有多少文件
 aicmd --print 当前目录有多少文件      # 只打印命令，不执行
 aicmd --dry-run 当前目录有多少文件    # 查看将发送给模型的 prompt
-aicmd --summary 当前目录有多少文件    # 执行后请求 AI summary
+aicmd --no-summary 当前目录有多少文件  # 本次跳过 AI summary
 aicmd --no-cache 当前目录有多少文件   # 不复用之前成功的命令
 ```
 
@@ -296,7 +296,7 @@ aicmd config dir             # 输出 ~/.aicmd 目录
 aicmd config show            # 输出 config.yaml，注意可能包含 API key
 aicmd config edit            # 用 $EDITOR 编辑 config.yaml
 aicmd config summary status  # 查看 AI summary 默认开关
-aicmd config summary off     # 默认关闭 AI summary
+aicmd config summary off     # 默认关闭 AI summary（可选）
 aicmd config summary on      # 默认开启 AI summary
 aicmd config mcp             # 输出 mcp.json 路径
 aicmd config doctor          # 等同于 aicmd doctor，包含模型、MCP、缓存等离线检查

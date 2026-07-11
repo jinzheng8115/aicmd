@@ -103,10 +103,10 @@ Generated defaults include:
 temperature: 0
 top_p: null
 stream: false
-ai_summary: false
+ai_summary: true
 ```
 
-AI summary is off by default. / AI summary 默认关闭。
+AI summary is on by default. / AI summary 默认开启。
 
 ## 5. Main commands / 主要命令
 

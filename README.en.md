@@ -128,19 +128,19 @@ Generated `config.yaml` defaults include:
 temperature: 0
 top_p: null
 stream: false
-ai_summary: false
+ai_summary: true
 ```
 
-AI summary is off by default. Enable it for one command when needed:
+AI summary is on by default. Disable it for one command when needed:
 
 ```bash
-aicmd --summary how many files are in this directory
+aicmd --no-summary how many files are in this directory
 ```
 
-Enable it by default:
+Disable it by default:
 
 ```bash
-aicmd config summary on
+aicmd config summary off
 ```
 
 Inspect config:
@@ -215,7 +215,7 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 aicmd how many files are in this directory
 aicmd --print how many files are in this directory      # print only, do not execute
 aicmd --dry-run how many files are in this directory    # preview the prompt
-aicmd --summary how many files are in this directory    # request AI summary after execution
+aicmd --no-summary how many files are in this directory  # skip AI summary after execution
 aicmd --no-cache how many files are in this directory   # do not reuse a successful cached command
 ```
 
@@ -296,7 +296,7 @@ aicmd config dir             # print ~/.aicmd directory
 aicmd config show            # print config.yaml; may contain API keys
 aicmd config edit            # edit config.yaml with $EDITOR
 aicmd config summary status  # show AI summary default
-aicmd config summary off     # disable AI summary by default
+aicmd config summary off     # disable AI summary by default (optional)
 aicmd config summary on      # enable AI summary by default
 aicmd config mcp             # print mcp.json path
 aicmd config doctor          # same as aicmd doctor; includes model, MCP, and cache checks

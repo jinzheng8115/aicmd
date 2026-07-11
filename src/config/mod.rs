@@ -89,7 +89,7 @@ impl Default for Config {
 
             dry_run: false,
             print_command: false,
-            ai_summary: false,
+            ai_summary: true,
             stream: true,
             wrap: None,
             wrap_code: false,
@@ -773,7 +773,7 @@ mod tests {
     use super::Config;
 
     #[test]
-    fn config_defaults_ai_summary_to_off() {
-        assert!(!Config::default().ai_summary);
+    fn config_defaults_ai_summary_to_on() {
+        assert!(Config::default().ai_summary);
     }
 }

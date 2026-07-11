@@ -190,8 +190,8 @@ fn check_ai_summary(value: &serde_yaml::Value) -> Check {
         Some(false) => Check::ok("AI summary", "off"),
         None => Check::warning(
             "AI summary",
-            "missing, defaults to off",
-            "Run: aicmd config summary on   # if you want to enable it by default",
+            "missing, defaults to on",
+            "Run: aicmd config summary off   # if you want to disable it by default",
         ),
     }
 }
