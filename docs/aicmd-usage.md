@@ -16,9 +16,9 @@ AICmd 刻意保持聚焦。它不暴露上游 AIChat 的宽功能，例如 Chat 
 
 ## 2. Supported platforms / 支持平台
 
-AICmd officially supports macOS, Linux, and Windows WSL. Native Windows PowerShell/cmd is not supported.
+AICmd officially supports macOS and Linux. Windows users must run it inside WSL as a Linux application. Native Windows PowerShell/cmd and `.exe` installation are not supported.
 
-AICmd 正式支持 macOS、Linux 和 Windows WSL。不支持 Windows 原生 PowerShell/cmd。
+AICmd 正式支持 macOS 和 Linux。Windows 用户必须在 WSL 中按 Linux 应用运行。不支持 Windows 原生 PowerShell/cmd 和 `.exe` 安装。
 
 ## 3. Install / 安装
 

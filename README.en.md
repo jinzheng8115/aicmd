@@ -33,12 +33,20 @@ aicmd search "how to install copilot-cli"
 
 ## 2. Supported platforms
 
-AICmd officially supports macOS, Linux, and Windows WSL. Native Windows PowerShell/cmd is not supported.
+AICmd officially supports macOS and Linux. Windows users must install and run it inside WSL as a Linux application.
+
+Native Windows PowerShell, cmd, and `.exe` installation are not supported:
+
+- No native Windows release binary is published.
+- `install.ps1` only redirects users to WSL; it does not install a Windows build.
+- Inside WSL, use the same Linux installation command shown below.
 
 | System | Architecture |
 | --- | --- |
 | macOS | Apple Silicon / Intel |
-| Linux / WSL | ARM64 / x86_64 |
+| Linux | ARM64 / x86_64 |
+| Windows WSL | ARM64 / x86_64, running as Linux |
+| Windows PowerShell/cmd | Not supported |
 
 ## 3. Install
 
@@ -209,8 +217,10 @@ aicmd search rm gemini-cli
 In an interactive terminal, after search completes:
 
 ```text
-save(保存) | do(基于结果执行) | open(打开) | quit(退出):
+s save | d do | o open | q quit:
 ```
+
+With `language: zh`, this prompt is shown in Chinese only.
 
 - `save`: save the search result.
 - `do`: generate an execution script from the search result and current system environment.

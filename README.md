@@ -33,12 +33,20 @@ aicmd search "copilot-cli 如何安装"
 
 ## 2. 支持平台
 
-AICmd 正式支持 macOS、Linux 和 Windows WSL。不支持 Windows 原生 PowerShell/cmd。
+AICmd 正式支持 macOS 和 Linux。Windows 用户只能在 WSL 中按 Linux 方式安装和运行。
+
+当前不支持 Windows 原生 PowerShell、cmd 或 `.exe` 安装：
+
+- 不提供 Windows 原生 Release 二进制。
+- `install.ps1` 只会提示改用 WSL，不会安装 Windows 版本。
+- WSL 中使用下面相同的 Linux 安装命令。
 
 | 系统 | 架构 |
 | --- | --- |
 | macOS | Apple Silicon / Intel |
-| Linux / WSL | ARM64 / x86_64 |
+| Linux | ARM64 / x86_64 |
+| Windows WSL | ARM64 / x86_64，按 Linux 环境运行 |
+| Windows PowerShell/cmd | 不支持 |
 
 ## 3. 安装
 
@@ -209,8 +217,10 @@ aicmd search rm gemini-cli
 交互式终端里，搜索完成后会出现：
 
 ```text
-save(保存) | do(基于结果执行) | open(打开) | quit(退出):
+s 保存 | d 基于结果执行 | o 打开 | q 退出:
 ```
+
+如果 `language: en`，这里只显示英文。
 
 - `save`：保存搜索结果。
 - `do`：基于搜索结果和当前系统环境生成执行脚本。
