@@ -39,6 +39,12 @@ impl Input {
         }
     }
 
+    pub fn with_role(mut self, role: Role) -> Self {
+        self.role = role;
+        self.with_session = false;
+        self
+    }
+
     pub async fn from_files(
         config: &GlobalConfig,
         raw_text: &str,

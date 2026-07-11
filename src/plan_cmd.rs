@@ -100,7 +100,7 @@ pub async fn request_execution_plan(
     abort_signal: AbortSignal,
 ) -> Result<ExecutionPlan> {
     let role = config.read().retrieve_role(SHELL_ROLE)?;
-    let planner_input = Input::from_str(config, &input.text(), Some(role));
+    let planner_input = input.clone().with_role(role);
     let client = planner_input.create_client()?;
     config.write().before_chat_completion(&planner_input)?;
     let (raw, _) = call_chat_completions_raw(&planner_input, client.as_ref(), abort_signal).await?;

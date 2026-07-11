@@ -28,7 +28,7 @@ use crate::cli::Cli;
 use crate::client::{call_chat_completions, call_chat_completions_streaming};
 use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
-    EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_ROLE,
+    EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_COMMAND_ROLE, SHELL_ROLE,
 };
 use crate::plan_cmd::{request_execution_plan, route_kind, ExecutionPlan, RouteKind};
 use crate::render::render_error;
@@ -459,7 +459,7 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
         }
         "err" => {
             let report = err_cmd::build_error_report(args)?;
-            config.write().use_role(SHELL_ROLE)?;
+            config.write().use_role(SHELL_COMMAND_ROLE)?;
             let default_session = default_session_name();
             config.write().use_session(Some(&default_session))?;
             let input = Input::from_str(config, &report, None);
@@ -604,7 +604,7 @@ async fn run_do_shortcut(
     if request.dry_run {
         config.write().dry_run = true;
     }
-    config.write().use_role(SHELL_ROLE)?;
+    config.write().use_role(SHELL_COMMAND_ROLE)?;
     let default_session = default_session_name();
     config.write().use_session(Some(&default_session))?;
     let input = Input::from_str(config, &request.prompt, None);
@@ -876,7 +876,7 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         return handle_generated_command(
             &config,
             &SHELL,
-            input,
+            input_with_execution_role(&config, input, RouteKind::Command)?,
             abort_signal,
             ShellExecutionOptions {
                 eval_str: cached_command.expect("cache hit has a command"),
@@ -912,6 +912,25 @@ fn plan_request_decision(cache_eligible: bool, cache_hit: bool) -> PlanRequestDe
     } else {
         PlanRequestDecision::RequestPlan
     }
+}
+
+fn command_role_for_route(route: RouteKind) -> Option<&'static str> {
+    match route {
+        RouteKind::Command | RouteKind::Diagnose => Some(SHELL_COMMAND_ROLE),
+        RouteKind::Search => None,
+    }
+}
+
+fn input_with_execution_role(
+    config: &GlobalConfig,
+    input: Input,
+    route: RouteKind,
+) -> Result<Input> {
+    let Some(role_name) = command_role_for_route(route) else {
+        return Ok(input);
+    };
+    let role = config.read().retrieve_role(role_name)?;
+    Ok(input.with_role(role))
 }
 
 #[async_recursion::async_recursion]
@@ -950,12 +969,13 @@ async fn route_execution_plan(
         return Ok(());
     }
 
-    match route_kind(&plan.mode) {
+    let route = route_kind(&plan.mode);
+    match route {
         RouteKind::Command => {
             handle_generated_command(
                 config,
                 shell,
-                input,
+                input_with_execution_role(config, input, route)?,
                 abort_signal,
                 ShellExecutionOptions {
                     eval_str: plan.command,
@@ -975,6 +995,7 @@ async fn route_execution_plan(
         }
         RouteKind::Diagnose => {
             let input = Input::from_str(config, &plan.problem, None);
+            let input = input_with_execution_role(config, input, route)?;
             shell_execute(config, shell, input, abort_signal, None, 0).await
         }
     }
@@ -1416,6 +1437,19 @@ mod tests {
         let command = "printf '%s\\n' ']<]planner[>['";
         assert_eq!(command_for_execution(command, false), command);
         assert_ne!(command_for_execution(command, true), command);
+    }
+
+    #[test]
+    fn command_routes_select_the_command_generation_role() {
+        assert_eq!(
+            command_role_for_route(RouteKind::Command),
+            Some(SHELL_COMMAND_ROLE)
+        );
+        assert_eq!(
+            command_role_for_route(RouteKind::Diagnose),
+            Some(SHELL_COMMAND_ROLE)
+        );
+        assert_eq!(command_role_for_route(RouteKind::Search), None);
     }
 
     #[test]

@@ -10,6 +10,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 
 pub const SHELL_ROLE: &str = "%shell%";
+pub const SHELL_COMMAND_ROLE: &str = "%shell-command%";
 pub const EXPLAIN_SHELL_ROLE: &str = "%explain-shell%";
 pub const COMMAND_SUMMARY_ROLE: &str = "%command-summary%";
 pub const MCP_SUMMARY_ROLE: &str = "%mcp-summary%";
@@ -293,5 +294,14 @@ System message
 Input 1
 "#;
         assert_eq!(parse_structure_prompt(prompt), (prompt, vec![]));
+    }
+
+    #[test]
+    fn builtin_shell_roles_separate_planning_from_command_generation() -> Result<()> {
+        let planner = Role::builtin(SHELL_ROLE)?;
+        let command = Role::builtin(SHELL_COMMAND_ROLE)?;
+        assert!(planner.prompt().contains("exactly one JSON object"));
+        assert!(command.prompt().contains("Output only plain text"));
+        Ok(())
     }
 }
