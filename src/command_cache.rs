@@ -1,4 +1,7 @@
-use crate::config::{ensure_parent_exists, Config};
+use crate::{
+    config::{ensure_parent_exists, Config},
+    preflight_cmd::PreflightCheck,
+};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -14,6 +17,10 @@ pub struct CommandCacheRecord {
     pub shell: String,
     pub os: String,
     pub command: String,
+    #[serde(default)]
+    pub preflight: Vec<PreflightCheck>,
+    #[serde(default)]
+    pub has_preflight: bool,
     pub success_count: u32,
     pub last_used_at: String,
 }
@@ -26,10 +33,16 @@ pub fn lookup(task: &str, shell: &str, os: &str) -> Option<CommandCacheRecord> {
     read_records()
         .ok()?
         .into_iter()
-        .find(|record| record.key == key)
+        .find(|record| record.key == key && record.has_preflight)
 }
 
-pub fn record_success(task: &str, shell: &str, os: &str, command: &str) -> Result<()> {
+pub fn record_success(
+    task: &str,
+    shell: &str,
+    os: &str,
+    command: &str,
+    preflight: &[PreflightCheck],
+) -> Result<()> {
     if is_sensitive_task(task) || command.trim().is_empty() {
         return Ok(());
     }
@@ -38,6 +51,8 @@ pub fn record_success(task: &str, shell: &str, os: &str, command: &str) -> Resul
     let now = chrono::Utc::now().to_rfc3339();
     if let Some(record) = records.iter_mut().find(|record| record.key == key) {
         record.command = command.to_string();
+        record.preflight = preflight.to_vec();
+        record.has_preflight = true;
         record.success_count = record.success_count.saturating_add(1);
         record.last_used_at = now;
     } else {
@@ -47,6 +62,8 @@ pub fn record_success(task: &str, shell: &str, os: &str, command: &str) -> Resul
             shell: shell.to_string(),
             os: os.to_string(),
             command: command.to_string(),
+            preflight: preflight.to_vec(),
+            has_preflight: true,
             success_count: 1,
             last_used_at: now,
         });
@@ -121,5 +138,21 @@ mod tests {
         let zsh_key = cache_key("当前目录有多少文件", "zsh", "macos");
         let bash_key = cache_key("当前目录有多少文件", "bash", "macos");
         assert_ne!(zsh_key, bash_key);
+    }
+
+    #[test]
+    fn legacy_cache_record_without_preflight_is_not_reusable() {
+        let yaml = r#"
+- key: old
+  task: pwd
+  shell: zsh
+  os: macos
+  command: pwd
+  success_count: 1
+  last_used_at: now
+"#;
+        let records: Vec<CommandCacheRecord> = serde_yaml::from_str(yaml).unwrap();
+        assert!(!records[0].has_preflight);
+        assert!(records[0].preflight.is_empty());
     }
 }

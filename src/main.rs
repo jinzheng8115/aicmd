@@ -597,9 +597,9 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
     let cache_eligible = should_lookup_command_cache(&config, cache_task.as_deref());
     let cached_command = if cache_eligible {
-        cache_task.as_deref().and_then(|task| {
-            command_cache::lookup(task, &SHELL.name, env::consts::OS).map(|record| record.command)
-        })
+        cache_task
+            .as_deref()
+            .and_then(|task| command_cache::lookup(task, &SHELL.name, env::consts::OS))
     } else {
         None
     };
@@ -615,14 +615,15 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             ))
         );
         let ask_summary = config.read().ask_summary;
+        let cached = cached_command.expect("cache hit has a record");
         return handle_generated_command(
             &config,
             &SHELL,
             input_with_execution_role(&config, input, RouteKind::Command)?,
             abort_signal,
             ShellExecutionOptions {
-                eval_str: cached_command.expect("cache hit has a command"),
-                preflight: vec![],
+                eval_str: cached.command,
+                preflight: cached.preflight,
                 cache_task,
                 record_assistant_message: false,
                 repair_attempts: 0,
@@ -808,7 +809,7 @@ async fn handle_generated_command(
 ) -> Result<()> {
     let ShellExecutionOptions {
         eval_str,
-        preflight: _preflight,
+        preflight,
         cache_task,
         record_assistant_message,
         repair_attempts,
@@ -827,8 +828,18 @@ async fn handle_generated_command(
         println!("{eval_str}");
         return Ok(());
     }
-    let client = input.create_client()?;
     if *IS_STDOUT_TERMINAL {
+        let cwd = env::current_dir().context("Unable to read current directory")?;
+        let report = preflight_cmd::run_checks(&preflight, &cwd);
+        println!("{}", preflight_cmd::format_report(&report));
+        if !report.passed() {
+            let input_text = input.text();
+            let task = cache_task.as_deref().unwrap_or(&input_text);
+            let note = result_cmd::build_preflight_session_note(task, &report);
+            config.write().append_session_note(note)?;
+            return Ok(());
+        }
+        let client = input.create_client()?;
         let command = color_text(&eval_str, nu_ansi_term::Color::Rgb(255, 165, 0));
         let risk = classify_command_risk(&eval_str);
         loop {
@@ -949,6 +960,7 @@ async fn handle_generated_command(
                                 &shell.name,
                                 env::consts::OS,
                                 &eval_str,
+                                &preflight,
                             ) {
                                 eprintln!("Command cache update failed: {err:#}");
                             }
