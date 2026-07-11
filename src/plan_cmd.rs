@@ -1,7 +1,6 @@
 use crate::{
-    client::call_chat_completions,
     config::{GlobalConfig, Input, SHELL_ROLE},
-    utils::AbortSignal,
+    utils::{abortable_run_with_spinner, AbortSignal},
 };
 
 use anyhow::{bail, Result};
@@ -75,6 +74,10 @@ pub fn parse_execution_plan(raw: &str) -> Result<ExecutionPlan> {
     }
 }
 
+fn parse_planner_response(raw: &str) -> Result<ExecutionPlan> {
+    parse_execution_plan(raw)
+}
+
 pub async fn request_execution_plan(
     config: &GlobalConfig,
     input: &Input,
@@ -84,9 +87,13 @@ pub async fn request_execution_plan(
     let planner_input = Input::from_str(config, &input.text(), Some(role));
     let client = planner_input.create_client()?;
     config.write().before_chat_completion(&planner_input)?;
-    let (raw, _) =
-        call_chat_completions(&planner_input, false, false, client.as_ref(), abort_signal).await?;
-    parse_execution_plan(&raw)
+    let response = abortable_run_with_spinner(
+        client.chat_completions(planner_input),
+        "Generating",
+        abort_signal,
+    )
+    .await?;
+    parse_planner_response(&response.text)
 }
 
 #[cfg(test)]
@@ -106,5 +113,17 @@ mod tests {
         assert!(parse_execution_plan(r#"{"mode":"direct","command":"","query":"x"}"#).is_err());
         assert!(parse_execution_plan(r#"{"mode":"search","query":"rust","extra":true}"#).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn planner_response_rejects_surrounding_or_fenced_json() {
+        assert!(parse_planner_response(
+            "Here is the plan: {\"mode\":\"direct\",\"command\":\"pwd\"}"
+        )
+        .is_err());
+        assert!(
+            parse_planner_response("```json\n{\"mode\":\"direct\",\"command\":\"pwd\"}\n```")
+                .is_err()
+        );
     }
 }
