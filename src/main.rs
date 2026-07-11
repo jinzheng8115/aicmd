@@ -857,11 +857,75 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             .filter(|value| !value.is_empty())
     };
     let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
-    let plan = request_execution_plan(&config, &input, abort_signal.clone())
+    let cache_eligible = should_lookup_command_cache(&config, cache_task.as_deref());
+    let cached_command = if cache_eligible {
+        cache_task.as_deref().and_then(|task| {
+            command_cache::lookup(task, &SHELL.name, env::consts::OS).map(|record| record.command)
+        })
+    } else {
+        None
+    };
+    if matches!(
+        plan_request_decision(cache_eligible, cached_command.is_some()),
+        PlanRequestDecision::UseCachedCommand
+    ) {
+        println!(
+            "{}",
+            dimmed_text("Reusing a previously successful command / 正在复用之前成功执行过的命令")
+        );
+        return handle_generated_command(
+            &config,
+            &SHELL,
+            input,
+            abort_signal,
+            ShellExecutionOptions {
+                eval_str: cached_command.expect("cache hit has a command"),
+                cache_task,
+                record_assistant_message: false,
+                repair_attempts: 0,
+                from_cache: true,
+                sanitize_command: false,
+            },
+        )
+        .await;
+    }
+    request_and_route_execution_plan(&config, &SHELL, input, abort_signal, cache_task).await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanRequestDecision {
+    UseCachedCommand,
+    RequestPlan,
+}
+
+fn should_lookup_command_cache(config: &GlobalConfig, cache_task: Option<&str>) -> bool {
+    cache_task.is_some()
+        && !config.read().dry_run
+        && !config.read().print_command
+        && *IS_STDOUT_TERMINAL
+}
+
+fn plan_request_decision(cache_eligible: bool, cache_hit: bool) -> PlanRequestDecision {
+    if cache_eligible && cache_hit {
+        PlanRequestDecision::UseCachedCommand
+    } else {
+        PlanRequestDecision::RequestPlan
+    }
+}
+
+#[async_recursion::async_recursion]
+async fn request_and_route_execution_plan(
+    config: &GlobalConfig,
+    shell: &Shell,
+    input: Input,
+    abort_signal: AbortSignal,
+    cache_task: Option<String>,
+) -> Result<()> {
+    let plan = request_execution_plan(config, &input, abort_signal.clone())
         .await
         .context("Invalid execution plan / 无效执行计划")?;
-    route_execution_plan(&config, &SHELL, input, plan, abort_signal, cache_task).await?;
-    Ok(())
+    route_execution_plan(config, shell, input, plan, abort_signal, cache_task).await
 }
 
 async fn route_execution_plan(
@@ -899,6 +963,7 @@ async fn route_execution_plan(
                     record_assistant_message: true,
                     repair_attempts: 0,
                     from_cache: false,
+                    sanitize_command: false,
                 },
             )
             .await
@@ -924,33 +989,6 @@ async fn shell_execute(
     cache_task: Option<String>,
     repair_attempts: u8,
 ) -> Result<()> {
-    if let Some(task) = cache_task.as_deref() {
-        if !config.read().dry_run && !config.read().print_command && *IS_STDOUT_TERMINAL {
-            if let Some(record) = command_cache::lookup(task, &shell.name, env::consts::OS) {
-                println!(
-                    "{}",
-                    dimmed_text(
-                        "Reusing a previously successful command / 正在复用之前成功执行过的命令"
-                    )
-                );
-                return handle_generated_command(
-                    config,
-                    shell,
-                    input,
-                    abort_signal,
-                    ShellExecutionOptions {
-                        eval_str: record.command,
-                        cache_task,
-                        record_assistant_message: false,
-                        repair_attempts,
-                        from_cache: true,
-                    },
-                )
-                .await;
-            }
-        }
-    }
-
     let client = input.create_client()?;
     config.write().before_chat_completion(&input)?;
     let (eval_str, _) =
@@ -970,6 +1008,7 @@ async fn shell_execute(
             record_assistant_message: true,
             repair_attempts,
             from_cache: false,
+            sanitize_command: true,
         },
     )
     .await
@@ -982,6 +1021,15 @@ struct ShellExecutionOptions {
     record_assistant_message: bool,
     repair_attempts: u8,
     from_cache: bool,
+    sanitize_command: bool,
+}
+
+fn command_for_execution(command: &str, sanitize_command: bool) -> String {
+    if sanitize_command {
+        sanitize_generated_command(command)
+    } else {
+        command.to_string()
+    }
 }
 
 #[async_recursion::async_recursion]
@@ -998,8 +1046,9 @@ async fn handle_generated_command(
         record_assistant_message,
         repair_attempts,
         from_cache,
+        sanitize_command,
     } = options;
-    let eval_str = sanitize_generated_command(&eval_str);
+    let eval_str = command_for_execution(&eval_str, sanitize_command);
 
     if record_assistant_message {
         config.write().after_chat_completion(&input, &eval_str)?;
@@ -1013,7 +1062,7 @@ async fn handle_generated_command(
     }
     let client = input.create_client()?;
     if *IS_STDOUT_TERMINAL {
-        let command = color_text(eval_str.trim(), nu_ansi_term::Color::Rgb(255, 165, 0));
+        let command = color_text(&eval_str, nu_ansi_term::Color::Rgb(255, 165, 0));
         let risk = classify_command_risk(&eval_str);
         loop {
             println!("{command}");
@@ -1226,13 +1275,12 @@ async fn handle_generated_command(
                     process::exit(code);
                 }
                 'g' if from_cache => {
-                    return shell_execute(
+                    return request_and_route_execution_plan(
                         config,
                         shell,
                         input,
                         abort_signal.clone(),
                         None,
-                        repair_attempts,
                     )
                     .await;
                 }
@@ -1342,6 +1390,33 @@ fn setup_logger() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plan_request_uses_cache_only_for_an_eligible_cache_hit() {
+        assert_eq!(
+            plan_request_decision(true, true),
+            PlanRequestDecision::UseCachedCommand
+        );
+        assert_eq!(
+            plan_request_decision(true, false),
+            PlanRequestDecision::RequestPlan
+        );
+        assert_eq!(
+            plan_request_decision(false, true),
+            PlanRequestDecision::RequestPlan
+        );
+        assert_eq!(
+            plan_request_decision(false, false),
+            PlanRequestDecision::RequestPlan
+        );
+    }
+
+    #[test]
+    fn structured_plan_command_bypasses_legacy_sanitization() {
+        let command = "printf '%s\\n' ']<]planner[>['";
+        assert_eq!(command_for_execution(command, false), command);
+        assert_ne!(command_for_execution(command, true), command);
+    }
 
     #[test]
     fn truncate_for_session_marks_truncated_content() {
