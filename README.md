@@ -125,6 +125,7 @@ aicmd init --from-env --force
 生成的 `config.yaml` 默认包含：
 
 ```yaml
+language: zh
 temperature: 0
 top_p: null
 stream: false
@@ -142,6 +143,13 @@ aicmd 当前目录有多少文件
 
 ```bash
 aicmd --no-summary 当前目录有多少文件
+```
+
+切换终端显示语言：
+
+```bash
+aicmd config language zh  # 中文，默认
+aicmd config language en  # English
 ```
 
 检查配置：

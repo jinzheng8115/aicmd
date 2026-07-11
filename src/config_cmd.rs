@@ -1,4 +1,4 @@
-use crate::{config::Config, doctor_cmd, model_cmd};
+use crate::{config::Config, doctor_cmd, model_cmd, utils::localized};
 
 use anyhow::{bail, Context, Result};
 use serde_yaml::Value;
@@ -28,6 +28,7 @@ pub fn run_config_command(args: &[String]) -> Result<i32> {
         }
         "status" => run_status_command(),
         "summary" | "ai-summary" => run_summary_command(&args[1..]),
+        "language" | "lang" => run_language_command(&args[1..]),
         "doctor" => doctor_cmd::run_doctor_command(),
         _ => {
             eprintln!("Unknown config command: {cmd}");
@@ -43,38 +44,103 @@ fn run_status_command() -> Result<i32> {
     let config_yaml: Value = serde_yaml::from_str(&config_content)
         .with_context(|| format!("failed to parse config: {}", config_path.display()))?;
     let model = yaml_string(&config_yaml, "model").unwrap_or_else(|| "unknown".to_string());
+    let language = yaml_string(&config_yaml, "language").unwrap_or_else(|| "zh".to_string());
     let temperature = yaml_scalar_display(&config_yaml, "temperature")
-        .unwrap_or_else(|| "provider default / 使用模型服务默认值".to_string());
+        .unwrap_or_else(|| localized("模型服务默认值", "provider default").to_string());
     let ai_summary = yaml_bool(&config_yaml, "ai_summary").unwrap_or(false);
     let mcp_path = mcp_config_path();
     let mcp_status = if mcp_path.exists() {
-        "configured / 已配置"
+        localized("已配置", "configured")
     } else {
-        "missing / 未配置"
+        localized("未配置", "missing")
     };
     let search_status = if mcp_path.exists() && mcp_config_has_search_command(&mcp_path) {
-        "configured / 已配置"
+        localized("已配置", "configured")
     } else {
-        "missing / 未配置"
+        localized("未配置", "missing")
     };
     let session = current_default_session_name();
 
-    println!("AICmd config status / AICmd 配置状态");
-    println!("Config file / 配置文件: {}", config_path.display());
-    println!("Default model / 默认模型: {model}");
-    println!("Temperature / 温度: {temperature}");
+    println!("{}", localized("AICmd 配置状态", "AICmd config status"));
     println!(
-        "AI summary / AI 总结: {}",
+        "{}: {}",
+        localized("配置文件", "Config file"),
+        config_path.display()
+    );
+    println!("{}: {model}", localized("默认模型", "Default model"));
+    println!("{}: {language}", localized("语言", "Language"));
+    println!("{}: {temperature}", localized("温度", "Temperature"));
+    println!(
+        "{}: {}",
+        localized("AI 总结", "AI summary"),
         if ai_summary {
-            "on / 开启"
+            localized("开启", "on")
         } else {
-            "off / 关闭"
+            localized("关闭", "off")
         }
     );
-    println!("MCP config / MCP 配置: {mcp_status}");
-    println!("Search / 搜索: {search_status}");
-    println!("Session / 会话: {session}");
+    println!("{}: {mcp_status}", localized("MCP 配置", "MCP config"));
+    println!("{}: {search_status}", localized("搜索", "Search"));
+    println!("{}: {session}", localized("会话", "Session"));
     Ok(0)
+}
+
+fn run_language_command(args: &[String]) -> Result<i32> {
+    let action = args.first().map(String::as_str).unwrap_or("status");
+    let path = Config::config_file();
+    let content = read_config_file(&path)?;
+    match action {
+        "status" => {
+            let language = read_language_setting(&content).unwrap_or("zh");
+            println!("language: {language}");
+        }
+        "zh" | "chinese" => {
+            fs::write(&path, set_language_in_config(&content, "zh"))?;
+            println!("语言已设置为中文");
+        }
+        "en" | "english" => {
+            fs::write(&path, set_language_in_config(&content, "en"))?;
+            println!("Language set to English");
+        }
+        _ => bail!("Use: aicmd config language <zh|en|status>"),
+    }
+    Ok(0)
+}
+
+fn read_language_setting(content: &str) -> Option<&str> {
+    content.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("language:")
+            .map(str::trim)
+            .filter(|value| matches!(*value, "zh" | "en"))
+    })
+}
+
+fn set_language_in_config(content: &str, language: &str) -> String {
+    let mut found = false;
+    let mut lines = content
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("language:") {
+                found = true;
+                format!("language: {language}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>();
+    if !found {
+        let insert_at = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("temperature:"))
+            .unwrap_or(1.min(lines.len()));
+        lines.insert(insert_at, format!("language: {language}"));
+    }
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    output
 }
 
 fn yaml_string(value: &Value, key: &str) -> Option<String> {
@@ -129,9 +195,13 @@ fn run_summary_command(args: &[String]) -> Result<i32> {
             let content = read_config_file(&path)?;
             let enabled = read_ai_summary_setting(&content).unwrap_or(false);
             println!(
-                "ai_summary: {} / AI summary 默认{}",
+                "ai_summary: {} ({})",
                 enabled,
-                if enabled { "开启" } else { "关闭" }
+                if enabled {
+                    localized("默认开启", "enabled by default")
+                } else {
+                    localized("默认关闭", "disabled by default")
+                }
             );
             println!("config: {}", path.display());
             Ok(0)
@@ -153,9 +223,9 @@ fn set_ai_summary(enabled: bool) -> Result<i32> {
     fs::write(&path, updated)
         .with_context(|| format!("failed to write config: {}", path.display()))?;
     println!(
-        "ai_summary set to {} / AI summary 已{}",
-        enabled,
-        if enabled { "开启" } else { "关闭" }
+        "{}: {}",
+        localized("AI summary 已更新", "AI summary updated"),
+        enabled
     );
     println!("config: {}", path.display());
     Ok(0)
@@ -233,6 +303,7 @@ Commands / 命令:
   summary [status]   Show AI summary default / 查看 AI summary 默认状态
   summary on         Enable AI summary by default / 默认开启 AI summary
   summary off        Disable AI summary by default / 默认关闭 AI summary
+  language zh|en     Select terminal language / 选择终端显示语言
   mcp                Print mcp.json path / 输出 mcp.json 路径
   doctor             Run aicmd doctor / 运行 aicmd doctor
   help               Show this help / 显示帮助"#
@@ -278,5 +349,13 @@ mod tests {
         assert_eq!(read_ai_summary_setting("ai_summary: false\n"), Some(false));
         assert_eq!(read_ai_summary_setting("ai_summary: true\n"), Some(true));
         assert_eq!(read_ai_summary_setting("model: test\n"), None);
+    }
+
+    #[test]
+    fn language_setting_defaults_and_updates_cleanly() {
+        let input = "model: test\ntemperature: 0\n";
+        assert_eq!(read_language_setting(input), None);
+        let output = set_language_in_config(input, "en");
+        assert_eq!(read_language_setting(&output), Some("en"));
     }
 }

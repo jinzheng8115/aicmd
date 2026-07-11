@@ -210,6 +210,7 @@ fn config_from_env(values: &HashMap<String, String>) -> Result<String> {
 # 由 .env 生成。安装后如需调整，请直接编辑本文件。
 
 model: {default_model}
+language: zh
 
 temperature: 0
 top_p: null
@@ -258,6 +259,7 @@ fn default_config() -> &'static str {
 #   aicmd init --from-env
 
 model: openai:gpt-4o
+language: zh
 
 temperature: 0
 top_p: null

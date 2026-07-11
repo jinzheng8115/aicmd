@@ -100,6 +100,7 @@ Generated defaults include:
 生成的默认值包括：
 
 ```yaml
+language: zh
 temperature: 0
 top_p: null
 stream: false

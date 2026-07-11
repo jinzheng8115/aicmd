@@ -45,6 +45,7 @@ pub struct Config {
     #[serde(rename(serialize = "model", deserialize = "model"))]
     #[serde(default)]
     pub model_id: String,
+    pub language: String,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
 
@@ -86,6 +87,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             model_id: Default::default(),
+            language: "zh".to_string(),
             temperature: None,
             top_p: None,
 
@@ -139,6 +141,9 @@ impl Config {
 
         let setup = |config: &mut Self| -> Result<()> {
             config.load_envs();
+            if !matches!(config.language.as_str(), "zh" | "en") {
+                bail!("language must be zh or en");
+            }
 
             if let Some(wrap) = config.wrap.clone() {
                 config.set_wrap(&wrap)?;

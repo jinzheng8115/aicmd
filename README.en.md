@@ -125,6 +125,7 @@ aicmd init --from-env --force
 Generated `config.yaml` defaults include:
 
 ```yaml
+language: zh
 temperature: 0
 top_p: null
 stream: false
@@ -142,6 +143,13 @@ Skip the summary choice for one command:
 
 ```bash
 aicmd --no-summary how many files are in this directory
+```
+
+Select the terminal language:
+
+```bash
+aicmd config language zh  # Chinese, default
+aicmd config language en  # English
 ```
 
 Inspect config:

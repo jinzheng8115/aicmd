@@ -84,9 +84,9 @@ struct CommandRisk {
 impl CommandRisk {
     fn label(&self) -> &'static str {
         match self.level {
-            CommandRiskLevel::ReadOnly => "read-only / 只读",
-            CommandRiskLevel::ChangesSystem => "changes system / 会修改系统或文件",
-            CommandRiskLevel::Destructive => "destructive / 可能造成破坏",
+            CommandRiskLevel::ReadOnly => localized("只读", "read-only"),
+            CommandRiskLevel::ChangesSystem => localized("会修改系统或文件", "changes system"),
+            CommandRiskLevel::Destructive => localized("可能造成破坏", "destructive"),
         }
     }
 
@@ -96,9 +96,14 @@ impl CommandRisk {
 
     fn display(&self) -> String {
         if self.reasons.is_empty() {
-            format!("Risk: {}", self.label())
+            format!("{}: {}", localized("风险", "Risk"), self.label())
         } else {
-            format!("Risk: {} ({})", self.label(), self.reasons.join(", "))
+            format!(
+                "{}: {} ({})",
+                localized("风险", "Risk"),
+                self.label(),
+                self.reasons.join(", ")
+            )
         }
     }
 }
@@ -373,15 +378,24 @@ async fn prompt_search_follow_up(
     ];
     let prompt_text = options
         .iter()
-        .map(|(key, rest, zh)| format!("{}{}({})", color_text(key, first_letter_color), rest, zh))
+        .map(|(key, rest, zh)| {
+            format!(
+                "{}{}",
+                color_text(key, first_letter_color),
+                localized(&format!(" {zh}"), rest)
+            )
+        })
         .collect::<Vec<String>>()
         .join(&dimmed_text(" | "));
     let answer = confirm_cmd::read_action(&['s', 'd', 'o', 'q'], 'q', &format!("{prompt_text}: "))?;
     match answer {
         's' => {
-            let name = Text::new("Save name (empty = auto):")
-                .prompt()
-                .unwrap_or_default();
+            let name = Text::new(localized(
+                "保存名称（留空为自动生成）:",
+                "Save name (empty = auto):",
+            ))
+            .prompt()
+            .unwrap_or_default();
             let name = name.trim();
             search_cmd::save_last(if name.is_empty() { None } else { Some(name) })?;
         }
@@ -392,14 +406,16 @@ async fn prompt_search_follow_up(
             println!(
                 "{}",
                 dimmed_text(&format!(
-                    "Using search result as task / 使用搜索结果作为任务: {query}"
+                    "{}: {query}",
+                    localized("使用搜索结果作为任务", "Using search result as task")
                 ))
             );
             println!(
                 "{}",
-                dimmed_text(
-                    "Generating execution script from search result and system environment. This may take 10-30 seconds. / 正在根据搜索结果和当前系统环境生成执行脚本，可能需要 10-30 秒。"
-                )
+                dimmed_text(localized(
+                    "正在根据搜索结果和当前系统环境生成执行脚本，可能需要 10-30 秒。",
+                    "Generating an execution script from the search result and system environment. This may take 10-30 seconds."
+                ))
             );
             let args = vec![
                 "do".to_string(),
@@ -542,9 +558,10 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     if cli.empty_session {
         let target = session_name.unwrap_or("temporary");
         if !confirm_cmd::confirm_high_risk(&format!(
-            "Clear all history in session '{target}'? / 确认清空会话 '{target}' 的全部历史记录？"
+            "{} '{target}'?",
+            localized("确认清空会话的全部历史记录", "Clear all history in session")
         ))? {
-            println!("cancelled / 已取消");
+            println!("{}", localized("已取消", "cancelled"));
             return Ok(());
         }
         config.write().empty_session()?;
@@ -586,7 +603,10 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     ) {
         println!(
             "{}",
-            dimmed_text("Reusing a previously successful command / 正在复用之前成功执行过的命令")
+            dimmed_text(localized(
+                "正在复用之前成功执行过的命令",
+                "Reusing a previously successful command"
+            ))
         );
         let ask_summary = config.read().ask_summary;
         return handle_generated_command(
@@ -663,7 +683,7 @@ async fn request_and_route_execution_plan(
 ) -> Result<()> {
     let plan = request_execution_plan(config, &input, abort_signal.clone())
         .await
-        .context("Invalid execution plan / 无效执行计划")?;
+        .context(localized("无效执行计划", "Invalid execution plan"))?;
     route_execution_plan(config, shell, input, plan, abort_signal, cache_task).await
 }
 
@@ -802,35 +822,34 @@ async fn handle_generated_command(
         loop {
             println!("{command}");
             println!("{}", dimmed_text(&risk.display()));
-            let mut answer_char =
-                confirm_cmd::read_action(&['y', 'n', '?'], 'y', "Run? [Y/n/?] / 执行？[Y/n/?] ")?;
+            let mut answer_char = confirm_cmd::read_action(
+                &['y', 'n', '?'],
+                'y',
+                localized("执行？[Y/n/?] ", "Run? [Y/n/?] "),
+            )?;
             if answer_char == '?' {
                 let first_letter_color = nu_ansi_term::Color::Cyan;
                 let mut keys = vec!['r', 'd', 'c', 'q'];
                 let mut options = vec![
                     format!(
-                        "{}{}{}",
+                        "{}{}",
                         color_text("r", first_letter_color),
-                        "evise",
-                        "(修改)"
+                        localized(" 修改", "evise")
                     ),
                     format!(
-                        "{}{}{}",
+                        "{}{}",
                         color_text("d", first_letter_color),
-                        "escribe",
-                        "(解释)"
+                        localized(" 解释", "escribe")
                     ),
                     format!(
-                        "{}{}{}",
+                        "{}{}",
                         color_text("c", first_letter_color),
-                        "opy",
-                        "(复制)"
+                        localized(" 复制", "opy")
                     ),
                     format!(
-                        "{}{}{}",
+                        "{}{}",
                         color_text("q", first_letter_color),
-                        "uit",
-                        "(退出)"
+                        localized(" 退出", "uit")
                     ),
                 ];
                 if from_cache {
@@ -838,28 +857,32 @@ async fn handle_generated_command(
                     options.insert(
                         0,
                         format!(
-                            "{}{}{}",
+                            "{}{}",
                             color_text("g", first_letter_color),
-                            "enerate",
-                            "(重新生成)"
+                            localized(" 重新生成", "enerate")
                         ),
                     );
                 }
                 answer_char = confirm_cmd::read_action(
                     &keys,
                     'q',
-                    &format!("More / 更多：{}: ", options.join(&dimmed_text(" | "))),
+                    &format!(
+                        "{}：{}: ",
+                        localized("更多", "More"),
+                        options.join(&dimmed_text(" | "))
+                    ),
                 )?;
             }
 
             match answer_char {
                 'y' => {
                     if risk.requires_confirmation()
-                        && !confirm_cmd::confirm_high_risk(
-                            "High-risk command. Continue? / 高风险命令，确认执行？",
-                        )?
+                        && !confirm_cmd::confirm_high_risk(localized(
+                            "高风险命令，确认执行？",
+                            "High-risk command. Continue?",
+                        ))?
                     {
-                        println!("cancelled / 已取消");
+                        println!("{}", localized("已取消", "cancelled"));
                         continue;
                     }
                     let eval_command = execute_cmd::with_cwd_capture(shell, &eval_str);
@@ -874,7 +897,10 @@ async fn handle_generated_command(
                             && confirm_cmd::read_action(
                                 &['y', 'n'],
                                 'n',
-                                "Generate AI summary? [y/N] / 是否生成 AI summary？[y/N] ",
+                                localized(
+                                    "是否生成 AI summary？[y/N] ",
+                                    "Generate AI summary? [y/N] ",
+                                ),
                             )? == 'y');
                     let summary = if summary_requested {
                         match summarize_command_output(
@@ -922,22 +948,19 @@ async fn handle_generated_command(
                             let mut option_keys = vec!['e', 'c', 'q'];
                             let mut options = vec![
                                 format!(
-                                    "{}{}{}",
+                                    "{}{}",
                                     color_text("e", first_letter_color),
-                                    "xplain",
-                                    "(解释)"
+                                    localized(" 解释", "xplain")
                                 ),
                                 format!(
-                                    "{}{}{}",
+                                    "{}{}",
                                     color_text("c", first_letter_color),
-                                    "opy",
-                                    "(复制)"
+                                    localized(" 复制", "opy")
                                 ),
                                 format!(
-                                    "{}{}{}",
+                                    "{}{}",
                                     color_text("q", first_letter_color),
-                                    "uit",
-                                    "(退出)"
+                                    localized(" 退出", "uit")
                                 ),
                             ];
                             if repair_attempts < 2 {
@@ -945,22 +968,23 @@ async fn handle_generated_command(
                                 options.insert(
                                     0,
                                     format!(
-                                        "{}{}{}",
+                                        "{}{}",
                                         color_text("f", first_letter_color),
-                                        "ix",
-                                        "(修复)"
+                                        localized(" 修复", "ix")
                                     ),
                                 );
                             } else {
                                 println!(
                                     "{}",
-                                    dimmed_text(
-                                        "Repair limit reached / 已达到自动修复次数上限。Please inspect the error manually or revise the task. / 请手动检查错误，或修改任务描述。"
-                                    )
+                                    dimmed_text(localized(
+                                        "已达到自动修复次数上限。请手动检查错误，或修改任务描述。",
+                                        "Repair limit reached. Please inspect the error manually or revise the task."
+                                    ))
                                 );
                             }
                             let prompt = format!(
-                                "Command failed / 命令执行失败。{}: ",
+                                "{}。{}: ",
+                                localized("命令执行失败", "Command failed"),
                                 options.join(&dimmed_text(" | "))
                             );
                             let next = confirm_cmd::read_action(&option_keys, 'e', &prompt)?;
@@ -1030,7 +1054,8 @@ async fn handle_generated_command(
                     .await;
                 }
                 'r' => {
-                    let revision = Text::new("Enter revision / 输入修改要求:").prompt()?;
+                    let revision =
+                        Text::new(localized("输入修改要求:", "Enter revision:")).prompt()?;
                     let text = format!("{}\n{revision}", input.text());
                     input.set_text(text);
                     return shell_execute(
