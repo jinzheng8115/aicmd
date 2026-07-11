@@ -502,6 +502,8 @@ async fn summarize_command_output(
 
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
     let abort_signal = create_abort_signal();
+    let ask_summary = should_ask_for_summary(config.read().ai_summary, cli.summary, cli.no_summary);
+    config.write().ask_summary = ask_summary;
 
     if cli.dry_run {
         config.write().dry_run = true;
@@ -586,6 +588,7 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             "{}",
             dimmed_text("Reusing a previously successful command / 正在复用之前成功执行过的命令")
         );
+        let ask_summary = config.read().ask_summary;
         return handle_generated_command(
             &config,
             &SHELL,
@@ -597,12 +600,17 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
                 record_assistant_message: false,
                 repair_attempts: 0,
                 from_cache: true,
+                ask_summary,
             },
         )
         .await;
     }
     request_and_route_execution_plan(&config, &SHELL, input, abort_signal, cache_task).await?;
     Ok(())
+}
+
+fn should_ask_for_summary(ai_summary: bool, summary: bool, no_summary: bool) -> bool {
+    !ai_summary && !summary && !no_summary
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -684,6 +692,7 @@ async fn route_execution_plan(
     let route = route_kind(&plan.mode);
     match route {
         RouteKind::Command => {
+            let ask_summary = config.read().ask_summary;
             handle_generated_command(
                 config,
                 shell,
@@ -695,6 +704,7 @@ async fn route_execution_plan(
                     record_assistant_message: true,
                     repair_attempts: 0,
                     from_cache: false,
+                    ask_summary,
                 },
             )
             .await
@@ -729,6 +739,7 @@ async fn shell_execute(
         config.read().print_markdown(&eval_str)?;
         return Ok(());
     }
+    let ask_summary = config.read().ask_summary;
     handle_generated_command(
         config,
         shell,
@@ -740,6 +751,7 @@ async fn shell_execute(
             record_assistant_message: true,
             repair_attempts,
             from_cache: false,
+            ask_summary,
         },
     )
     .await
@@ -752,6 +764,7 @@ struct ShellExecutionOptions {
     record_assistant_message: bool,
     repair_attempts: u8,
     from_cache: bool,
+    ask_summary: bool,
 }
 
 #[async_recursion::async_recursion]
@@ -768,6 +781,7 @@ async fn handle_generated_command(
         record_assistant_message,
         repair_attempts,
         from_cache,
+        ask_summary,
     } = options;
     let eval_str = eval_str.trim().to_string();
 
@@ -855,7 +869,12 @@ async fn handle_generated_command(
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }
-                    let summary = if config.read().ai_summary {
+                    let summary_requested = config.read().ai_summary
+                        || (ask_summary
+                            && confirm_cmd::confirm_high_risk(
+                                "Generate AI summary? / 是否生成 AI summary？",
+                            )?);
+                    let summary = if summary_requested {
                         match summarize_command_output(
                             config,
                             &eval_str,
@@ -1146,6 +1165,14 @@ mod tests {
             Some(SHELL_COMMAND_ROLE)
         );
         assert_eq!(command_role_for_route(RouteKind::Search), None);
+    }
+
+    #[test]
+    fn summary_choice_is_only_shown_when_not_preselected() {
+        assert!(should_ask_for_summary(false, false, false));
+        assert!(!should_ask_for_summary(true, false, false));
+        assert!(!should_ask_for_summary(false, true, false));
+        assert!(!should_ask_for_summary(false, false, true));
     }
 
     #[test]

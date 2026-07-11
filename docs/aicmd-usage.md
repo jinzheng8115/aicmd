@@ -103,10 +103,11 @@ Generated defaults include:
 temperature: 0
 top_p: null
 stream: false
-ai_summary: true
+ai_summary: false
 ```
 
-AI summary is on by default. / AI summary 默认开启。
+AI summary is not automatic by default. After execution, the user can choose whether to generate it.
+/ AI summary 默认不自动执行。命令完成后，用户可以选择是否生成。
 
 ## 5. Main commands / 主要命令
 

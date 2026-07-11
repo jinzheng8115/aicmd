@@ -128,19 +128,20 @@ Generated `config.yaml` defaults include:
 temperature: 0
 top_p: null
 stream: false
-ai_summary: true
+ai_summary: false
 ```
 
-AI summary is on by default. Disable it for one command when needed:
+AI summary is not requested automatically by default. After execution, choose whether to generate it:
+
+```bash
+aicmd how many files are in this directory
+# after execution: choose whether to generate an AI summary
+```
+
+Skip the summary choice for one command:
 
 ```bash
 aicmd --no-summary how many files are in this directory
-```
-
-Disable it by default:
-
-```bash
-aicmd config summary off
 ```
 
 Inspect config:
@@ -215,7 +216,7 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 aicmd how many files are in this directory
 aicmd --print how many files are in this directory      # print only, do not execute
 aicmd --dry-run how many files are in this directory    # preview the prompt
-aicmd --no-summary how many files are in this directory  # skip AI summary after execution
+aicmd --no-summary how many files are in this directory  # do not ask for AI summary
 aicmd --no-cache how many files are in this directory   # do not reuse a successful cached command
 ```
 

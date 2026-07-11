@@ -128,19 +128,20 @@ aicmd init --from-env --force
 temperature: 0
 top_p: null
 stream: false
-ai_summary: true
+ai_summary: false
 ```
 
-默认请求命令执行后的 AI summary。用户可以按需关闭：
+默认不自动请求 AI summary。命令执行完成后，用户可以选择是否生成：
+
+```bash
+aicmd 当前目录有多少文件
+# 执行完成后选择：是否生成 AI summary
+```
+
+如需单次跳过 summary 选择：
 
 ```bash
 aicmd --no-summary 当前目录有多少文件
-```
-
-如需默认关闭：
-
-```bash
-aicmd config summary off
 ```
 
 检查配置：
@@ -215,7 +216,7 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 aicmd 当前目录有多少文件
 aicmd --print 当前目录有多少文件      # 只打印命令，不执行
 aicmd --dry-run 当前目录有多少文件    # 查看将发送给模型的 prompt
-aicmd --no-summary 当前目录有多少文件  # 本次跳过 AI summary
+aicmd --no-summary 当前目录有多少文件  # 本次不询问 AI summary
 aicmd --no-cache 当前目录有多少文件   # 不复用之前成功的命令
 ```
 

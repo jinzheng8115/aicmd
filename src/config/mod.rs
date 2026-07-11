@@ -51,6 +51,8 @@ pub struct Config {
     pub dry_run: bool,
     #[serde(skip)]
     pub print_command: bool,
+    #[serde(skip)]
+    pub ask_summary: bool,
     pub ai_summary: bool,
     pub stream: bool,
     pub wrap: Option<String>,
@@ -89,7 +91,8 @@ impl Default for Config {
 
             dry_run: false,
             print_command: false,
-            ai_summary: true,
+            ask_summary: false,
+            ai_summary: false,
             stream: true,
             wrap: None,
             wrap_code: false,
@@ -773,7 +776,7 @@ mod tests {
     use super::Config;
 
     #[test]
-    fn config_defaults_ai_summary_to_on() {
-        assert!(Config::default().ai_summary);
+    fn config_defaults_ai_summary_to_off() {
+        assert!(!Config::default().ai_summary);
     }
 }
