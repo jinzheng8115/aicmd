@@ -3,6 +3,7 @@ mod client;
 mod command_cache;
 mod config;
 mod config_cmd;
+mod confirm_cmd;
 mod do_cmd;
 mod doctor_cmd;
 mod err_cmd;
@@ -14,6 +15,7 @@ mod model_cmd;
 mod plan_cmd;
 mod render;
 mod repair_cmd;
+mod result_cmd;
 mod search_cmd;
 mod session_cmd;
 mod setup_cmd;
@@ -40,13 +42,7 @@ use clap::{CommandFactory, Parser};
 use inquire::Text;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
-use std::{
-    env,
-    fs::OpenOptions,
-    io::{self, BufRead, BufReader, Write},
-    process,
-    sync::Arc,
-};
+use std::{env, process, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -171,24 +167,6 @@ fn classify_command_risk(command: &str) -> CommandRisk {
     reasons.sort_unstable();
     reasons.dedup();
     CommandRisk { level, reasons }
-}
-
-fn confirm_action(message: &str) -> Result<bool> {
-    if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
-        let mut tty_reader = BufReader::new(tty.try_clone()?);
-        let mut tty_writer = tty;
-        write!(tty_writer, "{message} [y/N] ")?;
-        tty_writer.flush()?;
-        let mut answer = String::new();
-        tty_reader.read_line(&mut answer)?;
-        return Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "YES"));
-    }
-
-    eprint!("{message} [y/N] ");
-    io::stderr().flush()?;
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "YES"))
 }
 
 fn default_session_name() -> String {
@@ -398,7 +376,7 @@ async fn prompt_search_follow_up(
         .map(|(key, rest, zh)| format!("{}{}({})", color_text(key, first_letter_color), rest, zh))
         .collect::<Vec<String>>()
         .join(&dimmed_text(" | "));
-    let answer = read_single_key(&['s', 'd', 'o', 'q'], 'q', &format!("{prompt_text}: "))?;
+    let answer = confirm_cmd::read_action(&['s', 'd', 'o', 'q'], 'q', &format!("{prompt_text}: "))?;
     match answer {
         's' => {
             let name = Text::new("Save name (empty = auto):")
@@ -522,37 +500,6 @@ async fn summarize_command_output(
     Ok(Some(summary))
 }
 
-fn truncate_for_session(value: &str, max_chars: usize) -> String {
-    let mut out: String = value.chars().take(max_chars).collect();
-    if value.chars().count() > max_chars {
-        out.push_str("\n[truncated / 已截断]");
-    }
-    if out.trim().is_empty() {
-        "(empty)".to_string()
-    } else {
-        out
-    }
-}
-
-fn build_execution_session_note(
-    command: &str,
-    code: i32,
-    stdout: &str,
-    stderr: &str,
-    summary: Option<&str>,
-) -> String {
-    const OUTPUT_LIMIT: usize = 4_000;
-    const SUMMARY_LIMIT: usize = 2_000;
-    let stdout = truncate_for_session(stdout.trim(), OUTPUT_LIMIT);
-    let stderr = truncate_for_session(stderr.trim(), OUTPUT_LIMIT);
-    let summary = summary
-        .map(|value| truncate_for_session(value.trim(), SUMMARY_LIMIT))
-        .unwrap_or_else(|| "(empty)".to_string());
-    format!(
-        "Command execution result:\nCommand:\n{command}\n\nExit code: {code}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n\nAI summary:\n{summary}"
-    )
-}
-
 async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()> {
     let abort_signal = create_abort_signal();
 
@@ -592,7 +539,7 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     }
     if cli.empty_session {
         let target = session_name.unwrap_or("temporary");
-        if !confirm_action(&format!(
+        if !confirm_cmd::confirm_high_risk(&format!(
             "Clear all history in session '{target}'? / 确认清空会话 '{target}' 的全部历史记录？"
         ))? {
             println!("cancelled / 已取消");
@@ -842,7 +789,7 @@ async fn handle_generated_command(
             println!("{command}");
             println!("{}", dimmed_text(&risk.display()));
             let mut answer_char =
-                read_single_key(&['y', 'n', '?'], 'y', "Run? [Y/n/?] / 执行？[Y/n/?] ")?;
+                confirm_cmd::read_action(&['y', 'n', '?'], 'y', "Run? [Y/n/?] / 执行？[Y/n/?] ")?;
             if answer_char == '?' {
                 let first_letter_color = nu_ansi_term::Color::Cyan;
                 let mut keys = vec!['r', 'd', 'c', 'q'];
@@ -884,7 +831,7 @@ async fn handle_generated_command(
                         ),
                     );
                 }
-                answer_char = read_single_key(
+                answer_char = confirm_cmd::read_action(
                     &keys,
                     'q',
                     &format!("More / 更多：{}: ", options.join(&dimmed_text(" | "))),
@@ -894,7 +841,9 @@ async fn handle_generated_command(
             match answer_char {
                 'y' => {
                     if risk.requires_confirmation()
-                        && !confirm_action("High-risk command. Continue? / 高风险命令，确认执行？")?
+                        && !confirm_cmd::confirm_high_risk(
+                            "High-risk command. Continue? / 高风险命令，确认执行？",
+                        )?
                     {
                         println!("cancelled / 已取消");
                         continue;
@@ -926,7 +875,7 @@ async fn handle_generated_command(
                     } else {
                         None
                     };
-                    let session_note = build_execution_session_note(
+                    let session_note = result_cmd::build_execution_session_note(
                         &eval_str,
                         code,
                         &stdout,
@@ -993,7 +942,7 @@ async fn handle_generated_command(
                                 "Command failed / 命令执行失败。{}: ",
                                 options.join(&dimmed_text(" | "))
                             );
-                            let next = read_single_key(&option_keys, 'e', &prompt)?;
+                            let next = confirm_cmd::read_action(&option_keys, 'e', &prompt)?;
                             match next {
                                 'f' if repair_attempts < 2 => {
                                     let cwd = env::current_dir()
@@ -1201,14 +1150,19 @@ mod tests {
 
     #[test]
     fn truncate_for_session_marks_truncated_content() {
-        let value = truncate_for_session("abcdef", 3);
+        let value = result_cmd::truncate_for_session("abcdef", 3);
         assert_eq!(value, "abc\n[truncated / 已截断]");
     }
 
     #[test]
     fn build_execution_session_note_includes_execution_fields() {
-        let note =
-            build_execution_session_note("printf hello", 0, "hello", "", Some("printed hello"));
+        let note = result_cmd::build_execution_session_note(
+            "printf hello",
+            0,
+            "hello",
+            "",
+            Some("printed hello"),
+        );
         assert!(note.contains("Command execution result:"));
         assert!(note.contains("Command:\nprintf hello"));
         assert!(note.contains("Exit code: 0"));
