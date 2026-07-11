@@ -1,6 +1,7 @@
 use crate::{
     client::call_chat_completions_raw,
     config::{GlobalConfig, Input, SHELL_ROLE},
+    preflight_cmd::{validate_checks, PreflightCheck},
     utils::AbortSignal,
 };
 
@@ -38,6 +39,7 @@ pub struct ExecutionPlan {
     pub query: String,
     #[serde(default)]
     pub problem: String,
+    pub preflight: Vec<PreflightCheck>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +62,7 @@ pub fn parse_execution_plan(raw: &str) -> Result<ExecutionPlan> {
     let has_command = !plan.command.trim().is_empty();
     let has_query = !plan.query.trim().is_empty();
     let has_problem = !plan.problem.trim().is_empty();
+    validate_checks(&plan.preflight)?;
 
     match plan.mode {
         PlanMode::Direct | PlanMode::Script if !has_command => {
@@ -80,10 +83,10 @@ pub fn parse_execution_plan(raw: &str) -> Result<ExecutionPlan> {
                 plan.mode
             )
         }
-        PlanMode::Search if has_command || has_problem => {
+        PlanMode::Search if has_command || has_problem || !plan.preflight.is_empty() => {
             bail!("Invalid execution plan: 'search' cannot include command or problem")
         }
-        PlanMode::Diagnose if has_command || has_query => {
+        PlanMode::Diagnose if has_command || has_query || !plan.preflight.is_empty() => {
             bail!("Invalid execution plan: 'diagnose' cannot include command or query")
         }
         _ => Ok(plan),
@@ -114,27 +117,44 @@ mod tests {
     #[test]
     fn parses_and_rejects_invalid_execution_plans() -> anyhow::Result<()> {
         assert_eq!(
-            parse_execution_plan(r#"{"mode":"direct","command":"pwd"}"#)?.mode,
+            parse_execution_plan(
+                r#"{"mode":"direct","command":"pwd","query":"","problem":"","preflight":[]}"#,
+            )?
+            .mode,
             PlanMode::Direct,
         );
         assert!(
-            parse_execution_plan("```json\n{\"mode\":\"direct\",\"command\":\"pwd\"}\n```")
-                .is_err()
+            parse_execution_plan(
+                "```json\n{\"mode\":\"direct\",\"command\":\"pwd\",\"query\":\"\",\"problem\":\"\",\"preflight\":[]}\n```"
+            )
+            .is_err()
         );
-        assert!(parse_execution_plan(r#"{"mode":"direct","command":"","query":"x"}"#).is_err());
-        assert!(parse_execution_plan(r#"{"mode":"search","query":"rust","extra":true}"#).is_err());
+        assert!(parse_execution_plan(
+            r#"{"mode":"direct","command":"","query":"x","problem":"","preflight":[]}"#
+        )
+        .is_err());
+        assert!(parse_execution_plan(
+            r#"{"mode":"search","command":"","query":"rust","problem":"","preflight":[],"extra":true}"#
+        )
+        .is_err());
+        assert!(parse_execution_plan(
+            r#"{"mode":"search","command":"","query":"rust","problem":"","preflight":[{"type":"command_exists","value":"git","failure_message":"f","suggestion":"s"}]}"#
+        )
+        .is_err());
         Ok(())
     }
 
     #[test]
     fn planner_response_rejects_surrounding_or_fenced_json() {
         assert!(parse_planner_response(
-            "Here is the plan: {\"mode\":\"direct\",\"command\":\"pwd\"}"
+            "Here is the plan: {\"mode\":\"direct\",\"command\":\"pwd\",\"query\":\"\",\"problem\":\"\",\"preflight\":[]}"
         )
         .is_err());
         assert!(
-            parse_planner_response("```json\n{\"mode\":\"direct\",\"command\":\"pwd\"}\n```")
-                .is_err()
+            parse_planner_response(
+                "```json\n{\"mode\":\"direct\",\"command\":\"pwd\",\"query\":\"\",\"problem\":\"\",\"preflight\":[]}\n```"
+            )
+            .is_err()
         );
     }
 
