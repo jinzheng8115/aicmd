@@ -354,6 +354,26 @@ pub async fn call_chat_completions(
     }
 }
 
+pub async fn call_chat_completions_raw(
+    input: &Input,
+    client: &dyn Client,
+    abort_signal: AbortSignal,
+) -> Result<(String, Vec<ToolResult>)> {
+    let ret = abortable_run_with_spinner(
+        client.chat_completions(input.clone()),
+        "Generating",
+        abort_signal,
+    )
+    .await;
+
+    match ret {
+        Ok(ChatCompletionsOutput {
+            text, tool_calls, ..
+        }) => Ok((text, eval_tool_calls(client.global_config(), tool_calls)?)),
+        Err(err) => Err(err),
+    }
+}
+
 pub async fn call_chat_completions_streaming(
     input: &Input,
     client: &dyn Client,

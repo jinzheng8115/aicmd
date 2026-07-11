@@ -1,6 +1,7 @@
 use crate::{
+    client::call_chat_completions_raw,
     config::{GlobalConfig, Input, SHELL_ROLE},
-    utils::{abortable_run_with_spinner, AbortSignal},
+    utils::AbortSignal,
 };
 
 use anyhow::{bail, Result};
@@ -87,13 +88,8 @@ pub async fn request_execution_plan(
     let planner_input = Input::from_str(config, &input.text(), Some(role));
     let client = planner_input.create_client()?;
     config.write().before_chat_completion(&planner_input)?;
-    let response = abortable_run_with_spinner(
-        client.chat_completions(planner_input),
-        "Generating",
-        abort_signal,
-    )
-    .await?;
-    parse_planner_response(&response.text)
+    let (raw, _) = call_chat_completions_raw(&planner_input, client.as_ref(), abort_signal).await?;
+    parse_planner_response(&raw)
 }
 
 #[cfg(test)]
