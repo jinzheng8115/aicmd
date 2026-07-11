@@ -29,12 +29,17 @@ mod utils;
 extern crate log;
 
 use crate::cli::Cli;
-use crate::client::{call_chat_completions, call_chat_completions_streaming};
+use crate::client::{
+    call_chat_completions, call_chat_completions_raw, call_chat_completions_streaming,
+};
 use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
     EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_COMMAND_ROLE, SHELL_ROLE,
 };
-use crate::plan_cmd::{request_execution_plan, route_kind, ExecutionPlan, RouteKind};
+use crate::plan_cmd::{
+    parse_generated_command, request_execution_plan, route_kind, ExecutionPlan, RouteKind,
+};
+use crate::preflight_cmd::PreflightCheck;
 use crate::render::render_error;
 use crate::utils::*;
 
@@ -617,6 +622,7 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             abort_signal,
             ShellExecutionOptions {
                 eval_str: cached_command.expect("cache hit has a command"),
+                preflight: vec![],
                 cache_task,
                 record_assistant_message: false,
                 repair_attempts: 0,
@@ -721,6 +727,7 @@ async fn route_execution_plan(
                 abort_signal,
                 ShellExecutionOptions {
                     eval_str: plan.command,
+                    preflight: plan.preflight,
                     cache_task,
                     record_assistant_message: true,
                     repair_attempts: 0,
@@ -754,12 +761,13 @@ async fn shell_execute(
 ) -> Result<()> {
     let client = input.create_client()?;
     config.write().before_chat_completion(&input)?;
-    let (eval_str, _) =
-        call_chat_completions(&input, false, true, client.as_ref(), abort_signal.clone()).await?;
+    let (raw, _) = call_chat_completions_raw(&input, client.as_ref(), abort_signal.clone()).await?;
     if config.read().dry_run {
-        config.read().print_markdown(&eval_str)?;
+        config.read().print_markdown(&raw)?;
         return Ok(());
     }
+    let generated =
+        parse_generated_command(&raw).context(localized("无效命令计划", "Invalid command plan"))?;
     let ask_summary = config.read().ask_summary;
     handle_generated_command(
         config,
@@ -767,7 +775,8 @@ async fn shell_execute(
         input,
         abort_signal,
         ShellExecutionOptions {
-            eval_str,
+            eval_str: generated.command,
+            preflight: generated.preflight,
             cache_task,
             record_assistant_message: true,
             repair_attempts,
@@ -781,6 +790,7 @@ async fn shell_execute(
 #[derive(Debug, Clone)]
 struct ShellExecutionOptions {
     eval_str: String,
+    preflight: Vec<PreflightCheck>,
     cache_task: Option<String>,
     record_assistant_message: bool,
     repair_attempts: u8,
@@ -798,6 +808,7 @@ async fn handle_generated_command(
 ) -> Result<()> {
     let ShellExecutionOptions {
         eval_str,
+        preflight: _preflight,
         cache_task,
         record_assistant_message,
         repair_attempts,

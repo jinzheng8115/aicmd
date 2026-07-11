@@ -42,6 +42,13 @@ pub struct ExecutionPlan {
     pub preflight: Vec<PreflightCheck>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneratedCommand {
+    pub command: String,
+    pub preflight: Vec<PreflightCheck>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteKind {
     Command,
@@ -91,6 +98,15 @@ pub fn parse_execution_plan(raw: &str) -> Result<ExecutionPlan> {
         }
         _ => Ok(plan),
     }
+}
+
+pub fn parse_generated_command(raw: &str) -> Result<GeneratedCommand> {
+    let generated: GeneratedCommand = serde_json::from_str(raw)?;
+    if generated.command.trim().is_empty() {
+        bail!("generated command must not be empty");
+    }
+    validate_checks(&generated.preflight)?;
+    Ok(generated)
 }
 
 fn parse_planner_response(raw: &str) -> Result<ExecutionPlan> {
@@ -164,5 +180,17 @@ mod tests {
         assert_eq!(route_kind(&PlanMode::Script), RouteKind::Command);
         assert_eq!(route_kind(&PlanMode::Search), RouteKind::Search);
         assert_eq!(route_kind(&PlanMode::Diagnose), RouteKind::Diagnose);
+    }
+
+    #[test]
+    fn parses_strict_generated_command_with_preflight() -> anyhow::Result<()> {
+        let generated = parse_generated_command(
+            r#"{"command":"python3 task.py","preflight":[{"type":"command_exists","value":"python3","failure_message":"未找到 Python 3","suggestion":"请先安装 Python 3"}]}"#,
+        )?;
+        assert_eq!(generated.command, "python3 task.py");
+        assert_eq!(generated.preflight.len(), 1);
+        assert!(parse_generated_command(r#"{"command":"pwd","preflight":[],"extra":1}"#).is_err());
+        assert!(parse_generated_command(r#"{"command":"","preflight":[]}"#).is_err());
+        Ok(())
     }
 }

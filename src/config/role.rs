@@ -301,7 +301,8 @@ Input 1
         let planner = Role::builtin(SHELL_ROLE)?;
         let command = Role::builtin(SHELL_COMMAND_ROLE)?;
         assert!(planner.prompt().contains("exactly one JSON object"));
-        assert!(command.prompt().contains("Output only plain text"));
+        assert!(command.prompt().contains("\"command\""));
+        assert!(command.prompt().contains("\"preflight\""));
         Ok(())
     }
 }
