@@ -40,11 +40,12 @@ fn print_overview_help() {
         r#"AICmd help / AICmd 帮助
 
 Start with these commands / 优先记住这些命令:
-  aicmd <task>              Generate and confirm a terminal command / 生成并确认终端命令
-  aicmd do <task>           Multi-step script or file task / 多步骤脚本或文件任务
-  aicmd search <query>      Search through MCP, then summarize / 通过 MCP 搜索并整理
+  aicmd <task>              Auto-plan, confirm, and run / 自动规划、确认并执行
   aicmd setup               First-time setup or reconfigure / 首次配置或重新配置
   aicmd doctor              Diagnose install/config/MCP/cache / 诊断安装、配置、MCP、缓存
+
+Plain tasks are automatically classified as command, script, search, or diagnosis.
+普通任务会自动判断为命令、脚本、搜索或错误诊断。
 
 Useful help topics / 可用帮助主题:
   aicmd help setup          Model/config setup / 模型和配置
@@ -56,9 +57,15 @@ Useful help topics / 可用帮助主题:
 
 Examples / 示例:
   aicmd 当前目录有多少文件
+  aicmd "读取 data/orders.csv，按用户统计订单金额，输出到 output/user_totals.csv"
+  aicmd "查一下 Docker 最新安装方式"
+  aicmd "分析这个报错：permission denied"
   aicmd --no-cache 当前目录有多少文件
+
+Advanced explicit modes / 高级显式入口:
   aicmd do "读取 data.csv，按用户统计金额"
   aicmd search "copilot-cli 如何安装"
+  aicmd err -- pnpm test
 "#
     );
 }

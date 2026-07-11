@@ -36,7 +36,6 @@ use crate::utils::*;
 
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
-use fancy_regex::Regex;
 use inquire::Text;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
@@ -45,7 +44,7 @@ use std::{
     fs::OpenOptions,
     io::{self, BufRead, BufReader, Read, Write},
     process::{self, Command, Stdio},
-    sync::{Arc, LazyLock},
+    sync::Arc,
     thread,
 };
 
@@ -115,117 +114,6 @@ fn command_with_cwd_capture(shell: &Shell, command: &str) -> String {
         "{{\n{command}\n}}\n__aicmd_status=$?\npwd > {}\nexit $__aicmd_status",
         shell_single_quote(&cwd_file)
     )
-}
-
-fn sanitize_generated_command(command: &str) -> String {
-    let mut out = command.trim().to_string();
-    for marker in ["]<]", "<]"] {
-        if let Some(index) = out.find(marker) {
-            out.truncate(index);
-            out = out.trim_end().to_string();
-        }
-    }
-    out = remove_markdown_and_prose_from_command(&out);
-    out = out.replace("find /v \"\" /c", "find /c /v \"\"");
-    out = remove_leading_missing_target_exit_guard(&out);
-    out
-}
-
-fn remove_markdown_and_prose_from_command(command: &str) -> String {
-    command
-        .lines()
-        .filter(|line| keep_generated_command_line(line))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
-}
-
-fn keep_generated_command_line(line: &str) -> bool {
-    let trimmed = line.trim();
-    if trimmed.starts_with("```") {
-        return false;
-    }
-    if trimmed.is_empty() || trimmed.starts_with('#') {
-        return true;
-    }
-    if contains_cjk(trimmed) && !is_shell_line_that_may_contain_cjk(trimmed) {
-        return false;
-    }
-    true
-}
-
-fn contains_cjk(text: &str) -> bool {
-    text.chars().any(|ch| {
-        ('\u{4e00}'..='\u{9fff}').contains(&ch)
-            || ('\u{3400}'..='\u{4dbf}').contains(&ch)
-            || ('\u{3040}'..='\u{30ff}').contains(&ch)
-            || ('\u{ac00}'..='\u{d7af}').contains(&ch)
-    })
-}
-
-fn is_shell_line_that_may_contain_cjk(trimmed: &str) -> bool {
-    let command_prefixes = [
-        "echo ", "printf ", "cat ", "read ", "export ", "local ", "declare ", "typeset ",
-    ];
-    command_prefixes
-        .iter()
-        .any(|prefix| trimmed.starts_with(prefix))
-        || trimmed.contains("<<")
-        || trimmed.contains("=\"")
-        || trimmed.contains("='")
-}
-
-fn remove_leading_missing_target_exit_guard(command: &str) -> String {
-    static RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"(?ms)\A(?:\s*#.*\n|\s*)*if\s+!\s+command\s+-v\s+(?P<cmd>[A-Za-z0-9_.+-]+)\s+.*?;\s*then\s*(?P<body>.*?)\n\s*fi\s*",
-        )
-        .unwrap()
-    });
-    let Some(caps) = RE.captures(command).ok().flatten() else {
-        return command.to_string();
-    };
-    let Some(full_match) = caps.get(0) else {
-        return command.to_string();
-    };
-    let cmd = caps.name("cmd").map(|m| m.as_str()).unwrap_or_default();
-    let body = caps.name("body").map(|m| m.as_str()).unwrap_or_default();
-    let rest = command[full_match.end()..].trim_start();
-    if rest.is_empty()
-        || is_install_dependency_command(cmd)
-        || !body.to_lowercase().contains("exit 1")
-        || !looks_like_install_command(rest)
-    {
-        return command.to_string();
-    }
-    rest.to_string()
-}
-
-fn is_install_dependency_command(cmd: &str) -> bool {
-    matches!(
-        cmd,
-        "brew" | "npm" | "node" | "git" | "curl" | "wget" | "python" | "python3" | "pip" | "pip3"
-    )
-}
-
-fn looks_like_install_command(command: &str) -> bool {
-    let command = command.to_lowercase();
-    [
-        "brew install",
-        "npm install",
-        "apt install",
-        "apt-get install",
-        "dnf install",
-        "yum install",
-        "pip install",
-        "pip3 install",
-        "cargo install",
-        "| bash",
-        "| sh",
-    ]
-    .iter()
-    .any(|marker| command.contains(marker))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -884,7 +772,6 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
                 record_assistant_message: false,
                 repair_attempts: 0,
                 from_cache: true,
-                sanitize_command: false,
             },
         )
         .await;
@@ -983,7 +870,6 @@ async fn route_execution_plan(
                     record_assistant_message: true,
                     repair_attempts: 0,
                     from_cache: false,
-                    sanitize_command: false,
                 },
             )
             .await
@@ -1029,7 +915,6 @@ async fn shell_execute(
             record_assistant_message: true,
             repair_attempts,
             from_cache: false,
-            sanitize_command: true,
         },
     )
     .await
@@ -1042,15 +927,6 @@ struct ShellExecutionOptions {
     record_assistant_message: bool,
     repair_attempts: u8,
     from_cache: bool,
-    sanitize_command: bool,
-}
-
-fn command_for_execution(command: &str, sanitize_command: bool) -> String {
-    if sanitize_command {
-        sanitize_generated_command(command)
-    } else {
-        command.to_string()
-    }
 }
 
 #[async_recursion::async_recursion]
@@ -1067,9 +943,8 @@ async fn handle_generated_command(
         record_assistant_message,
         repair_attempts,
         from_cache,
-        sanitize_command,
     } = options;
-    let eval_str = command_for_execution(&eval_str, sanitize_command);
+    let eval_str = eval_str.trim().to_string();
 
     if record_assistant_message {
         config.write().after_chat_completion(&input, &eval_str)?;
@@ -1433,13 +1308,6 @@ mod tests {
     }
 
     #[test]
-    fn structured_plan_command_bypasses_legacy_sanitization() {
-        let command = "printf '%s\\n' ']<]planner[>['";
-        assert_eq!(command_for_execution(command, false), command);
-        assert_ne!(command_for_execution(command, true), command);
-    }
-
-    #[test]
     fn command_routes_select_the_command_generation_role() {
         assert_eq!(
             command_role_for_route(RouteKind::Command),
@@ -1468,79 +1336,5 @@ mod tests {
         assert!(note.contains("STDOUT:\nhello"));
         assert!(note.contains("STDERR:\n(empty)"));
         assert!(note.contains("AI summary:\nprinted hello"));
-    }
-
-    #[test]
-    fn sanitize_generated_command_removes_minimax_marker() {
-        assert_eq!(
-            sanitize_generated_command("dir /a /b | find /c /v \"\"]<]minimax[>["),
-            "dir /a /b | find /c /v \"\""
-        );
-    }
-
-    #[test]
-    fn sanitize_generated_command_keeps_normal_command() {
-        assert_eq!(
-            sanitize_generated_command("wmic logicaldisk get caption,freespace,size"),
-            "wmic logicaldisk get caption,freespace,size"
-        );
-    }
-
-    #[test]
-    fn sanitize_generated_command_fixes_windows_find_count_order() {
-        assert_eq!(
-            sanitize_generated_command("dir /ad /b 2>nul | find /v \"\" /c"),
-            "dir /ad /b 2>nul | find /c /v \"\""
-        );
-    }
-
-    #[test]
-    fn sanitize_generated_command_removes_impossible_install_precheck() {
-        let input = r#"# 首先检查是否已安装 Copilot CLI
-if ! command -v copilot-cli &> /dev/null; then
-    echo "Copilot CLI is not installed. Please install it first."
-    exit 1
-fi
-
-# 安装 Copilot CLI
-brew install copilot-cli
-copilot --version"#;
-
-        assert_eq!(
-            sanitize_generated_command(input),
-            "# 安装 Copilot CLI\nbrew install copilot-cli\ncopilot --version"
-        );
-    }
-
-    #[test]
-    fn sanitize_generated_command_keeps_dependency_precheck() {
-        let input = r#"if ! command -v brew &> /dev/null; then
-    echo "Homebrew is required."
-    exit 1
-fi
-brew install copilot-cli"#;
-
-        assert_eq!(sanitize_generated_command(input), input);
-    }
-
-    #[test]
-    fn sanitize_generated_command_removes_markdown_fences_and_prose() {
-        let input = r#"# 检查 Homebrew 是否已安装
-if command -v brew >/dev/null 2>&1; then
-    echo "Homebrew 已安装"
-else
-    echo "Homebrew 未安装，请先安装 Homebrew"
-    exit 1
-fi
-```
-如果 Homebrew 已安装，则继续执行以下步骤：
-```zsh
-# 安装 Copilot CLI
-brew install copilot-cli@prerelease"#;
-
-        assert_eq!(
-            sanitize_generated_command(input),
-            "# 检查 Homebrew 是否已安装\nif command -v brew >/dev/null 2>&1; then\n    echo \"Homebrew 已安装\"\nelse\n    echo \"Homebrew 未安装，请先安装 Homebrew\"\n    exit 1\nfi\n# 安装 Copilot CLI\nbrew install copilot-cli@prerelease"
-        );
     }
 }

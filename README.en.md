@@ -7,16 +7,18 @@ AICmd runs terminal commands from natural language. You describe the goal, AICmd
 Upstream: [sigoden/aichat](https://github.com/sigoden/aichat)
 License: MIT OR Apache-2.0
 
-## 1. Start with these 5 commands
+## 1. Start with the main entry point
 
 ```bash
-aicmd <what you want>       # generate one command and ask before execution
-aicmd do <complex task>     # multi-step scripts, installs, file/data tasks
-aicmd search <question>     # call MCP search, then summarize with the LLM
+aicmd <what you want>       # automatically choose command, script, search, or diagnosis
 aicmd setup                # first-time setup or reconfiguration
 aicmd doctor               # check install, model, temperature, summary, MCP, cache, and PATH
 aicmd help me              # show built-in help when unsure
 ```
+
+You no longer need to decide whether to use `do`, `search`, or `err` first. AICmd creates a strict structured plan and selects the workflow automatically.
+If the model does not return a valid plan, AICmd stops safely and asks you to retry; it never guesses a shell command from Markdown or prose.
+`do`, `search`, and `err` remain available as advanced explicit workflow entry points.
 
 Examples:
 

@@ -7,16 +7,18 @@ AICmd 是一个用自然语言运行终端命令的工具。你描述目标，AI
 上游来源：[sigoden/aichat](https://github.com/sigoden/aichat)
 许可证：MIT OR Apache-2.0
 
-## 1. 你只需要先记住这 5 个入口
+## 1. 你只需要先记住这个入口
 
 ```bash
-aicmd <你想做的事>           # 生成一条命令，确认后执行
-aicmd do <复杂任务>          # 多步骤、脚本、文件处理任务
-aicmd search <需要查询的问题> # 通过 MCP 搜索，再由 LLM 整理
+aicmd <你想做的事>           # 自动判断命令、脚本、搜索或错误诊断
 aicmd setup                 # 首次配置或重新配置
 aicmd doctor                # 检查安装、模型、temperature、summary、MCP、缓存、PATH
 aicmd help me               # 不确定怎么用时查看帮助
 ```
+
+普通任务不需要先判断使用 `do`、`search` 还是 `err`。AICmd 会先生成严格结构化计划，再自动选择对应流程。
+如果模型没有返回有效计划，AICmd 会安全停止并提示重试，不会从 Markdown 或自然语言中猜测 shell 命令。
+`do`、`search`、`err` 仍然保留，但属于需要显式控制流程时使用的高级入口。
 
 常见例子：
 
