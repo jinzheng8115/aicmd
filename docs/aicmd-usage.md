@@ -155,6 +155,44 @@ Example:
 aicmd 当前目录有多少文件
 ```
 
+Before confirmation, AICmd runs the read-only checks declared in the structured plan. If any required check fails, it shows every failure and suggestion, records the result in the active session, and does not execute the command.
+
+确认执行前，AICmd 会运行结构化计划中声明的只读检查。任一必要检查失败时，系统会显示全部失败原因和建议、记录到当前 session，并且不会执行命令。
+
+Supported checks / 支持的检查：
+
+| Type | Purpose / 用途 |
+| --- | --- |
+| `command_exists` | Executable exists in `PATH`. / 可执行命令存在于 `PATH`。 |
+| `path_exists` | File or directory exists. / 文件或目录存在。 |
+| `path_writable` | Target or nearest existing parent is writable. / 目标或最近存在的父目录可写。 |
+| `env_exists` | Environment-variable name exists; its value is never displayed or saved. / 环境变量名存在；变量值不会显示或保存。 |
+| `os` | Current OS matches `macos` or `linux`. / 当前系统符合 `macos` 或 `linux`。 |
+| `git_clean` | Git working tree has no uncommitted changes. / Git 工作区没有未提交改动。 |
+
+Example plan / 计划示例：
+
+```json
+{
+  "mode": "direct",
+  "command": "python3 task.py",
+  "query": "",
+  "problem": "",
+  "preflight": [
+    {
+      "type": "command_exists",
+      "value": "python3",
+      "failure_message": "未找到 Python 3",
+      "suggestion": "请先安装 Python 3"
+    }
+  ]
+}
+```
+
+Checks are read-only. They do not install dependencies, repair the environment, probe sudo passwords, or elevate privileges. `--dry-run` shows the full planner prompt containing the check contract, while `--print` prints only the generated command. Neither executes checks.
+
+检查是只读的，不会安装依赖、修复环境、测试 sudo 密码或提升权限。`--dry-run` 显示包含检查协议的完整规划 prompt，`--print` 只输出生成的命令，两者都不会执行检查。
+
 Before execution, AICmd shows:
 
 执行前，AICmd 会显示：

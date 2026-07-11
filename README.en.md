@@ -238,6 +238,20 @@ aicmd --no-summary how many files are in this directory  # do not ask for AI sum
 aicmd --no-cache how many files are in this directory   # do not reuse a successful cached command
 ```
 
+Before execution confirmation, AICmd runs the read-only checks declared by the plan. It can check commands, paths, write access, environment-variable presence, operating system, and Git working-tree state. If any check fails, AICmd shows all reasons and suggestions and does not execute the command.
+
+```text
+Preflight failed
+
+✗ Input file does not exist
+  Check: path_exists = data/orders.csv
+  Suggestion: verify the file path
+
+Command was not executed.
+```
+
+Checks never install dependencies, repair the environment, or elevate privileges. `--dry-run` only shows the full planner prompt containing the check contract; `--print` only prints the command. Neither runs checks.
+
 Before execution, AICmd asks:
 
 ```text
