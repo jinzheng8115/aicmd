@@ -871,9 +871,11 @@ async fn handle_generated_command(
                     }
                     let summary_requested = config.read().ai_summary
                         || (ask_summary
-                            && confirm_cmd::confirm_high_risk(
-                                "Generate AI summary? / 是否生成 AI summary？",
-                            )?);
+                            && confirm_cmd::read_action(
+                                &['y', 'n'],
+                                'n',
+                                "Generate AI summary? [y/N] / 是否生成 AI summary？[y/N] ",
+                            )? == 'y');
                     let summary = if summary_requested {
                         match summarize_command_output(
                             config,
