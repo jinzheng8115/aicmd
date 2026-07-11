@@ -15,7 +15,7 @@ pub fn build_repair_prompt(context: &RepairContext<'_>) -> String {
         "You are repairing a failed terminal command for AICmd.\n\
 你正在为 AICmd 修复一条执行失败的终端命令。\n\n\
 Rules / 规则:\n\
-- Output only one corrected shell command or script wrapper.\n\
+- Return one corrected shell command or script wrapper in the required JSON `command` field, with required read-only checks in `preflight`.\n\
 - Do not use markdown fences.\n\
 - Do not explain outside shell comments or echo/printf.\n\
 - Prefer minimal changes from the failed command.\n\

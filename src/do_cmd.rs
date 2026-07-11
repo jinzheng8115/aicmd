@@ -132,7 +132,9 @@ fn build_prompt(
             file_context = file_context,
         )
     };
-    prompt
+    format!(
+        "{prompt}\n\nReturn the executable command in the required JSON `command` field and declare all required read-only checks in `preflight`.\n请将可执行命令放入规定的 JSON `command` 字段，并在 `preflight` 中声明所有必要的只读检查。"
+    )
 }
 
 fn build_system_context(shell_name: &str) -> String {

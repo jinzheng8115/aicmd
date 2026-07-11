@@ -1,3 +1,5 @@
+use crate::preflight_cmd::PreflightReport;
+
 pub fn truncate_for_session(value: &str, max_chars: usize) -> String {
     let mut out: String = value.chars().take(max_chars).collect();
     if value.chars().count() > max_chars {
@@ -78,4 +80,3 @@ mod tests {
         assert!(!note.contains("secret-value"));
     }
 }
-use crate::preflight_cmd::PreflightReport;

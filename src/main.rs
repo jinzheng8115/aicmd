@@ -689,6 +689,16 @@ async fn request_and_route_execution_plan(
     abort_signal: AbortSignal,
     cache_task: Option<String>,
 ) -> Result<()> {
+    if config.read().dry_run {
+        let role = config.read().retrieve_role(SHELL_ROLE)?;
+        let planner_input = input.with_role(role);
+        let client = planner_input.create_client()?;
+        config.write().before_chat_completion(&planner_input)?;
+        let (raw, _) =
+            call_chat_completions_raw(&planner_input, client.as_ref(), abort_signal).await?;
+        config.read().print_markdown(&raw)?;
+        return Ok(());
+    }
     let plan = request_execution_plan(config, &input, abort_signal.clone())
         .await
         .context(localized("无效执行计划", "Invalid execution plan"))?;
