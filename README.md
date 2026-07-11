@@ -126,19 +126,19 @@ aicmd init --from-env --force
 temperature: 0
 top_p: null
 stream: false
-ai_summary: true
+ai_summary: false
 ```
 
-默认开启命令执行后的 AI summary。如果想默认关闭：
+默认不请求命令执行后的 AI summary。需要时可单次开启：
 
 ```bash
-aicmd config summary off
+aicmd --summary 当前目录有多少文件
 ```
 
-临时关闭一次：
+如需默认开启：
 
 ```bash
-aicmd --no-summary 当前目录有多少文件
+aicmd config summary on
 ```
 
 检查配置：
@@ -213,23 +213,22 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 aicmd 当前目录有多少文件
 aicmd --print 当前目录有多少文件      # 只打印命令，不执行
 aicmd --dry-run 当前目录有多少文件    # 查看将发送给模型的 prompt
-aicmd --no-summary 当前目录有多少文件 # 执行后跳过 AI summary
+aicmd --summary 当前目录有多少文件    # 执行后请求 AI summary
 aicmd --no-cache 当前目录有多少文件   # 不复用之前成功的命令
 ```
 
 执行前会出现：
 
 ```text
-execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出):
+执行？[Y/n/?]
 ```
 
-AICmd 会显示风险等级。高风险命令会要求二次确认。
+AICmd 会显示风险等级。按 `Enter` 或 `y` 执行，`n` 退出，`?` 显示修改、解释、复制等高级选项。高风险命令会要求二次确认。
 
-如果同一个普通任务之前成功执行过，AICmd 可能会先提示复用之前的命令，减少同一句话生成不同命令的问题：
+如果同一个普通任务之前成功执行过，AICmd 会自动复用之前的命令并进入相同的确认界面。输入 `?` 后再输入 `g` 可重新生成：
 
 ```text
-Found a previously successful command / 找到一条之前成功执行过的命令:
-reuse(复用) | new(重新生成) | describe(解释) | quit(退出):
+Reusing a previously successful command / 正在复用之前成功执行过的命令
 ```
 
 如果命令执行失败，AICmd 会提供失败处理菜单。`fix` 会基于失败命令、exit code、stdout/stderr 和当前系统环境生成修复命令，但仍需要你确认后才会执行：
@@ -272,7 +271,7 @@ aicmd --list-sessions       # 列出 session
 aicmd -s dev --empty-session # 清空 dev session，会二次确认
 ```
 
-默认情况下，普通 `aicmd ...` 使用每日 session，例如 `cmd-20260619`。
+默认情况下，普通 `aicmd ...` 会保存到每日 history，例如 `cmd-20260619`，但不会把历史发送给模型。只有显式使用 `-s dev` 等命名会话时，才会启用连续上下文。
 
 查看历史：
 

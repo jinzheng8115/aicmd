@@ -813,7 +813,10 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     } else {
         Some(default_session.as_str())
     };
-    config.write().use_session(session_name)?;
+    let context_enabled = cli.session.is_some();
+    config
+        .write()
+        .use_session_with_context(session_name, context_enabled)?;
     if cli.list_sessions {
         let sessions = config.read().list_sessions().join("\n");
         println!("{sessions}");
@@ -868,27 +871,26 @@ async fn shell_execute(
     if let Some(task) = cache_task.as_deref() {
         if !config.read().dry_run && !config.read().print_command && *IS_STDOUT_TERMINAL {
             if let Some(record) = command_cache::lookup(task, &shell.name, env::consts::OS) {
-                match prompt_cached_command(config, &input, &record.command, abort_signal.clone())
-                    .await?
-                {
-                    CachedCommandAction::Reuse => {
-                        return handle_generated_command(
-                            config,
-                            shell,
-                            input,
-                            abort_signal,
-                            ShellExecutionOptions {
-                                eval_str: record.command,
-                                cache_task,
-                                record_assistant_message: false,
-                                repair_attempts,
-                            },
-                        )
-                        .await;
-                    }
-                    CachedCommandAction::New => {}
-                    CachedCommandAction::Quit => return Ok(()),
-                }
+                println!(
+                    "{}",
+                    dimmed_text(
+                        "Reusing a previously successful command / 正在复用之前成功执行过的命令"
+                    )
+                );
+                return handle_generated_command(
+                    config,
+                    shell,
+                    input,
+                    abort_signal,
+                    ShellExecutionOptions {
+                        eval_str: record.command,
+                        cache_task,
+                        record_assistant_message: false,
+                        repair_attempts,
+                        from_cache: true,
+                    },
+                )
+                .await;
             }
         }
     }
@@ -911,16 +913,10 @@ async fn shell_execute(
             cache_task,
             record_assistant_message: true,
             repair_attempts,
+            from_cache: false,
         },
     )
     .await
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CachedCommandAction {
-    Reuse,
-    New,
-    Quit,
 }
 
 #[derive(Debug, Clone)]
@@ -929,65 +925,7 @@ struct ShellExecutionOptions {
     cache_task: Option<String>,
     record_assistant_message: bool,
     repair_attempts: u8,
-}
-
-async fn prompt_cached_command(
-    config: &GlobalConfig,
-    input: &Input,
-    command: &str,
-    abort_signal: AbortSignal,
-) -> Result<CachedCommandAction> {
-    println!(
-        "{}",
-        dimmed_text("Found a previously successful command / 找到一条之前成功执行过的命令:")
-    );
-    println!(
-        "{}",
-        color_text(command.trim(), nu_ansi_term::Color::Rgb(255, 165, 0))
-    );
-    let first_letter_color = nu_ansi_term::Color::Cyan;
-    let options = [
-        ("r", "euse", "复用"),
-        ("n", "ew", "重新生成"),
-        ("d", "escribe", "解释"),
-        ("q", "uit", "退出"),
-    ];
-    let prompt_text = options
-        .iter()
-        .map(|(key, rest, zh)| format!("{}{}({})", color_text(key, first_letter_color), rest, zh))
-        .collect::<Vec<String>>()
-        .join(&dimmed_text(" | "));
-    loop {
-        let answer = read_single_key(&['r', 'n', 'd', 'q'], 'r', &format!("{prompt_text}: "))?;
-        match answer {
-            'r' => return Ok(CachedCommandAction::Reuse),
-            'n' => return Ok(CachedCommandAction::New),
-            'd' => {
-                let role = config.read().retrieve_role(EXPLAIN_SHELL_ROLE)?;
-                let explain_input = Input::from_str(config, command, Some(role));
-                let client = input.create_client()?;
-                if explain_input.stream() {
-                    call_chat_completions_streaming(
-                        &explain_input,
-                        client.as_ref(),
-                        abort_signal.clone(),
-                    )
-                    .await?;
-                } else {
-                    call_chat_completions(
-                        &explain_input,
-                        true,
-                        false,
-                        client.as_ref(),
-                        abort_signal.clone(),
-                    )
-                    .await?;
-                }
-                println!();
-            }
-            _ => return Ok(CachedCommandAction::Quit),
-        }
-    }
+    from_cache: bool,
 }
 
 #[async_recursion::async_recursion]
@@ -1003,6 +941,7 @@ async fn handle_generated_command(
         cache_task,
         record_assistant_message,
         repair_attempts,
+        from_cache,
     } = options;
     let eval_str = sanitize_generated_command(&eval_str);
 
@@ -1018,31 +957,63 @@ async fn handle_generated_command(
     }
     let client = input.create_client()?;
     if *IS_STDOUT_TERMINAL {
-        let options = [
-            ("e", "xecute", "执行"),
-            ("r", "evise", "修改"),
-            ("d", "escribe", "解释"),
-            ("c", "opy", "复制"),
-            ("q", "uit", "退出"),
-        ];
         let command = color_text(eval_str.trim(), nu_ansi_term::Color::Rgb(255, 165, 0));
         let risk = classify_command_risk(&eval_str);
-        let first_letter_color = nu_ansi_term::Color::Cyan;
-        let prompt_text = options
-            .iter()
-            .map(|(key, rest, zh)| {
-                format!("{}{}({})", color_text(key, first_letter_color), rest, zh)
-            })
-            .collect::<Vec<String>>()
-            .join(&dimmed_text(" | "));
         loop {
             println!("{command}");
             println!("{}", dimmed_text(&risk.display()));
-            let answer_char =
-                read_single_key(&['e', 'r', 'd', 'c', 'q'], 'e', &format!("{prompt_text}: "))?;
+            let mut answer_char =
+                read_single_key(&['y', 'n', '?'], 'y', "Run? [Y/n/?] / 执行？[Y/n/?] ")?;
+            if answer_char == '?' {
+                let first_letter_color = nu_ansi_term::Color::Cyan;
+                let mut keys = vec!['r', 'd', 'c', 'q'];
+                let mut options = vec![
+                    format!(
+                        "{}{}{}",
+                        color_text("r", first_letter_color),
+                        "evise",
+                        "(修改)"
+                    ),
+                    format!(
+                        "{}{}{}",
+                        color_text("d", first_letter_color),
+                        "escribe",
+                        "(解释)"
+                    ),
+                    format!(
+                        "{}{}{}",
+                        color_text("c", first_letter_color),
+                        "opy",
+                        "(复制)"
+                    ),
+                    format!(
+                        "{}{}{}",
+                        color_text("q", first_letter_color),
+                        "uit",
+                        "(退出)"
+                    ),
+                ];
+                if from_cache {
+                    keys.insert(0, 'g');
+                    options.insert(
+                        0,
+                        format!(
+                            "{}{}{}",
+                            color_text("g", first_letter_color),
+                            "enerate",
+                            "(重新生成)"
+                        ),
+                    );
+                }
+                answer_char = read_single_key(
+                    &keys,
+                    'q',
+                    &format!("More / 更多：{}: ", options.join(&dimmed_text(" | "))),
+                )?;
+            }
 
             match answer_char {
-                'e' => {
+                'y' => {
                     if risk.requires_confirmation()
                         && !confirm_action("High-risk command. Continue? / 高风险命令，确认执行？")?
                     {
@@ -1198,8 +1169,19 @@ async fn handle_generated_command(
                     }
                     process::exit(code);
                 }
+                'g' if from_cache => {
+                    return shell_execute(
+                        config,
+                        shell,
+                        input,
+                        abort_signal.clone(),
+                        None,
+                        repair_attempts,
+                    )
+                    .await;
+                }
                 'r' => {
-                    let revision = Text::new("Enter your revision:").prompt()?;
+                    let revision = Text::new("Enter revision / 输入修改要求:").prompt()?;
                     let text = format!("{}\n{revision}", input.text());
                     input.set_text(text);
                     return shell_execute(
@@ -1238,10 +1220,10 @@ async fn handle_generated_command(
                 'c' => {
                     set_text(&eval_str)?;
                     println!("{}", dimmed_text("✓ Copied the command."));
+                    continue;
                 }
-                _ => {}
+                _ => break,
             }
-            break;
         }
     } else {
         println!("{eval_str}");

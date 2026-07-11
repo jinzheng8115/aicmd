@@ -126,19 +126,19 @@ Generated `config.yaml` defaults include:
 temperature: 0
 top_p: null
 stream: false
-ai_summary: true
+ai_summary: false
 ```
 
-Disable AI summary by default:
+AI summary is off by default. Enable it for one command when needed:
 
 ```bash
-aicmd config summary off
+aicmd --summary how many files are in this directory
 ```
 
-Disable it for one command only:
+Enable it by default:
 
 ```bash
-aicmd --no-summary how many files are in this directory
+aicmd config summary on
 ```
 
 Inspect config:
@@ -213,23 +213,22 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 aicmd how many files are in this directory
 aicmd --print how many files are in this directory      # print only, do not execute
 aicmd --dry-run how many files are in this directory    # preview the prompt
-aicmd --no-summary how many files are in this directory # skip AI summary after execution
+aicmd --summary how many files are in this directory    # request AI summary after execution
 aicmd --no-cache how many files are in this directory   # do not reuse a successful cached command
 ```
 
 Before execution, AICmd asks:
 
 ```text
-execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出):
+Run? [Y/n/?]
 ```
 
-AICmd shows a risk level. Destructive commands require an extra confirmation.
+AICmd shows a risk level. Press `Enter` or `y` to run, `n` to quit, or `?` for revise, explain, and copy actions. Destructive commands require an extra confirmation.
 
-If the same regular task succeeded before, AICmd may offer to reuse the previous command to reduce variation for the same request:
+If the same regular task succeeded before, AICmd reuses the previous command and shows the same confirmation. Press `?`, then `g`, to regenerate it:
 
 ```text
-Found a previously successful command / 找到一条之前成功执行过的命令:
-reuse(复用) | new(重新生成) | describe(解释) | quit(退出):
+Reusing a previously successful command / 正在复用之前成功执行过的命令
 ```
 
 If execution fails, AICmd shows a failure menu. `fix` asks the model to generate a revised command from the failed command, exit code, stdout/stderr, and current environment. The revised command still requires your confirmation before execution:
@@ -272,7 +271,7 @@ aicmd --list-sessions        # list sessions
 aicmd -s dev --empty-session # clear dev session, asks for confirmation
 ```
 
-Plain `aicmd ...` uses a daily session such as `cmd-20260619`.
+Plain `aicmd ...` saves to daily history such as `cmd-20260619`, but does not send that history to the model. Only an explicit named session such as `-s dev` enables continuing context.
 
 Inspect history:
 

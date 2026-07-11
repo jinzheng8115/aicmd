@@ -88,7 +88,7 @@ impl Default for Config {
 
             dry_run: false,
             print_command: false,
-            ai_summary: true,
+            ai_summary: false,
             stream: true,
             wrap: None,
             wrap_code: false,
@@ -359,6 +359,14 @@ impl Config {
         Ok(role)
     }
     pub fn use_session(&mut self, session_name: Option<&str>) -> Result<()> {
+        self.use_session_with_context(session_name, true)
+    }
+
+    pub fn use_session_with_context(
+        &mut self,
+        session_name: Option<&str>,
+        context_enabled: bool,
+    ) -> Result<()> {
         if self.session.is_some() {
             bail!(
                 "Already in a session, please run '.exit session' first to exit the current session."
@@ -385,6 +393,9 @@ impl Config {
             }
         }
         self.session = session;
+        if let Some(session) = self.session.as_mut() {
+            session.set_context_enabled(context_enabled);
+        }
         Ok(())
     }
     pub fn empty_session(&mut self) -> Result<()> {
@@ -754,4 +765,14 @@ where
 fn read_env_bool(key: &str) -> Option<Option<bool>> {
     let value = env::var(key).ok()?;
     Some(parse_bool(&value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn config_defaults_ai_summary_to_off() {
+        assert!(!Config::default().ai_summary);
+    }
 }

@@ -125,6 +125,10 @@ fn print_session_help() {
 Default session is daily, like cmd-YYYYMMDD.
 默认会话按日期生成，例如 cmd-YYYYMMDD。
 
+Plain `aicmd <task>` saves history in the daily session, but does not send prior
+history to the model. Use `-s <name>` when you want a continuous conversation.
+普通 `aicmd <任务>` 会写入当天历史，但不会把之前内容发送给模型；需要连续上下文时使用 `-s <名称>`。
+
 Commands / 命令:
   aicmd -s                         Show current default session / 显示当前默认会话
   aicmd -s dev                     Start or join dev session / 进入或创建 dev 会话
@@ -141,9 +145,18 @@ fn print_ux_help() {
         r#"Cache, summary, and repair help / 缓存、总结、修复帮助
 
 Useful flags / 常用参数:
-  aicmd --no-summary <task>    Skip AI summary once / 本次跳过 AI summary
   aicmd --summary <task>       Force AI summary once / 本次强制 AI summary
+  aicmd --no-summary <task>    Skip AI summary once / 本次跳过 AI summary
   aicmd --no-cache <task>      Do not reuse successful command cache / 不复用成功命令缓存
+
+AI summary is off by default. / AI summary 默认关闭。
+
+Command confirmation / 命令确认:
+  Run? [Y/n/?]                 Enter/Y runs; N skips; ? shows revise, explain, copy, quit
+  执行？[Y/n/?]                 回车/Y 执行；N 跳过；? 显示修改、解释、复制、退出
+
+Successful commands are reused automatically. Press ? then g to generate a new command.
+成功命令会自动复用；按 ? 再按 g 可重新生成命令。
 
 Persistent summary setting / 持久化 summary 设置:
   aicmd config summary status

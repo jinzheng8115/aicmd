@@ -45,7 +45,7 @@ fn run_status_command() -> Result<i32> {
     let model = yaml_string(&config_yaml, "model").unwrap_or_else(|| "unknown".to_string());
     let temperature = yaml_scalar_display(&config_yaml, "temperature")
         .unwrap_or_else(|| "provider default / 使用模型服务默认值".to_string());
-    let ai_summary = yaml_bool(&config_yaml, "ai_summary").unwrap_or(true);
+    let ai_summary = yaml_bool(&config_yaml, "ai_summary").unwrap_or(false);
     let mcp_path = mcp_config_path();
     let mcp_status = if mcp_path.exists() {
         "configured / 已配置"
@@ -127,7 +127,7 @@ fn run_summary_command(args: &[String]) -> Result<i32> {
         "status" => {
             let path = Config::config_file();
             let content = read_config_file(&path)?;
-            let enabled = read_ai_summary_setting(&content).unwrap_or(true);
+            let enabled = read_ai_summary_setting(&content).unwrap_or(false);
             println!(
                 "ai_summary: {} / AI summary 默认{}",
                 enabled,

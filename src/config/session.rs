@@ -44,6 +44,10 @@ fn input_needs_session_context(text: &str) -> bool {
     markers.iter().any(|marker| text.contains(marker))
 }
 
+fn should_include_session_context(context_enabled: bool, text: &str) -> bool {
+    context_enabled && input_needs_session_context(text)
+}
+
 fn trim_text_for_context(value: &str, max_chars: usize) -> String {
     let mut out: String = value.chars().take(max_chars).collect();
     if value.chars().count() > max_chars {
@@ -101,6 +105,8 @@ pub struct Session {
     dirty: bool,
     #[serde(skip)]
     tokens: usize,
+    #[serde(skip)]
+    context_enabled: bool,
 }
 
 impl Session {
@@ -143,6 +149,10 @@ impl Session {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn set_context_enabled(&mut self, enabled: bool) {
+        self.context_enabled = enabled;
     }
 
     pub fn update_tokens(&mut self) {
@@ -234,7 +244,7 @@ impl Session {
     }
 
     pub fn build_messages(&self, input: &Input) -> Vec<Message> {
-        if !input_needs_session_context(&input.text()) {
+        if !should_include_session_context(self.context_enabled, &input.text()) {
             return input.role().build_messages(input);
         }
 
@@ -338,5 +348,12 @@ mod tests {
         ));
         assert!(input_needs_session_context("根据刚才的结果继续处理"));
         assert!(input_needs_session_context("fix the previous error"));
+    }
+
+    #[test]
+    fn context_requires_explicit_session_enablement() {
+        let task = "根据刚才的结果继续处理";
+        assert!(!should_include_session_context(false, task));
+        assert!(should_include_session_context(true, task));
     }
 }

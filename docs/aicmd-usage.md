@@ -103,8 +103,10 @@ Generated defaults include:
 temperature: 0
 top_p: null
 stream: false
-ai_summary: true
+ai_summary: false
 ```
+
+AI summary is off by default. / AI summary 默认关闭。
 
 ## 5. Main commands / 主要命令
 
@@ -156,7 +158,7 @@ Before execution, AICmd shows:
 执行前，AICmd 会显示：
 
 ```text
-execute(执行) | revise(修改) | describe(解释) | copy(复制) | quit(退出):
+Run? [Y/n/?] / 执行？[Y/n/?]
 ```
 
 Meaning:
@@ -164,11 +166,9 @@ Meaning:
 含义：
 
 ```text
-execute   run the generated command / 执行生成命令
-revise    add correction and regenerate / 补充修改要求并重新生成
-describe  explain the generated command / 解释命令
-copy      copy generated command / 复制命令
-quit      exit without execution / 不执行并退出
+Enter/y    run the generated command / 执行生成命令
+n          exit without execution / 不执行并退出
+?          show revise, explain, and copy actions / 显示修改、解释、复制等高级选项
 ```
 
 Useful flags:
@@ -178,8 +178,8 @@ Useful flags:
 ```bash
 aicmd --print 当前目录有多少文件       # print command only / 只打印命令
 aicmd --dry-run 当前目录有多少文件     # preview prompt / 预览 prompt
-aicmd --no-summary 当前目录有多少文件  # skip AI summary once / 本次跳过 AI summary
-aicmd --summary 当前目录有多少文件     # force AI summary once / 本次强制 AI summary
+aicmd --no-summary 当前目录有多少文件  # skip configured AI summary once / 本次跳过已配置的 AI summary
+aicmd --summary 当前目录有多少文件     # request AI summary once / 本次请求 AI summary
 aicmd --no-cache 当前目录有多少文件    # bypass successful command cache / 不复用缓存命令
 ```
 
@@ -193,14 +193,15 @@ AICmd 会把成功执行过的普通命令缓存到：
 ~/.aicmd/command-cache.yaml
 ```
 
-When the same task, shell, and OS match later, AICmd may ask:
+When the same task, shell, and OS match later, AICmd reuses the command and shows the regular confirmation:
 
-后续如果同一个任务、shell 和 OS 匹配，AICmd 可能会询问：
+后续如果同一个任务、shell 和 OS 匹配，AICmd 会复用该命令并显示普通确认：
 
 ```text
-Found a previously successful command / 找到一条之前成功执行过的命令:
-reuse(复用) | new(重新生成) | describe(解释) | quit(退出):
+Reusing a previously successful command / 正在复用之前成功执行过的命令
 ```
+
+Press `?`, then `g`, to generate a new command. / 输入 `?` 后再输入 `g` 可重新生成命令。
 
 Rules:
 
@@ -353,9 +354,9 @@ save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 
 ## 12. Sessions / 会话
 
-AICmd uses a daily session by default, such as `cmd-20260619`.
+AICmd saves normal commands to daily history by default, such as `cmd-20260619`, but does not send that history to the model.
 
-AICmd 默认使用每日会话，例如 `cmd-20260619`。
+AICmd 默认把普通命令保存到每日 history，例如 `cmd-20260619`，但不会把这些历史发送给模型。
 
 ```bash
 aicmd -s                       # show current/default session / 显示当前默认会话
@@ -364,6 +365,8 @@ aicmd -s dev hello             # send request in dev session / 在 dev 会话中
 aicmd --list-sessions          # list sessions / 列出会话
 aicmd -s dev --empty-session   # clear dev session with confirmation / 二次确认后清空 dev 会话
 ```
+
+Use `-s <name>` when you want continuing context. / 需要连续上下文时再使用 `-s <名称>`。
 
 History commands:
 
