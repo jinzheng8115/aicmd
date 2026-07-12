@@ -306,9 +306,23 @@ It runs the command, captures stdout/stderr/exit code, and asks the LLM to gener
 
 ### 6.4 Sessions
 
+Use natural language for common session actions:
+
+```bash
+aicmd show current session
+aicmd list sessions
+aicmd show last 5 messages in session dev
+aicmd in session dev continue with the previous task
+aicmd clear session dev
+```
+
+A named session applies only to the current invocation; it does not switch later commands. A later plain command returns to the daily session. Clearing either the current or a named session always shows the resolved session name and asks for confirmation.
+
+The existing advanced commands remain available when you need explicit control:
+
 ```bash
 aicmd -s                     # show current/default session
-aicmd -s dev                 # start or join dev session
+aicmd -s dev                 # use or create dev for this invocation
 aicmd -s dev hello           # send request in dev session
 aicmd --list-sessions        # list sessions
 aicmd -s dev --empty-session # clear dev session, asks for confirmation

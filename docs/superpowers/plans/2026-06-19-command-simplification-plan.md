@@ -185,16 +185,20 @@ git diff --check
 
 ## Phase 4: Small Natural-Language System Intents / 小范围自然语言系统意图
 
-Status / 状态：partially implemented. The first narrow batch supports saving the latest search, using it as `do` context, and showing recent session messages. Session switching and clearing remain deferred because their state and destructive semantics need a separate narrow design.
+Status / 状态：complete. The narrow parser supports saving and using the latest search, inspecting current or named sessions, listing sessions, clearing current or named sessions with confirmation, and running one task in a named session.
 
-状态：部分完成。第一批支持保存最近搜索、将最近搜索作为 `do` 上下文，以及查看最近 session 消息。会话切换和清空仍暂缓，因为其状态和破坏性语义需要单独设计。
+状态：已完成。窄范围解析器支持保存和使用最近搜索、查看当前或命名会话、列出会话、确认后清空当前或命名会话，以及在命名会话中运行单次任务。
+
+Persistent session switching remains intentionally unsupported. Named-session routing affects only the current invocation; later plain commands return to the Beijing-date daily session.
+
+仍然有意不支持持久会话切换。命名会话路由只影响当前调用；后续普通命令回到按北京时间命名的每日会话。
 
 **Files:**
 - Modify: `src/main.rs`
 - Possibly create: `src/intent_cmd.rs`
 - Modify docs after behavior is implemented.
 
-- [ ] **Step 1: Define narrow intent patterns / 定义窄范围意图**
+- [x] **Step 1: Define narrow intent patterns / 定义窄范围意图**
 
 Start with explicit, low-ambiguity Chinese and English patterns:
 
@@ -203,22 +207,22 @@ Start with explicit, low-ambiguity Chinese and English patterns:
 用刚才的搜索结果 <task>
 查看最近 N 条上下文
 清空当前会话
-切换到 <name> 会话
+查看 <name> 最近 N 条对话
+在 <name> 会话中 <task>
 ```
 
-- [ ] **Step 2: Route before shell command generation / 在生成 shell 命令前路由**
+- [x] **Step 2: Route before shell command generation / 在生成 shell 命令前路由**
 
 If a pattern matches with high confidence, run the matching system operation.
-If uncertain, do not execute; print a suggested explicit command.
+If it does not match, keep the existing normal command-planning path.
 
-- [ ] **Step 3: Safety confirmations / 安全确认**
+- [x] **Step 3: Safety confirmations / 安全确认**
 
 Require confirmation for:
 - Clearing sessions.
-- Deleting saved search records.
 - Overwriting config or MCP files.
 
-- [ ] **Step 4: Tests / 测试**
+- [x] **Step 4: Tests / 测试**
 
 Add unit tests for the pattern matcher.
 

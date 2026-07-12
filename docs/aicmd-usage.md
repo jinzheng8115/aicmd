@@ -407,15 +407,69 @@ AICmd saves normal commands to daily history by default, such as `cmd-20260619`,
 
 AICmd 默认把普通命令保存到每日 history，例如 `cmd-20260619`，但不会把这些历史发送给模型。
 
+Common natural-language actions:
+
+常用自然语言操作：
+
+```bash
+aicmd show current session
+aicmd list sessions
+aicmd show last 5 messages in session dev
+aicmd in session dev continue with the previous task
+aicmd clear session dev
+
+aicmd 查看当前会话
+aicmd 列出所有会话
+aicmd 查看 dev 最近 5 条对话
+aicmd 在 dev 会话中继续处理刚才的问题
+aicmd 清空 dev 会话
+```
+
+Named-session use affects only the current invocation. It enables continuing context for that task, but it does not persistently switch the default; a later plain `aicmd <task>` writes to the Beijing-date daily session again.
+
+命名会话只影响当前这次调用，并为该任务启用连续上下文；它不会持久切换默认会话。之后普通的 `aicmd <任务>` 仍写入按北京时间命名的每日会话。
+
+Clearing either the current or a named session always resolves and displays the target session name, then asks for confirmation. Cancelling leaves the session file unchanged.
+
+清空当前会话或命名会话时，AICmd 一定会解析并显示目标会话名，然后要求确认；取消后会话文件保持不变。
+
+### 12.1 Supported natural-language forms / 支持的自然语言表达
+
+The parser intentionally accepts only the forms below. `<N>` must be a positive integer. `<name>` is a session or saved-search name, and `<task>` must not be empty.
+
+解析器只接受下表中的表达。`<N>` 必须是正整数，`<name>` 是会话名或搜索记录名，`<task>` 不能为空。
+
+| Action / 操作 | Chinese forms / 中文表达 | English forms / 英文表达 | Behavior / 行为 |
+| --- | --- | --- | --- |
+| Save last search / 保存最近搜索 | `保存刚才的搜索结果`<br>`保存最近的搜索结果`<br>`保存刚才的搜索结果为 <name>`<br>`保存最近的搜索结果为 <name>`<br>`保存刚才的搜索结果，命名为 <name>`<br>`保存最近的搜索结果，命名为 <name>` | `save the last search`<br>`save the last search result`<br>`save the last search as <name>`<br>`save the last search result as <name>` | Saves the latest search; an omitted name uses the existing automatic naming flow. / 保存最近搜索；省略名称时使用现有自动命名流程。 |
+| Use last search / 使用最近搜索 | `用刚才的搜索结果<task>`<br>`使用刚才的搜索结果<task>`<br>`根据刚才的搜索结果<task>`<br>`用最近的搜索结果<task>` | `use the last search result to <task>`<br>`use the last search to <task>` | Enters the existing `do` flow and still requires command review and confirmation. / 进入现有 `do` 流程，仍需检查并确认生成命令。 |
+| Show recent daily-session messages / 查看每日会话最近消息 | `查看最近 <N> 条对话`<br>`查看最近 <N> 条上下文`<br>`查看最近 <N> 条消息` | `show last <N> context messages`<br>`show last <N> messages`<br>`show recent <N> messages` | Shows up to `<N>` non-system messages from today's Beijing-date session. / 最多显示北京时间当天会话中的 `<N>` 条非 system 消息。 |
+| Show current session / 查看当前会话 | `查看当前会话` | `show current session` | Resolves the Beijing-date daily session. / 解析北京时间当天的每日会话。 |
+| List sessions / 列出会话 | `列出所有会话`<br>`列出会话` | `list sessions` | Lists saved session files. / 列出已保存的会话文件。 |
+| Show named-session messages / 查看命名会话消息 | `查看 <name> 最近 <N> 条对话`<br>`查看 <name> 最近 <N> 条消息`<br>`查看 <name> 最近 <N> 条上下文` | `show last <N> messages in session <name>` | Shows up to `<N>` non-system messages; the English form requires a one-word session name. / 最多显示 `<N>` 条非 system 消息；英文表达要求会话名是一个单词。 |
+| Clear current session / 清空当前会话 | `清空当前会话` | `clear current session` | Shows the resolved daily-session name and asks for confirmation. / 显示解析后的每日会话名并要求确认。 |
+| Clear named session / 清空命名会话 | `清空 <name> 会话` | `clear session <name>` | Shows the named target and asks for confirmation. / 显示命名目标并要求确认。 |
+| Run in named session / 在命名会话中运行 | `在 <name> 会话中<task>` | `in session <name> <task>` | Uses continuing context for this invocation only; the English form requires a one-word session name. / 仅在本次调用中使用连续上下文；英文表达要求会话名是一个单词。 |
+
+These forms do not implement persistent session switching, fuzzy intent matching, or additional aliases. If a phrase does not match, AICmd continues through the normal command-planning path.
+
+这些表达不提供持久会话切换、模糊意图匹配或额外别名。如果表达没有匹配，AICmd 会继续走普通命令规划流程。
+
+### 12.2 Advanced explicit commands / 高级显式命令
+
+The existing explicit session commands remain available:
+
+现有显式会话命令仍然可用：
+
 ```bash
 aicmd -s                       # show current/default session / 显示当前默认会话
-aicmd -s dev                   # start or join dev session / 进入或创建 dev 会话
+aicmd -s dev                   # use/create dev for this invocation / 本次调用使用或创建 dev 会话
 aicmd -s dev hello             # send request in dev session / 在 dev 会话中发送请求
 aicmd --list-sessions          # list sessions / 列出会话
 aicmd -s dev --empty-session   # clear dev session with confirmation / 二次确认后清空 dev 会话
 ```
 
-Use `-s <name>` when you want continuing context. / 需要连续上下文时再使用 `-s <名称>`。
+Use `-s <name>` when you want continuing context for one invocation. / 需要在单次调用中使用连续上下文时再使用 `-s <名称>`。
 
 History commands:
 

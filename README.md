@@ -306,9 +306,23 @@ aicmd err -- python scripts/import.py data.csv
 
 ### 6.4 会话
 
+常用操作可以直接用自然语言：
+
+```bash
+aicmd 查看当前会话
+aicmd 列出所有会话
+aicmd 查看 dev 最近 5 条对话
+aicmd 在 dev 会话中继续处理刚才的问题
+aicmd 清空 dev 会话
+```
+
+命名会话只影响当前这次调用，不会切换后续命令；之后不带会话名的普通命令仍写入当天的每日会话。清空当前会话或命名会话都会先显示实际会话名并要求确认。
+
+需要显式控制时，原有高级命令仍然可用：
+
 ```bash
 aicmd -s                    # 显示当前默认 session
-aicmd -s dev                # 进入或创建 dev session
+aicmd -s dev                # 本次调用使用或创建 dev session
 aicmd -s dev hello          # 用 dev session 发送请求
 aicmd --list-sessions       # 列出 session
 aicmd -s dev --empty-session # 清空 dev session，会二次确认
