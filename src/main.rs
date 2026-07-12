@@ -35,7 +35,7 @@ use crate::client::{
 };
 use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
-    EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_COMMAND_ROLE, SHELL_ROLE,
+    EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_COMMAND_ROLE, SHELL_ROLE, TEMP_SESSION_NAME,
 };
 use crate::intent_cmd::NaturalIntent;
 use crate::plan_cmd::{
@@ -56,14 +56,17 @@ use std::{env, process, sync::Arc};
 async fn main() -> Result<()> {
     load_env_file()?;
     let mut cli = Cli::parse();
-    let natural_intent = intent_cmd::parse(cli.text_args())?;
-    if let Some(code) = run_pre_config_intent(natural_intent.as_ref())? {
+    let parsed_intent = intent_cmd::parse(cli.text_args())?;
+    let natural_intent = parsed_intent
+        .as_ref()
+        .filter(|intent| should_run_session_intent(&cli, Some(intent)));
+    if let Some(code) = run_pre_config_intent(natural_intent)? {
         process::exit(code);
     }
     if let Some(code) = run_pre_config_shortcut(cli.text_args())? {
         process::exit(code);
     }
-    let text = match translate_session_intent(&mut cli, natural_intent.as_ref()) {
+    let text = match translate_session_intent(&mut cli, natural_intent) {
         Some(text) => text,
         None => cli.text()?,
     };
@@ -73,7 +76,7 @@ async fn main() -> Result<()> {
     if let Some(model_id) = &cli.model {
         config.write().set_model(model_id)?;
     }
-    if let Some(code) = run_builtin_intent(&config, natural_intent.as_ref()).await? {
+    if let Some(code) = run_builtin_intent(&config, natural_intent).await? {
         process::exit(code);
     }
     if let Some(code) = run_builtin_shortcut(&config, cli.text_args()).await? {
@@ -90,6 +93,9 @@ fn translate_session_intent(
     cli: &mut Cli,
     intent: Option<&NaturalIntent>,
 ) -> Option<Option<String>> {
+    if !should_run_session_intent(cli, intent) {
+        return None;
+    }
     match intent {
         Some(NaturalIntent::ClearSession { name }) => {
             cli.session = name.clone().map(Some);
@@ -101,6 +107,43 @@ fn translate_session_intent(
             Some(Some(task.clone()))
         }
         _ => None,
+    }
+}
+
+fn should_run_session_intent(cli: &Cli, intent: Option<&NaturalIntent>) -> bool {
+    let is_session_intent = matches!(
+        intent,
+        Some(
+            NaturalIntent::ShowRecentContext { .. }
+                | NaturalIntent::CurrentSession
+                | NaturalIntent::ListSessions
+                | NaturalIntent::ShowSessionRecent { .. }
+                | NaturalIntent::ClearSession { .. }
+                | NaturalIntent::RunInSession { .. }
+        )
+    );
+    !is_session_intent || !(cli.session.is_some() || cli.empty_session || cli.list_sessions)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClearSessionStep {
+    Confirm,
+    Cancel,
+    CheckExists,
+    NotFound,
+    LoadAndClear,
+}
+
+fn next_clear_session_step(
+    confirmed: Option<bool>,
+    target_exists: Option<bool>,
+) -> ClearSessionStep {
+    match (confirmed, target_exists) {
+        (None, _) => ClearSessionStep::Confirm,
+        (Some(false), _) => ClearSessionStep::Cancel,
+        (Some(true), None) => ClearSessionStep::CheckExists,
+        (Some(true), Some(false)) => ClearSessionStep::NotFound,
+        (Some(true), Some(true)) => ClearSessionStep::LoadAndClear,
     }
 }
 
@@ -617,7 +660,12 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
 
     config.write().use_role(SHELL_ROLE)?;
     let default_session = default_session_name();
-    if matches!(cli.session, Some(None)) && text.is_none() && cli.file.is_empty() {
+    if matches!(cli.session, Some(None))
+        && !cli.empty_session
+        && !cli.list_sessions
+        && text.is_none()
+        && cli.file.is_empty()
+    {
         println!("current session: {default_session}");
         return Ok(());
     }
@@ -627,23 +675,51 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         Some(default_session.as_str())
     };
     let context_enabled = cli.session.is_some();
-    config
-        .write()
-        .use_session_with_context(session_name, context_enabled)?;
+    let clear_target = cli
+        .empty_session
+        .then(|| session_name.unwrap_or(TEMP_SESSION_NAME));
+    if let Some(target) = clear_target {
+        debug_assert_eq!(
+            next_clear_session_step(None, None),
+            ClearSessionStep::Confirm
+        );
+        let confirmed = confirm_cmd::confirm_high_risk(&format!(
+            "{} '{target}'?",
+            localized("确认清空会话的全部历史记录", "Clear all history in session")
+        ))?;
+        match next_clear_session_step(Some(confirmed), None) {
+            ClearSessionStep::Cancel => {
+                println!("{}", localized("已取消", "cancelled"));
+                return Ok(());
+            }
+            ClearSessionStep::CheckExists => {}
+            _ => unreachable!("confirmation must precede the existence check"),
+        }
+        let target_path = config.read().session_file(target);
+        match next_clear_session_step(Some(true), Some(target_path.exists())) {
+            ClearSessionStep::NotFound => {
+                bail!("Session not found: {target} ({})", target_path.display())
+            }
+            ClearSessionStep::LoadAndClear => {}
+            _ => unreachable!("existence check must precede loading the session"),
+        }
+    }
+    if let Some(target) = clear_target {
+        config
+            .write()
+            .use_existing_session_with_context(target, context_enabled)?;
+    } else {
+        config
+            .write()
+            .use_session_with_context(session_name, context_enabled)?;
+    }
     if cli.list_sessions {
         let sessions = config.read().list_sessions().join("\n");
         println!("{sessions}");
         return Ok(());
     }
     if cli.empty_session {
-        let target = session_name.unwrap_or("temporary");
-        if !confirm_cmd::confirm_high_risk(&format!(
-            "{} '{target}'?",
-            localized("确认清空会话的全部历史记录", "Clear all history in session")
-        ))? {
-            println!("{}", localized("已取消", "cancelled"));
-            return Ok(());
-        }
+        let target = clear_target.expect("clear target is resolved above");
         config.write().empty_session()?;
         if text.is_none() && cli.file.is_empty() {
             println!("session cleared: {target}");
@@ -1282,6 +1358,70 @@ mod tests {
 
         assert_eq!(cli.session, Some(Some("dev".to_string())));
         assert_eq!(text, Some(Some("continue this task".to_string())));
+    }
+
+    #[test]
+    fn explicit_session_flag_keeps_natural_session_text_for_planner() {
+        let mut cli = Cli::try_parse_from(["aicmd", "-s", "dev", "clear current session"]).unwrap();
+        let intent = NaturalIntent::ClearSession { name: None };
+
+        assert!(!should_run_session_intent(&cli, Some(&intent)));
+        assert_eq!(translate_session_intent(&mut cli, Some(&intent)), None);
+        assert_eq!(cli.session, Some(Some("dev".to_string())));
+        assert!(!cli.empty_session);
+        assert_eq!(cli.text_args().join(" "), "clear current session");
+    }
+
+    #[test]
+    fn every_explicit_session_control_suppresses_natural_session_intents() {
+        let cases = [
+            (
+                Cli::try_parse_from(["aicmd", "-s", "dev", "show current session"]).unwrap(),
+                NaturalIntent::CurrentSession,
+            ),
+            (
+                Cli::try_parse_from(["aicmd", "--empty-session", "clear session temp"]).unwrap(),
+                NaturalIntent::ClearSession {
+                    name: Some("temp".to_string()),
+                },
+            ),
+            (
+                Cli::try_parse_from(["aicmd", "--list-sessions", "list sessions"]).unwrap(),
+                NaturalIntent::ListSessions,
+            ),
+        ];
+
+        for (cli, intent) in cases {
+            assert!(!should_run_session_intent(&cli, Some(&intent)));
+        }
+    }
+
+    #[test]
+    fn clear_session_order_requires_confirmation_before_existence_check() {
+        assert_eq!(
+            next_clear_session_step(None, None),
+            ClearSessionStep::Confirm
+        );
+        assert_eq!(
+            next_clear_session_step(Some(false), None),
+            ClearSessionStep::Cancel
+        );
+        assert_eq!(
+            next_clear_session_step(Some(true), None),
+            ClearSessionStep::CheckExists
+        );
+    }
+
+    #[test]
+    fn clear_session_missing_target_never_reaches_load_step() {
+        assert_eq!(
+            next_clear_session_step(Some(true), Some(false)),
+            ClearSessionStep::NotFound
+        );
+        assert_eq!(
+            next_clear_session_step(Some(true), Some(true)),
+            ClearSessionStep::LoadAndClear
+        );
     }
 
     #[test]

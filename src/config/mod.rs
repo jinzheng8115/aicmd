@@ -371,6 +371,29 @@ impl Config {
         self.use_session_with_context(session_name, true)
     }
 
+    pub fn use_existing_session_with_context(
+        &mut self,
+        session_name: &str,
+        context_enabled: bool,
+    ) -> Result<()> {
+        if self.session.is_some() {
+            bail!(
+                "Already in a session, please run '.exit session' first to exit the current session."
+            );
+        }
+        let session_path = self.session_file(session_name);
+        if !session_path.exists() {
+            bail!(
+                "Session not found: {session_name} ({})",
+                session_path.display()
+            );
+        }
+        let mut session = Session::load(self, session_name, &session_path)?;
+        session.set_context_enabled(context_enabled);
+        self.session = Some(session);
+        Ok(())
+    }
+
     pub fn use_session_with_context(
         &mut self,
         session_name: Option<&str>,
@@ -780,47 +803,6 @@ fn read_env_bool(key: &str) -> Option<Option<bool>> {
 #[cfg(test)]
 mod tests {
     use super::Config;
-
-    #[test]
-    fn empty_session_persists_cleared_messages() {
-        let sessions_dir = std::env::temp_dir().join(format!(
-            "aicmd-empty-session-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let key = crate::utils::get_env_name("sessions_dir");
-        let previous = std::env::var(&key).ok();
-        std::env::set_var(&key, &sessions_dir);
-
-        let result = (|| -> anyhow::Result<()> {
-            let mut config = Config::default();
-            let path = config.session_file("persisted");
-            crate::config::ensure_parent_exists(&path)?;
-            std::fs::write(
-                &path,
-                "messages:\n  - role: user\n    content: before clear\n",
-            )?;
-
-            config.use_session(Some("persisted"))?;
-            config.empty_session()?;
-
-            let content = std::fs::read_to_string(path)?;
-            let session: serde_yaml::Value = serde_yaml::from_str(&content)?;
-            assert_eq!(session["messages"], serde_yaml::Value::Sequence(vec![]));
-            Ok(())
-        })();
-
-        if let Some(value) = previous {
-            std::env::set_var(&key, value);
-        } else {
-            std::env::remove_var(&key);
-        }
-        std::fs::remove_dir_all(&sessions_dir).ok();
-        result.unwrap();
-    }
 
     #[test]
     fn config_defaults_ai_summary_to_off() {

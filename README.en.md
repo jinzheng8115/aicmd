@@ -318,6 +318,8 @@ aicmd clear session dev
 
 A named session applies only to the current invocation; it does not switch later commands. A later plain command returns to the daily session. Clearing either the current or a named session always shows the resolved session name and asks for confirmation.
 
+Explicit `-s`/`--session`, `--empty-session`, and `--list-sessions` controls always take precedence over session intent in the text; that text continues through normal command planning. Clearing does not load or modify the target before confirmation. After confirmation, a missing target reports `Session not found` and does not create an empty session file.
+
 The existing advanced commands remain available when you need explicit control:
 
 ```bash

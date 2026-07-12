@@ -433,6 +433,14 @@ Clearing either the current or a named session always resolves and displays the 
 
 清空当前会话或命名会话时，AICmd 一定会解析并显示目标会话名，然后要求确认；取消后会话文件保持不变。
 
+Explicit `-s`/`--session`, `--empty-session`, and `--list-sessions` controls take precedence over natural-language session intent. In that case, the text continues through normal command planning under the explicit CLI behavior.
+
+显式的 `-s`/`--session`、`--empty-session` 和 `--list-sessions` 优先于自然语言会话意图。此时文本会在显式 CLI 行为下继续走普通命令规划。
+
+No session is loaded or modified before clear confirmation. After confirmation, a missing target reports `Session not found` and no empty session file is created.
+
+清空确认前不会加载或修改任何目标会话。确认后若目标不存在，会报 `Session not found`，且不会创建空会话文件。
+
 ### 12.1 Supported natural-language forms / 支持的自然语言表达
 
 The parser intentionally accepts only the forms below. `<N>` must be a positive integer. `<name>` is a session or saved-search name, and `<task>` must not be empty.
