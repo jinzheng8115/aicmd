@@ -11,6 +11,7 @@ mod execute_cmd;
 mod function;
 mod help_cmd;
 mod intent_cmd;
+mod interactive_cmd;
 mod mcp_cmd;
 mod model_cmd;
 mod plan_cmd;
@@ -54,8 +55,11 @@ use std::{env, process, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    load_env_file()?;
     let mut cli = Cli::parse();
+    if interactive_cmd::should_start(&cli) {
+        process::exit(interactive_cmd::run(&default_session_name())?);
+    }
+    load_env_file()?;
     let parsed_intent = intent_cmd::parse(cli.text_args())?;
     let natural_intent = parsed_intent
         .as_ref()
