@@ -322,9 +322,9 @@ aicmd continue fixing the last failed task
 aicmd 继续修复刚才失败的任务
 ```
 
-The failed command, exit code, stdout, and stderr are saved as an execution note. The phrase selects today's daily named session, bypasses successful-command cache lookup, and goes through the normal planner. Confirmation is still required before any generated repair runs.
+The failed command, exit code, stdout, and stderr are saved as an execution note. The phrase selects today's daily named session, bypasses successful-command cache lookup, and goes through the normal planner. The planner request includes its current system prompt and examples, recent non-system session history, and the current continuation request. If planning routes to command generation, that request uses the command-generation role's current system prompt and the same recent history. Old session system prompts are not reused. Confirmation is still required before any generated repair runs.
 
-失败命令、exit code、stdout 和 stderr 会保存为执行记录。该表达会选择当天每日命名会话、绕过成功命令缓存，并进入正常 planner；任何生成的修复命令仍需确认后才执行。
+失败命令、exit code、stdout 和 stderr 会保存为执行记录。该表达会选择当天每日命名会话、绕过成功命令缓存，并进入正常 planner。planner 请求由当前角色的 system prompt 和 examples、最近的非 system 会话历史、以及当前继续请求组成；如果规划结果进入命令生成，后续请求会使用命令生成角色自己的当前 system prompt 和同一份最近历史，不会复用旧会话的 system prompt。任何生成的修复命令仍需确认后才执行。
 
 ## 10. Script workflow: `aicmd do` / 脚本任务：`aicmd do`
 

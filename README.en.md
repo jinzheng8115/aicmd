@@ -283,7 +283,7 @@ If execution fails, AICmd shows a failure menu. `fix` asks the model to generate
 fix(修复) | explain(解释) | copy(复制) | quit(退出):
 ```
 
-The failed command, exit code, and stdout/stderr are saved in today's daily session. If you leave the failure menu, enter `continue fixing the last failed task`; this phrase selects the daily session, bypasses the successful-command cache, and returns to the normal planning and confirmation flow. It does not execute a repair automatically.
+The failed command, exit code, and stdout/stderr are saved in today's daily session. If you leave the failure menu, enter `continue fixing the last failed task`; this phrase selects the daily session, bypasses the successful-command cache, and returns to the normal planning and confirmation flow. It does not execute a repair automatically. Planning and subsequent command-generation requests include recent non-system session history, so the model can directly reference the saved failed command, exit code, and output. Each request still uses the current planner or command-generation role's own system prompt.
 
 For commands already classified as modifying files or the system, AICmd compares Git porcelain status before and after execution and shows only new records or records whose status changed:
 

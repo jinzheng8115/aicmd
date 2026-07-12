@@ -41,7 +41,6 @@ impl Input {
 
     pub fn with_role(mut self, role: Role) -> Self {
         self.role = role;
-        self.with_session = false;
         self
     }
 
@@ -404,4 +403,23 @@ fn read_media_to_data_url(image_path: &str) -> Result<String> {
     let data_url = format!("data:{mime_type};base64,{encoded_image}");
 
     Ok(data_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn role_switch_keeps_session_context_enabled() {
+        let mut config = Config::default();
+        let mut session = Session::new(&config, "test");
+        session.set_context_enabled(true);
+        config.session = Some(session);
+        let config: GlobalConfig = std::sync::Arc::new(parking_lot::RwLock::new(config));
+
+        let input = Input::from_str(&config, "继续刚才的任务", None)
+            .with_role(Role::new("planner", "planner system"));
+
+        assert!(input.session(&config.read().session).is_some());
+    }
 }
