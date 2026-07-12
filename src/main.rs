@@ -893,7 +893,7 @@ async fn route_execution_plan(
             prompt_search_follow_up(config, abort_signal, Some(&plan.query)).await
         }
         RouteKind::Diagnose => {
-            let input = Input::from_str(config, &plan.problem, None);
+            let input = input.with_text(plan.problem).with_session_context();
             let input = input_with_execution_role(config, input, route)?;
             shell_execute(config, shell, input, abort_signal, None, 0).await
         }

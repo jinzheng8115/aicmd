@@ -25,8 +25,10 @@ struct McpChildGuard(Child);
 
 impl Drop for McpChildGuard {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
     }
 }
 
@@ -599,11 +601,24 @@ fn validate_exact_string(value: &str, field: &str, subject: &str) -> Result<()> 
 fn executable_exists(command: &str) -> bool {
     let path = Path::new(command);
     if path.components().count() > 1 {
-        return path.is_file();
+        return is_executable(path);
     }
     env::var_os("PATH")
-        .map(|path| env::split_paths(&path).any(|dir| dir.join(command).is_file()))
+        .map(|path| env::split_paths(&path).any(|dir| is_executable(&dir.join(command))))
         .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 fn diagnostic(
@@ -760,7 +775,11 @@ fn read_response(
                 return Ok(msg.get("result").cloned().unwrap_or_else(|| json!({})));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                let stderr = err_rx.try_recv().unwrap_or_default();
+                let _ = child.kill();
+                let _ = child.wait();
+                let stderr = err_rx
+                    .recv_timeout(Duration::from_millis(250))
+                    .unwrap_or_default();
                 return Err(anyhow::Error::new(McpResponseTimeout {
                     phase: phase.to_string(),
                     timeout,
@@ -958,6 +977,8 @@ fn extract_text_content(result: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     fn diagnostic_for<'a>(diagnostics: &'a [McpDiagnostic], name: &str) -> &'a McpDiagnostic {
         diagnostics
@@ -1055,6 +1076,44 @@ mod tests {
         let diagnostic = diagnostic_for(&diagnostics, "MCP server web");
         assert_eq!(diagnostic.status, "error");
         assert!(diagnostic.detail.contains("PATH"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_exists_requires_unix_execute_permission() {
+        let path = env::temp_dir().join(format!(
+            "aicmd-executable-permission-{}",
+            std::process::id()
+        ));
+        fs::write(&path, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!executable_exists(path.to_str().unwrap()));
+
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(executable_exists(path.to_str().unwrap()));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_exists_checks_path_candidate_permission() {
+        let dir = env::temp_dir().join(format!("aicmd-path-permission-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let command = dir.join("fake-mcp-command");
+        fs::write(&command, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&command, fs::Permissions::from_mode(0o644)).unwrap();
+        let old_path = env::var_os("PATH");
+        env::set_var("PATH", &dir);
+        assert!(!executable_exists("fake-mcp-command"));
+
+        fs::set_permissions(&command, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(executable_exists("fake-mcp-command"));
+        if let Some(old_path) = old_path {
+            env::set_var("PATH", old_path);
+        } else {
+            env::remove_var("PATH");
+        }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1304,6 +1363,29 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn mcp_timeout_preserves_stderr_and_timeout_advice() {
+        let pid_file =
+            env::temp_dir().join(format!("aicmd-fake-mcp-timeout-{}.pid", std::process::id()));
+        let config = fake_mcp_config("timeout_with_stderr", &pid_file, "unused");
+        env::set_var("AICMD_MCP_START_TIMEOUT_SECS", "1");
+
+        let error = call_mcp_with_config(&config, "search", "query").unwrap_err();
+        env::remove_var("AICMD_MCP_START_TIMEOUT_SECS");
+        let display = format!("{error:#}");
+        let pid = fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .unwrap();
+        fs::remove_file(pid_file).unwrap();
+
+        assert!(display.contains("fatal: missing FAKE_API_KEY"));
+        assert!(display.contains("AICMD_MCP_START_TIMEOUT_SECS"));
+        assert!(!process_exists(pid), "fake MCP child {pid} was not reaped");
+    }
+
     #[test]
     fn fake_mcp_server_child() {
         let Ok(mode) = env::var("AICMD_TEST_FAKE_MCP_MODE") else {
@@ -1311,6 +1393,12 @@ mod tests {
         };
         let pid_file = env::var("AICMD_TEST_FAKE_MCP_PID_FILE").unwrap();
         fs::write(pid_file, std::process::id().to_string()).unwrap();
+        if mode == "timeout_with_stderr" {
+            eprintln!("fatal: missing FAKE_API_KEY");
+            loop {
+                thread::sleep(Duration::from_secs(60));
+            }
+        }
 
         let stdin = std::io::stdin();
         let mut stdout = std::io::stdout();

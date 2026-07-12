@@ -22,6 +22,7 @@ pub struct Input {
     data_urls: HashMap<String, String>,
     role: Role,
     with_session: bool,
+    force_session_context: bool,
 }
 
 impl Input {
@@ -36,6 +37,7 @@ impl Input {
             data_urls: Default::default(),
             role,
             with_session,
+            force_session_context: false,
         }
     }
 
@@ -102,6 +104,7 @@ impl Input {
             data_urls,
             role,
             with_session,
+            force_session_context: false,
         })
     }
 
@@ -141,6 +144,20 @@ impl Input {
 
     pub fn set_text(&mut self, text: String) {
         self.text = text;
+    }
+
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
+
+    pub fn with_session_context(mut self) -> Self {
+        self.force_session_context = true;
+        self
+    }
+
+    pub fn force_session_context(&self) -> bool {
+        self.force_session_context
     }
 
     pub fn stream(&self) -> bool {
@@ -421,5 +438,30 @@ mod tests {
             .with_role(Role::new("planner", "planner system"));
 
         assert!(input.session(&config.read().session).is_some());
+    }
+
+    #[test]
+    fn replacing_text_keeps_failure_session_context_enabled() {
+        let mut config = Config::default();
+        let mut session = Session::new(&config, "test");
+        session.set_context_enabled(true);
+        session.add_assistant_note(
+            "Command execution result:\nCommand:\nfalse\nExit code: 1".to_string(),
+        );
+        config.session = Some(session);
+        let config: GlobalConfig = std::sync::Arc::new(parking_lot::RwLock::new(config));
+
+        let input = Input::from_str(&config, "继续修复刚才失败的任务", None)
+            .with_text("Command failed with exit code 1")
+            .with_session_context()
+            .with_role(Role::new("command", "command system"));
+        let messages = input.build_messages().unwrap();
+
+        assert!(messages.iter().any(|message| {
+            matches!(
+                &message.content,
+                MessageContent::Text(text) if text.contains("Command execution result:")
+            )
+        }));
     }
 }

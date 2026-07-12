@@ -44,8 +44,8 @@ fn input_needs_session_context(text: &str) -> bool {
     markers.iter().any(|marker| text.contains(marker))
 }
 
-fn should_include_session_context(context_enabled: bool, text: &str) -> bool {
-    context_enabled && input_needs_session_context(text)
+fn should_include_session_context(context_enabled: bool, forced: bool, text: &str) -> bool {
+    context_enabled && (forced || input_needs_session_context(text))
 }
 
 fn trim_text_for_context(value: &str, max_chars: usize) -> String {
@@ -239,7 +239,11 @@ impl Session {
     }
 
     pub fn build_messages(&self, input: &Input) -> Vec<Message> {
-        if !should_include_session_context(self.context_enabled, &input.text()) {
+        if !should_include_session_context(
+            self.context_enabled,
+            input.force_session_context(),
+            &input.text(),
+        ) {
             return input.role().build_messages(input);
         }
 
@@ -456,8 +460,8 @@ mod tests {
     #[test]
     fn context_requires_explicit_session_enablement() {
         let task = "根据刚才的结果继续处理";
-        assert!(!should_include_session_context(false, task));
-        assert!(should_include_session_context(true, task));
+        assert!(!should_include_session_context(false, false, task));
+        assert!(should_include_session_context(true, false, task));
     }
 
     #[test]

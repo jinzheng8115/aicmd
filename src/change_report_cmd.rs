@@ -21,11 +21,25 @@ impl GitSnapshot {
     }
 
     pub fn changes_since(&self, after: &GitSnapshot) -> Vec<String> {
-        after
+        let mut paths = self
             .records
-            .iter()
-            .filter(|(path, record)| self.records.get(*path) != Some(*record))
-            .map(|(_, record)| record.clone())
+            .keys()
+            .chain(after.records.keys())
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths.dedup();
+        paths
+            .into_iter()
+            .filter_map(
+                |path| match (self.records.get(path), after.records.get(path)) {
+                    (before, Some(record)) if before != Some(record) => Some(record.clone()),
+                    (Some(record), None) => Some(format!(
+                        "{}: {record}",
+                        localized("已从 Git 状态中消失", "removed from Git status")
+                    )),
+                    _ => None,
+                },
+            )
             .collect()
     }
 
@@ -80,6 +94,34 @@ mod tests {
         let after = GitSnapshot::from_porcelain("M  existing.txt\n");
 
         assert_eq!(before.changes_since(&after), vec!["M  existing.txt"]);
+    }
+
+    #[test]
+    fn reports_removed_untracked_status_record() {
+        let before = GitSnapshot::from_porcelain("?? victim.txt\n");
+        let after = GitSnapshot::from_porcelain("");
+
+        assert_eq!(
+            before.changes_since(&after),
+            vec![format!(
+                "{}: ?? victim.txt",
+                localized("已从 Git 状态中消失", "removed from Git status")
+            )]
+        );
+    }
+
+    #[test]
+    fn reports_cleared_modification_status_record() {
+        let before = GitSnapshot::from_porcelain(" M existing.txt\n");
+        let after = GitSnapshot::from_porcelain("");
+
+        assert_eq!(
+            before.changes_since(&after),
+            vec![format!(
+                "{}:  M existing.txt",
+                localized("已从 Git 状态中消失", "removed from Git status")
+            )]
+        );
     }
 
     #[test]
