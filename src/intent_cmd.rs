@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NaturalIntent {
+    ContinueLastFailure,
     SaveLastSearch { name: Option<String> },
     DoFromLastSearch { task: String },
     ShowRecentContext { limit: usize },
@@ -17,6 +18,18 @@ pub fn parse(args: &[String]) -> Result<Option<NaturalIntent>> {
     let text = text.trim();
     if text.is_empty() {
         return Ok(None);
+    }
+
+    if matches_ignore_ascii_case(
+        text,
+        &[
+            "继续修复刚才失败的任务",
+            "继续处理刚才失败的任务",
+            "continue fixing the last failed task",
+            "continue the last failed task",
+        ],
+    ) {
+        return Ok(Some(NaturalIntent::ContinueLastFailure));
     }
 
     for prefix in [
@@ -232,6 +245,14 @@ mod tests {
 
     #[test]
     fn parses_supported_intents_without_matching_normal_tasks() {
+        for text in [
+            "继续修复刚才失败的任务",
+            "继续处理刚才失败的任务",
+            "continue fixing the last failed task",
+            "continue the last failed task",
+        ] {
+            assert_eq!(parse_text(text), Some(NaturalIntent::ContinueLastFailure));
+        }
         assert_eq!(
             parse_text("保存刚才的搜索结果为 docker-install"),
             Some(NaturalIntent::SaveLastSearch {

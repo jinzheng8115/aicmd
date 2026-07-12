@@ -111,6 +111,10 @@ fn translate_session_intent(
             cli.session = Some(Some(name.clone()));
             Some(Some(task.clone()))
         }
+        Some(NaturalIntent::ContinueLastFailure) => {
+            cli.session = Some(Some(default_session_name()));
+            Some(Some(cli.text_args().join(" ").trim().to_string()))
+        }
         _ => None,
     }
 }
@@ -125,6 +129,7 @@ fn should_run_session_intent(cli: &Cli, intent: Option<&NaturalIntent>) -> bool 
                 | NaturalIntent::ShowSessionRecent { .. }
                 | NaturalIntent::ClearSession { .. }
                 | NaturalIntent::RunInSession { .. }
+                | NaturalIntent::ContinueLastFailure
         )
     );
     !is_session_intent || !(cli.session.is_some() || cli.empty_session || cli.list_sessions)
@@ -1328,6 +1333,21 @@ mod tests {
 
         assert_eq!(cli.session, Some(Some("dev".to_string())));
         assert_eq!(text, Some(Some("continue this task".to_string())));
+    }
+
+    #[test]
+    fn continue_last_failure_uses_daily_session_and_normal_planner_text() {
+        let mut cli = Cli::try_parse_from([
+            "aicmd", "continue", "fixing", "the", "last", "failed", "task",
+        ])
+        .unwrap();
+        let text = translate_session_intent(&mut cli, Some(&NaturalIntent::ContinueLastFailure));
+
+        assert_eq!(cli.session, Some(Some(default_session_name())));
+        assert_eq!(
+            text,
+            Some(Some("continue fixing the last failed task".to_string()))
+        );
     }
 
     #[test]
