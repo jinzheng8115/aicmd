@@ -110,20 +110,23 @@ ai_summary: false
 AI summary is not automatic by default. After execution, the user can choose whether to generate it.
 / AI summary 默认不自动执行。命令完成后，用户可以选择是否生成。
 
-## 5. Main commands / 主要命令
+## 5. Default interactive path / 默认交互入口
 
-Start with these five commands:
+Run AICmd without arguments in an interactive terminal:
 
-优先记住这五个入口：
+在交互式终端中不带参数运行 AICmd：
 
 ```bash
-aicmd <task>          # generate one command / 生成一条命令
-aicmd do <task>       # complex script task / 复杂脚本任务
-aicmd search <query>  # MCP search + LLM summary / MCP 搜索 + LLM 整理
-aicmd setup           # first-time setup / 首次配置
-aicmd doctor          # diagnose install/config/cache/MCP / 诊断安装、配置、缓存和 MCP
-aicmd help me         # built-in help / 内置帮助
+aicmd
 ```
+
+The `AICmd>` prompt accepts multiple tasks. It resolves the Beijing-date daily session once, passes that named session to every child task, and returns to the prompt even when a child exits non-zero. Enter `exit`, `quit`, or `.exit`; send EOF; or press `Ctrl-C` to leave.
+
+`AICmd>` 可连续接收多个任务。启动时只解析一次按北京时间命名的每日会话，每个子任务都使用该命名会话；即使子任务以非 0 状态退出，也会回到提示符。输入 `exit`、`quit`、`.exit`，发送 EOF，或按 `Ctrl-C` 即可离开。
+
+For a one-shot task, use `aicmd <task>`. AICmd routes it to command, script, search, or diagnosis. Explicit `do`, `search`, and `err` commands remain advanced controls.
+
+单次任务使用 `aicmd <任务>`。AICmd 会自动路由到命令、脚本、搜索或错误诊断；显式的 `do`、`search` 和 `err` 保留为高级控制入口。
 
 ## 6. Built-in help / 内置帮助
 
@@ -310,6 +313,19 @@ Automatic repair is limited to two attempts per command flow.
 
 每条命令流程最多自动修复两次。
 
+If the failure menu was closed, use the deterministic continuation phrase:
+
+如果已经退出失败菜单，可以使用固定的继续表达：
+
+```bash
+aicmd continue fixing the last failed task
+aicmd 继续修复刚才失败的任务
+```
+
+The failed command, exit code, stdout, and stderr are saved as an execution note. The phrase selects today's daily named session, bypasses successful-command cache lookup, and goes through the normal planner. Confirmation is still required before any generated repair runs.
+
+失败命令、exit code、stdout 和 stderr 会保存为执行记录。该表达会选择当天每日命名会话、绕过成功命令缓存，并进入正常 planner；任何生成的修复命令仍需确认后才执行。
+
 ## 10. Script workflow: `aicmd do` / 脚本任务：`aicmd do`
 
 Use `do` for multi-step tasks, file processing, and installation flows:
@@ -325,9 +341,13 @@ aicmd do --from-search gemini-cli "安装 gemini-cli"
 aicmd do -o scripts/task.sh "清洗 CSV"
 ```
 
-`--from-search` reads `~/.aicmd/searches/<name>.txt` and includes current system environment such as OS, architecture, cwd, and availability of `brew/node/npm/git/curl`.
+`--from-search` requires both the saved summary and its raw MCP record. Before model generation, the raw record must contain at least one `http://` or `https://` URL and one recognized command-evidence line. If either signal is missing, AICmd names the insufficient saved search and recommends `aicmd search <more specific query>`.
 
-`--from-search` 会读取 `~/.aicmd/searches/<name>.txt`，并附带当前系统环境，例如 OS、架构、当前目录、`brew/node/npm/git/curl` 是否存在。
+`--from-search` 同时要求保存的摘要和对应原始 MCP 记录。调用模型前，原始记录必须至少包含一个 `http://` 或 `https://` URL，以及一行可识别的命令证据。缺少任一信号时，AICmd 会指出证据不足的搜索记录，并建议执行 `aicmd search <more specific query>`。
+
+Passing this gate does not prove that a command is correct. It only blocks clearly incomplete evidence. After validation, summary and raw evidence are both added to context, and the model is instructed not to invent or repair missing URLs or commands from memory.
+
+通过门槛不代表命令一定正确；它只拦截明显不完整的证据。验证通过后，摘要和原始证据都会进入上下文，模型也会被明确要求不得依靠记忆补全或修复缺失的 URL 与命令。
 
 ## 11. Search and MCP / 搜索和 MCP
 
@@ -403,9 +423,9 @@ aicmd use the last search result to install Docker
 
 ## 12. Sessions / 会话
 
-AICmd saves normal commands to daily history by default, such as `cmd-20260619`, but does not send that history to the model.
+AICmd saves one-shot normal commands to daily history by default, such as `cmd-20260712`, but does not send that history to the model. The no-argument continuous prompt explicitly uses that daily session for every child task.
 
-AICmd 默认把普通命令保存到每日 history，例如 `cmd-20260619`，但不会把这些历史发送给模型。
+AICmd 默认把单次普通命令保存到每日 history，例如 `cmd-20260712`，但不会把这些历史发送给模型。不带参数的连续交互会为每个子任务显式使用该每日会话。
 
 Common natural-language actions:
 
@@ -449,6 +469,7 @@ The parser intentionally accepts only the forms below. `<N>` must be a positive 
 
 | Action / 操作 | Chinese forms / 中文表达 | English forms / 英文表达 | Behavior / 行为 |
 | --- | --- | --- | --- |
+| Continue last failure / 继续上次失败 | `继续修复刚才失败的任务`<br>`继续处理刚才失败的任务` | `continue fixing the last failed task`<br>`continue the last failed task` | Selects today's daily session, bypasses command cache, and returns to normal planning and confirmation. / 选择当天每日会话、绕过命令缓存，并回到正常规划与确认流程。 |
 | Save last search / 保存最近搜索 | `保存刚才的搜索结果`<br>`保存最近的搜索结果`<br>`保存刚才的搜索结果为 <name>`<br>`保存最近的搜索结果为 <name>`<br>`保存刚才的搜索结果，命名为 <name>`<br>`保存最近的搜索结果，命名为 <name>` | `save the last search`<br>`save the last search result`<br>`save the last search as <name>`<br>`save the last search result as <name>` | Saves the latest search; an omitted name uses the existing automatic naming flow. / 保存最近搜索；省略名称时使用现有自动命名流程。 |
 | Use last search / 使用最近搜索 | `用刚才的搜索结果<task>`<br>`使用刚才的搜索结果<task>`<br>`根据刚才的搜索结果<task>`<br>`用最近的搜索结果<task>` | `use the last search result to <task>`<br>`use the last search to <task>` | Enters the existing `do` flow and still requires command review and confirmation. / 进入现有 `do` 流程，仍需检查并确认生成命令。 |
 | Show recent daily-session messages / 查看每日会话最近消息 | `查看最近 <N> 条对话`<br>`查看最近 <N> 条上下文`<br>`查看最近 <N> 条消息` | `show last <N> context messages`<br>`show last <N> messages`<br>`show recent <N> messages` | Shows up to `<N>` non-system messages from today's Beijing-date session. / 最多显示北京时间当天会话中的 `<N>` 条非 system 消息。 |
@@ -629,11 +650,25 @@ Recommended habits:
 - 如果可能修改或删除文件，请明确说明限制。
 ```
 
+For commands already classified as `ChangesSystem` or `Destructive`, AICmd captures Git porcelain status before and after execution, including failed execution. In a Git worktree, it prints only new records or records whose status changed:
+
+对于现有风险分类为 `ChangesSystem` 或 `Destructive` 的命令，AICmd 会在执行前后捕获 Git porcelain status，包括执行失败的情况。在 Git 工作区中，只显示新增记录或状态发生变化的记录：
+
+```text
+Detected file changes: / 检测到文件变化：
+- M src/main.rs
+- ?? output/report.txt
+```
+
+The report recommends `git diff` and manual recovery. AICmd does not run `git reset`, delete files, or perform rollback. Git capture is advisory and silently skips non-Git directories or capture failures.
+
+报告会建议使用 `git diff` 并手动恢复。AICmd 不会执行 `git reset`、删除文件或自动回滚。Git 捕获只是提示；非 Git 目录或捕获失败时会静默跳过。
+
 ## 19. Troubleshooting / 排障
 
-`aicmd doctor` performs offline checks for binary path, version, config, model, temperature, AI summary, MCP/search, command cache, saved searches directory, PATH, and shell integration.
+`aicmd doctor` performs offline checks for binary path, version, config, model, temperature, AI summary, command cache, saved searches directory, PATH, shell integration, and MCP configuration. MCP checks validate JSON, command-to-server references, `stdio` server type, non-empty commands, executable availability through a path or `PATH`, and optional tool fields. Doctor does not start MCP servers or access the network.
 
-`aicmd doctor` 会执行离线检查，包括二进制路径、版本、配置、模型、temperature、AI summary、MCP/search、命令缓存、搜索记录目录、PATH 和 shell 集成。
+`aicmd doctor` 会执行离线检查，包括二进制路径、版本、配置、模型、temperature、AI summary、命令缓存、搜索记录目录、PATH、shell 集成和 MCP 配置。MCP 检查会验证 JSON、command 到 server 的引用、`stdio` server 类型、非空 command、通过路径或 `PATH` 查找可执行文件，以及可选 tool 字段。Doctor 不会启动 MCP server 或联网。
 
 Check installation:
 
@@ -676,6 +711,10 @@ aicmd init --from-env --force
 If MCP search times out:
 
 如果 MCP 搜索超时：
+
+Runtime errors identify the failed stage: `start`, `initialize`, `tools/list`, `tool selection`, or `tools/call`. Follow the included action. Only a structured local response timeout recommends increasing `AICMD_MCP_START_TIMEOUT_SECS` or `AICMD_MCP_CALL_TIMEOUT_SECS`; other stage errors recommend `aicmd doctor` or correcting executable, arguments, or tool selection.
+
+运行时错误会标明失败阶段：`start`、`initialize`、`tools/list`、`tool selection` 或 `tools/call`。请按错误中的建议操作。只有结构化的本地响应超时才会建议增大 `AICMD_MCP_START_TIMEOUT_SECS` 或 `AICMD_MCP_CALL_TIMEOUT_SECS`；其他阶段错误会建议运行 `aicmd doctor`，或修正可执行文件、参数、tool 选择。
 
 ```bash
 AICMD_MCP_START_TIMEOUT_SECS=300 AICMD_MCP_CALL_TIMEOUT_SECS=600 aicmd search "今天北京天气"

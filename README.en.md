@@ -10,11 +10,14 @@ License: MIT OR Apache-2.0
 ## 1. Start with the main entry point
 
 ```bash
+aicmd                       # enter the continuous prompt for multiple tasks
 aicmd <what you want>       # automatically choose command, script, search, or diagnosis
 aicmd setup                # first-time setup or reconfiguration
-aicmd doctor               # check install, model, temperature, summary, MCP, cache, and PATH
+aicmd doctor               # offline checks for install, model, MCP config/executables, and more
 aicmd help me              # show built-in help when unsure
 ```
+
+In an interactive terminal, running `aicmd` without arguments opens `AICmd>`. Tasks in that prompt use the Beijing-date daily session (for example, `cmd-20260712`); a failed child task returns to the prompt. Leave with `exit`, `quit`, `.exit`, EOF, or `Ctrl-C`.
 
 You no longer need to decide whether to use `do`, `search`, or `err` first. AICmd creates a strict structured plan and selects the workflow automatically.
 If the model does not return a valid plan, AICmd stops safely and asks you to retry; it never guesses a shell command from Markdown or prose.
@@ -280,6 +283,22 @@ If execution fails, AICmd shows a failure menu. `fix` asks the model to generate
 fix(修复) | explain(解释) | copy(复制) | quit(退出):
 ```
 
+The failed command, exit code, and stdout/stderr are saved in today's daily session. If you leave the failure menu, enter `continue fixing the last failed task`; this phrase selects the daily session, bypasses the successful-command cache, and returns to the normal planning and confirmation flow. It does not execute a repair automatically.
+
+For commands already classified as modifying files or the system, AICmd compares Git porcelain status before and after execution and shows only new records or records whose status changed:
+
+```text
+Detected file changes:
+- M src/main.rs
+- ?? output/report.txt
+
+Recovery guidance:
+1. Use git diff to inspect tracked file changes.
+2. Recover manually after inspection; AICmd does not automatically reset or delete files.
+```
+
+Git capture is advisory. A non-Git directory or capture failure does not block command execution.
+
 ### 6.2 Script workflow: `aicmd do`
 
 Use it for multi-step tasks, file processing, and installation flows:
@@ -293,7 +312,7 @@ aicmd do --from-search gemini-cli "install gemini-cli"
 aicmd do -o scripts/task.sh "clean CSV"
 ```
 
-`--from-search` reads `~/.aicmd/searches/<name>.txt` and also includes the current system environment, such as OS, architecture, cwd, and whether `brew/node/npm/git/curl` are available. This helps generate a more reliable script.
+`--from-search` reads both the saved summary and raw MCP result. The raw result must contain at least one `http://` or `https://` source and one recognized command-evidence line; otherwise AICmd rejects it before model generation and recommends a more specific `aicmd search ...`. After the gate passes, the summary, raw evidence, and current system environment are included in generation context.
 
 ### 6.3 Error diagnosis: `aicmd err`
 
@@ -309,6 +328,7 @@ It runs the command, captures stdout/stderr/exit code, and asks the LLM to gener
 Use natural language for common session actions:
 
 ```bash
+aicmd continue fixing the last failed task
 aicmd show current session
 aicmd list sessions
 aicmd show last 5 messages in session dev
@@ -330,7 +350,7 @@ aicmd --list-sessions        # list sessions
 aicmd -s dev --empty-session # clear dev session, asks for confirmation
 ```
 
-Plain `aicmd ...` saves to daily history such as `cmd-20260619`, but does not send that history to the model. Only an explicit named session such as `-s dev` enables continuing context.
+A one-shot `aicmd <task>` saves to daily history such as `cmd-20260712`, but does not send that history to the model. The no-argument continuous prompt explicitly uses today's daily session for every task; `continue fixing the last failed task` selects the same daily session. Explicit `-s dev` remains available for a different per-invocation session.
 
 Inspect history:
 
@@ -416,18 +436,15 @@ aicmd init --from-env --force
 
 ### MCP search timeout
 
-The first `npx -y ...` run may need to download MCP packages. Increase timeout temporarily:
+Run `aicmd doctor` first. It does not start an MCP server or access the network, but it checks JSON, command-to-server references, the `stdio` type, server executables, and optional tool fields. A missing executable is reported against its server.
+
+Runtime errors name the stage: `start`, `initialize`, `tools/list`, `tool selection`, or `tools/call`, and include a next action. Only a local response timeout recommends changing the matching variable:
 
 ```bash
 AICMD_MCP_START_TIMEOUT_SECS=300 AICMD_MCP_CALL_TIMEOUT_SECS=600 aicmd search "weather in Beijing today"
 ```
 
-You can also check:
-
-```bash
-aicmd config mcp
-aicmd mcp list
-```
+For other MCP stage errors, follow the guidance to run `aicmd doctor` and inspect the executable, arguments, or explicit tool configuration.
 
 ### `cd ..` runs but the current directory does not change
 
