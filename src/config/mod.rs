@@ -413,6 +413,7 @@ impl Config {
         } else {
             bail!("No session")
         }
+        self.save_current_session()?;
         self.discontinuous_last_message();
         Ok(())
     }
@@ -779,6 +780,47 @@ fn read_env_bool(key: &str) -> Option<Option<bool>> {
 #[cfg(test)]
 mod tests {
     use super::Config;
+
+    #[test]
+    fn empty_session_persists_cleared_messages() {
+        let sessions_dir = std::env::temp_dir().join(format!(
+            "aicmd-empty-session-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let key = crate::utils::get_env_name("sessions_dir");
+        let previous = std::env::var(&key).ok();
+        std::env::set_var(&key, &sessions_dir);
+
+        let result = (|| -> anyhow::Result<()> {
+            let mut config = Config::default();
+            let path = config.session_file("persisted");
+            crate::config::ensure_parent_exists(&path)?;
+            std::fs::write(
+                &path,
+                "messages:\n  - role: user\n    content: before clear\n",
+            )?;
+
+            config.use_session(Some("persisted"))?;
+            config.empty_session()?;
+
+            let content = std::fs::read_to_string(path)?;
+            let session: serde_yaml::Value = serde_yaml::from_str(&content)?;
+            assert_eq!(session["messages"], serde_yaml::Value::Sequence(vec![]));
+            Ok(())
+        })();
+
+        if let Some(value) = previous {
+            std::env::set_var(&key, value);
+        } else {
+            std::env::remove_var(&key);
+        }
+        std::fs::remove_dir_all(&sessions_dir).ok();
+        result.unwrap();
+    }
 
     #[test]
     fn config_defaults_ai_summary_to_off() {

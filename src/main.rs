@@ -63,17 +63,9 @@ async fn main() -> Result<()> {
     if let Some(code) = run_pre_config_shortcut(cli.text_args())? {
         process::exit(code);
     }
-    let text = match natural_intent.as_ref() {
-        Some(NaturalIntent::ClearSession { name }) => {
-            cli.session = name.clone().map(Some);
-            cli.empty_session = true;
-            None
-        }
-        Some(NaturalIntent::RunInSession { name, task }) => {
-            cli.session = Some(Some(name.clone()));
-            Some(task.clone())
-        }
-        _ => cli.text()?,
+    let text = match translate_session_intent(&mut cli, natural_intent.as_ref()) {
+        Some(text) => text,
+        None => cli.text()?,
     };
     let info_flag = cli.list_sessions;
     setup_logger()?;
@@ -92,6 +84,24 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn translate_session_intent(
+    cli: &mut Cli,
+    intent: Option<&NaturalIntent>,
+) -> Option<Option<String>> {
+    match intent {
+        Some(NaturalIntent::ClearSession { name }) => {
+            cli.session = name.clone().map(Some);
+            cli.empty_session = true;
+            Some(None)
+        }
+        Some(NaturalIntent::RunInSession { name, task }) => {
+            cli.session = Some(Some(name.clone()));
+            Some(Some(task.clone()))
+        }
+        _ => None,
+    }
 }
 
 fn run_pre_config_intent(intent: Option<&NaturalIntent>) -> Result<Option<i32>> {
@@ -1258,6 +1268,21 @@ fn setup_logger() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_in_session_intent_sets_named_session_and_task() {
+        let mut cli = Cli::try_parse_from(["aicmd"]).unwrap();
+        let text = translate_session_intent(
+            &mut cli,
+            Some(&NaturalIntent::RunInSession {
+                name: "dev".to_string(),
+                task: "continue this task".to_string(),
+            }),
+        );
+
+        assert_eq!(cli.session, Some(Some("dev".to_string())));
+        assert_eq!(text, Some(Some("continue this task".to_string())));
+    }
 
     #[test]
     fn pre_config_session_intents_are_handled() {
