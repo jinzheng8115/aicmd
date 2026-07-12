@@ -366,4 +366,26 @@ mod tests {
         assert_eq!(checks[1].name, "MCP command search");
         assert_eq!(checks[1].status, "ok");
     }
+
+    #[test]
+    fn search_doctor_check_keeps_legacy_states() {
+        for (status, detail) in [
+            ("ok", "configured"),
+            ("warning", "command not configured"),
+            ("warning", "not checked because MCP config is missing"),
+        ] {
+            let check = mcp_checks(vec![McpDiagnostic {
+                name: "Search".into(),
+                status,
+                detail: detail.into(),
+                suggestion: None,
+            }])
+            .pop()
+            .unwrap();
+
+            assert_eq!(check.name, "Search");
+            assert_eq!(check.status, status);
+            assert_eq!(check.detail, detail);
+        }
+    }
 }
