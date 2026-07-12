@@ -15,6 +15,7 @@ pub fn truncate_for_session(value: &str, max_chars: usize) -> String {
 pub fn build_execution_session_note(
     command: &str,
     code: i32,
+    termination: &str,
     stdout: &str,
     stderr: &str,
     summary: Option<&str>,
@@ -27,7 +28,7 @@ pub fn build_execution_session_note(
         .map(|value| truncate_for_session(value.trim(), SUMMARY_LIMIT))
         .unwrap_or_else(|| "(empty)".to_string());
     format!(
-        "Command execution result:\nCommand:\n{command}\n\nExit code: {code}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n\nAI summary:\n{summary}"
+        "Command execution result:\nCommand:\n{command}\n\nExit code: {code}\nTermination: {termination}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n\nAI summary:\n{summary}"
     )
 }
 
@@ -52,8 +53,10 @@ mod tests {
 
     #[test]
     fn builds_execution_note() {
-        let note = build_execution_session_note("printf hello", 0, "hello", "", Some("ok"));
+        let note =
+            build_execution_session_note("printf hello", 0, "exited", "hello", "", Some("ok"));
         assert!(note.contains("Exit code: 0"));
+        assert!(note.contains("Termination: exited"));
         assert!(note.contains("STDOUT:\nhello"));
     }
 

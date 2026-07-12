@@ -33,7 +33,8 @@ extern crate log;
 
 use crate::cli::Cli;
 use crate::client::{
-    call_chat_completions, call_chat_completions_raw, call_chat_completions_streaming,
+    call_chat_completions_controlled, call_chat_completions_raw_controlled,
+    call_chat_completions_streaming_controlled,
 };
 use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
@@ -70,7 +71,7 @@ async fn main() -> Result<()> {
     if let Some(code) = run_pre_config_intent(natural_intent)? {
         process::exit(code);
     }
-    if let Some(code) = run_pre_config_shortcut(cli.text_args())? {
+    if let Some(code) = run_pre_config_shortcut(cli.text_args()).await? {
         process::exit(code);
     }
     let text = match translate_session_intent(&mut cli, natural_intent) {
@@ -305,7 +306,7 @@ fn default_session_name() -> String {
     format!("cmd-{}", beijing.format("%Y%m%d"))
 }
 
-fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
+async fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
     let Some(cmd) = args.first().map(String::as_str) else {
         return Ok(None);
     };
@@ -347,7 +348,23 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         {
             Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?))
         }
-        "mcp-raw" => Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?)),
+        "mcp-raw" => {
+            let Some(command) = args.get(1) else {
+                return Ok(Some(mcp_cmd::run_mcp_command(&[])?));
+            };
+            if matches!(command.as_str(), "list" | "help" | "-h" | "--help") {
+                return Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?));
+            }
+            let output = call_mcp_raw(
+                command,
+                &args[2..].join(" "),
+                create_abort_signal(),
+                &RetryBudget::default(),
+            )
+            .await?;
+            print!("{output}");
+            Ok(Some(0))
+        }
         _ => Ok(None),
     }
 }
@@ -361,8 +378,15 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             if args.get(1).is_some_and(|v| v == "summarize") {
                 let target = search_cmd::parse_summarize_target(&args[2..])?;
                 let raw = search_cmd::load_raw_search(&target)?;
-                let summary =
-                    summarize_mcp_output(config, "search", &raw.query, &raw.raw_output).await?;
+                let summary = summarize_mcp_output(
+                    config,
+                    "search",
+                    &raw.query,
+                    &raw.raw_output,
+                    create_abort_signal(),
+                    &RetryBudget::default(),
+                )
+                .await?;
                 let save_name = if target == "last" {
                     None
                 } else {
@@ -371,13 +395,30 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
                 search_cmd::persist_search_result(&raw.query, &summary, save_name)?;
             } else {
                 let options = search_cmd::parse_search_run_args(&args[1..])?;
-                let raw_output = call_mcp_raw("search", &options.query)?;
+                let abort_signal = create_abort_signal();
+                let retry_budget = RetryBudget::default();
+                let raw_output = call_mcp_raw(
+                    "search",
+                    &options.query,
+                    abort_signal.clone(),
+                    &retry_budget,
+                )
+                .await?;
                 let raw_path = search_cmd::persist_raw_search_result(
                     &options.query,
                     &raw_output,
                     options.save_name.clone(),
                 )?;
-                match summarize_mcp_output(config, "search", &options.query, &raw_output).await {
+                match summarize_mcp_output(
+                    config,
+                    "search",
+                    &options.query,
+                    &raw_output,
+                    abort_signal,
+                    &retry_budget,
+                )
+                .await
+                {
                     Ok(summary) => {
                         search_cmd::persist_search_result(
                             &options.query,
@@ -415,7 +456,16 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             let default_session = default_session_name();
             config.write().use_session(Some(&default_session))?;
             let input = Input::from_str(config, &report, None);
-            shell_execute(config, &SHELL, input, create_abort_signal(), None, 0).await?;
+            shell_execute(
+                config,
+                &SHELL,
+                input,
+                create_abort_signal(),
+                RetryBudget::default(),
+                None,
+                0,
+            )
+            .await?;
             Ok(Some(0))
         }
         "do" => {
@@ -468,9 +518,38 @@ fn sanitize_mcp_output_for_llm(raw: &str) -> String {
     text
 }
 
-fn call_mcp_raw(mcp_command: &str, query: &str) -> Result<String> {
-    let raw_output = mcp_cmd::call_mcp_command(mcp_command, query)
-        .with_context(|| "Unable to run MCP command")?;
+async fn call_mcp_raw(
+    mcp_command: &str,
+    query: &str,
+    abort_signal: AbortSignal,
+    retry_budget: &RetryBudget,
+) -> Result<String> {
+    let stage_zh = format!("正在调用 MCP {mcp_command}");
+    let stage_en = format!("Calling MCP {mcp_command}");
+    let raw_output = run_external_with_managed_retry(
+        ProgressStage::new(&stage_zh, &stage_en),
+        retry_budget,
+        abort_signal.clone(),
+        |attempt| {
+            let mcp_command = mcp_command.to_string();
+            let query = query.to_string();
+            let abort_signal = abort_signal.clone();
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    mcp_cmd::call_mcp_command_controlled(
+                        &mcp_command,
+                        &query,
+                        attempt.timeout,
+                        abort_signal,
+                    )
+                })
+                .await
+                .context("MCP worker failed")?
+            }
+        },
+    )
+    .await
+    .with_context(|| "Unable to run MCP command")?;
     if raw_output.trim().is_empty() {
         bail!("MCP command returned no output");
     }
@@ -482,8 +561,18 @@ async fn run_mcp_with_llm_summary(
     mcp_command: &str,
     query: &str,
 ) -> Result<String> {
-    let raw_output = call_mcp_raw(mcp_command, query)?;
-    summarize_mcp_output(config, mcp_command, query, &raw_output).await
+    let abort_signal = create_abort_signal();
+    let retry_budget = RetryBudget::default();
+    let raw_output = call_mcp_raw(mcp_command, query, abort_signal.clone(), &retry_budget).await?;
+    summarize_mcp_output(
+        config,
+        mcp_command,
+        query,
+        &raw_output,
+        abort_signal,
+        &retry_budget,
+    )
+    .await
 }
 
 async fn prompt_search_follow_up(
@@ -571,7 +660,16 @@ async fn run_do_shortcut(
     let default_session = default_session_name();
     config.write().use_session(Some(&default_session))?;
     let input = Input::from_str(config, &request.prompt, None);
-    shell_execute(config, &SHELL, input, abort_signal, None, 0).await
+    shell_execute(
+        config,
+        &SHELL,
+        input,
+        abort_signal,
+        RetryBudget::default(),
+        None,
+        0,
+    )
+    .await
 }
 
 async fn summarize_mcp_output(
@@ -579,8 +677,9 @@ async fn summarize_mcp_output(
     mcp_command: &str,
     query: &str,
     raw_output: &str,
+    abort_signal: AbortSignal,
+    retry_budget: &RetryBudget,
 ) -> Result<String> {
-    let abort_signal = create_abort_signal();
     let llm_output = sanitize_mcp_output_for_llm(raw_output);
     if llm_output.trim().is_empty() {
         bail!("MCP command returned no usable output after filtering");
@@ -599,9 +698,25 @@ MCP returned content / MCP 返回内容：
     let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
     let (summary, _) = if input.stream() {
-        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?
+        call_chat_completions_streaming_controlled(
+            &input,
+            client.as_ref(),
+            abort_signal,
+            retry_budget,
+            ProgressStage::new("正在整理搜索结果", "Summarizing search result"),
+        )
+        .await?
     } else {
-        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?
+        call_chat_completions_controlled(
+            &input,
+            true,
+            false,
+            client.as_ref(),
+            abort_signal,
+            retry_budget,
+            ProgressStage::new("正在整理搜索结果", "Summarizing search result"),
+        )
+        .await?
     };
     println!();
     Ok(summary)
@@ -632,10 +747,27 @@ async fn summarize_command_output(
     let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
     println!("{}", dimmed_text("\nAI summary:"));
+    let retry_budget = RetryBudget::default();
     let (summary, _) = if input.stream() {
-        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?
+        call_chat_completions_streaming_controlled(
+            &input,
+            client.as_ref(),
+            abort_signal,
+            &retry_budget,
+            ProgressStage::new("正在生成执行结果总结", "Summarizing command output"),
+        )
+        .await?
     } else {
-        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?
+        call_chat_completions_controlled(
+            &input,
+            true,
+            false,
+            client.as_ref(),
+            abort_signal,
+            &retry_budget,
+            ProgressStage::new("正在生成执行结果总结", "Summarizing command output"),
+        )
+        .await?
     };
     println!();
     Ok(Some(summary))
@@ -772,7 +904,16 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         )
         .await;
     }
-    request_and_route_execution_plan(&config, &SHELL, input, abort_signal, cache_task).await?;
+    let retry_budget = RetryBudget::default();
+    request_and_route_execution_plan(
+        &config,
+        &SHELL,
+        input,
+        abort_signal,
+        retry_budget,
+        cache_task,
+    )
+    .await?;
     Ok(())
 }
 
@@ -826,6 +967,7 @@ async fn request_and_route_execution_plan(
     shell: &Shell,
     input: Input,
     abort_signal: AbortSignal,
+    retry_budget: RetryBudget,
     cache_task: Option<String>,
 ) -> Result<()> {
     if config.read().dry_run {
@@ -833,15 +975,30 @@ async fn request_and_route_execution_plan(
         let planner_input = input.with_role(role);
         let client = planner_input.create_client()?;
         config.write().before_chat_completion(&planner_input)?;
-        let (raw, _) =
-            call_chat_completions_raw(&planner_input, client.as_ref(), abort_signal).await?;
+        let (raw, _) = call_chat_completions_raw_controlled(
+            &planner_input,
+            client.as_ref(),
+            abort_signal,
+            &retry_budget,
+            ProgressStage::new("正在生成执行计划", "Generating execution plan"),
+        )
+        .await?;
         config.read().print_markdown(&raw)?;
         return Ok(());
     }
-    let plan = request_execution_plan(config, &input, abort_signal.clone())
+    let plan = request_execution_plan(config, &input, abort_signal.clone(), &retry_budget)
         .await
         .context(localized("无效执行计划", "Invalid execution plan"))?;
-    route_execution_plan(config, shell, input, plan, abort_signal, cache_task).await
+    route_execution_plan(
+        config,
+        shell,
+        input,
+        plan,
+        abort_signal,
+        retry_budget,
+        cache_task,
+    )
+    .await
 }
 
 async fn route_execution_plan(
@@ -850,6 +1007,7 @@ async fn route_execution_plan(
     input: Input,
     plan: ExecutionPlan,
     abort_signal: AbortSignal,
+    retry_budget: RetryBudget,
     cache_task: Option<String>,
 ) -> Result<()> {
     if config.read().dry_run {
@@ -888,14 +1046,23 @@ async fn route_execution_plan(
             .await
         }
         RouteKind::Search => {
-            let raw_output = call_mcp_raw("search", &plan.query)?;
-            summarize_mcp_output(config, "search", &plan.query, &raw_output).await?;
+            let raw_output =
+                call_mcp_raw("search", &plan.query, abort_signal.clone(), &retry_budget).await?;
+            summarize_mcp_output(
+                config,
+                "search",
+                &plan.query,
+                &raw_output,
+                abort_signal.clone(),
+                &retry_budget,
+            )
+            .await?;
             prompt_search_follow_up(config, abort_signal, Some(&plan.query)).await
         }
         RouteKind::Diagnose => {
             let input = input.with_text(plan.problem).with_session_context();
             let input = input_with_execution_role(config, input, route)?;
-            shell_execute(config, shell, input, abort_signal, None, 0).await
+            shell_execute(config, shell, input, abort_signal, retry_budget, None, 0).await
         }
     }
 }
@@ -906,12 +1073,20 @@ async fn shell_execute(
     shell: &Shell,
     input: Input,
     abort_signal: AbortSignal,
+    retry_budget: RetryBudget,
     cache_task: Option<String>,
     repair_attempts: u8,
 ) -> Result<()> {
     let client = input.create_client()?;
     config.write().before_chat_completion(&input)?;
-    let (raw, _) = call_chat_completions_raw(&input, client.as_ref(), abort_signal.clone()).await?;
+    let (raw, _) = call_chat_completions_raw_controlled(
+        &input,
+        client.as_ref(),
+        abort_signal.clone(),
+        &retry_budget,
+        ProgressStage::new("正在生成命令", "Generating command"),
+    )
+    .await?;
     if config.read().dry_run {
         config.read().print_markdown(&raw)?;
         return Ok(());
@@ -1064,7 +1239,12 @@ async fn handle_generated_command(
                     } else {
                         None
                     };
-                    let output = execute_cmd::run_command_capture(shell, &eval_command)?;
+                    let output = execute_cmd::run_command_capture_controlled(
+                        shell,
+                        &eval_command,
+                        abort_signal.clone(),
+                    )
+                    .await?;
                     if let Some(before) = before {
                         if let Some(after) = change_report_cmd::GitSnapshot::capture(&cwd) {
                             let changes = before.changes_since(&after);
@@ -1076,20 +1256,26 @@ async fn handle_generated_command(
                             }
                         }
                     }
-                    let (code, stdout, stderr) = (output.code, output.stdout, output.stderr);
+                    let (code, stdout, stderr, termination) = (
+                        output.code,
+                        output.stdout,
+                        output.stderr,
+                        output.termination,
+                    );
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }
-                    let summary_requested = config.read().ai_summary
-                        || (ask_summary
-                            && confirm_cmd::read_action(
-                                &['y', 'n'],
-                                'n',
-                                localized(
-                                    "是否生成 AI summary？[y/N] ",
-                                    "Generate AI summary? [y/N] ",
-                                ),
-                            )? == 'y');
+                    let summary_requested = termination == execute_cmd::CommandTermination::Exited
+                        && (config.read().ai_summary
+                            || (ask_summary
+                                && confirm_cmd::read_action(
+                                    &['y', 'n'],
+                                    'n',
+                                    localized(
+                                        "是否生成 AI summary？[y/N] ",
+                                        "Generate AI summary? [y/N] ",
+                                    ),
+                                )? == 'y'));
                     let summary = if summary_requested {
                         match summarize_command_output(
                             config,
@@ -1113,11 +1299,16 @@ async fn handle_generated_command(
                     let session_note = result_cmd::build_execution_session_note(
                         &eval_str,
                         code,
+                        termination.as_str(),
                         &stdout,
                         &stderr,
                         summary.as_deref(),
                     );
                     config.write().append_session_note(session_note)?;
+                    if termination == execute_cmd::CommandTermination::Cancelled {
+                        eprintln!("{}", localized("命令已取消", "Command cancelled"));
+                        process::exit(130);
+                    }
                     if code == 0 {
                         if let Some(task) = cache_task.as_deref() {
                             if let Err(err) = command_cache::record_success(
@@ -1201,6 +1392,7 @@ async fn handle_generated_command(
                                         shell,
                                         input,
                                         abort_signal.clone(),
+                                        RetryBudget::default(),
                                         None,
                                         repair_attempts + 1,
                                     )
@@ -1238,6 +1430,7 @@ async fn handle_generated_command(
                         shell,
                         input,
                         abort_signal.clone(),
+                        RetryBudget::default(),
                         None,
                     )
                     .await;
@@ -1252,6 +1445,7 @@ async fn handle_generated_command(
                         shell,
                         input,
                         abort_signal.clone(),
+                        RetryBudget::default(),
                         None,
                         repair_attempts,
                     )
@@ -1260,20 +1454,25 @@ async fn handle_generated_command(
                 'd' => {
                     let role = config.read().retrieve_role(EXPLAIN_SHELL_ROLE)?;
                     let input = Input::from_str(config, &eval_str, Some(role));
+                    let retry_budget = RetryBudget::default();
                     if input.stream() {
-                        call_chat_completions_streaming(
+                        call_chat_completions_streaming_controlled(
                             &input,
                             client.as_ref(),
                             abort_signal.clone(),
+                            &retry_budget,
+                            ProgressStage::new("正在解释命令", "Explaining command"),
                         )
                         .await?;
                     } else {
-                        call_chat_completions(
+                        call_chat_completions_controlled(
                             &input,
                             true,
                             false,
                             client.as_ref(),
                             abort_signal.clone(),
+                            &retry_budget,
+                            ProgressStage::new("正在解释命令", "Explaining command"),
                         )
                         .await?;
                     }
@@ -1513,6 +1712,7 @@ mod tests {
         let note = result_cmd::build_execution_session_note(
             "printf hello",
             0,
+            "exited",
             "hello",
             "",
             Some("printed hello"),

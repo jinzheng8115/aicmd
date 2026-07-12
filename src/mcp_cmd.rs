@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::{config::Config, utils::AbortSignal};
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
@@ -10,7 +10,7 @@ use std::{
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc,
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Debug)]
@@ -22,6 +22,22 @@ pub struct McpDiagnostic {
 }
 
 struct McpChildGuard(Child);
+
+struct McpAttemptControl {
+    deadline: Instant,
+    timeout: Duration,
+    abort_signal: AbortSignal,
+}
+
+impl McpAttemptControl {
+    fn new(timeout: Duration, abort_signal: AbortSignal) -> Self {
+        Self {
+            deadline: Instant::now() + timeout,
+            timeout,
+            abort_signal,
+        }
+    }
+}
 
 impl Drop for McpChildGuard {
     fn drop(&mut self) {
@@ -94,10 +110,36 @@ pub fn run_mcp_command(args: &[String]) -> Result<i32> {
 
 pub fn call_mcp_command(command_name: &str, user_input: &str) -> Result<String> {
     let config = load_mcp_config()?;
-    call_mcp_with_config(&config, command_name, user_input)
+    call_mcp_with_config(&config, command_name, user_input, None)
 }
 
-fn call_mcp_with_config(config: &Value, command_name: &str, user_input: &str) -> Result<String> {
+pub fn call_mcp_command_controlled(
+    command_name: &str,
+    user_input: &str,
+    timeout: Duration,
+    abort_signal: AbortSignal,
+) -> Result<String> {
+    let config = load_mcp_config()?;
+    call_mcp_with_config_controlled(&config, command_name, user_input, timeout, abort_signal)
+}
+
+fn call_mcp_with_config_controlled(
+    config: &Value,
+    command_name: &str,
+    user_input: &str,
+    timeout: Duration,
+    abort_signal: AbortSignal,
+) -> Result<String> {
+    let control = McpAttemptControl::new(timeout, abort_signal);
+    call_mcp_with_config(config, command_name, user_input, Some(&control))
+}
+
+fn call_mcp_with_config(
+    config: &Value,
+    command_name: &str,
+    user_input: &str,
+    control: Option<&McpAttemptControl>,
+) -> Result<String> {
     let root = mcp_root(config);
     let servers = root
         .get("servers")
@@ -201,6 +243,7 @@ fn call_mcp_with_config(config: &Value, command_name: &str, user_input: &str) ->
             init_id,
             "initialize",
             start_timeout,
+            control,
         )?;
         send_notification(&mut stdin, "notifications/initialized", Some(json!({})))?;
         Ok(())
@@ -226,6 +269,7 @@ fn call_mcp_with_config(config: &Value, command_name: &str, user_input: &str) ->
                 list_id,
                 "tools/list",
                 start_timeout,
+                control,
             )
         })()
         .map_err(|err| {
@@ -260,6 +304,7 @@ fn call_mcp_with_config(config: &Value, command_name: &str, user_input: &str) ->
             call_id,
             "tools/call",
             call_timeout,
+            control,
         )
     })()
     .map_err(|err| {
@@ -766,9 +811,22 @@ fn read_response(
     expected_id: u64,
     phase: &str,
     timeout: Duration,
+    control: Option<&McpAttemptControl>,
 ) -> Result<Value> {
+    let local_deadline = Instant::now() + timeout;
     loop {
-        match rx.recv_timeout(timeout) {
+        if control.is_some_and(|control| control.abort_signal.aborted()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("Aborted.");
+        }
+        let deadline = control
+            .map(|control| control.deadline.min(local_deadline))
+            .unwrap_or(local_deadline);
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return mcp_timeout_error(child, err_rx, phase, control.map_or(timeout, |v| v.timeout));
+        };
+        match rx.recv_timeout(remaining.min(Duration::from_millis(100))) {
             Ok(msg) => {
                 if msg.get("id").and_then(Value::as_u64) != Some(expected_id) {
                     continue;
@@ -779,16 +837,15 @@ fn read_response(
                 return Ok(msg.get("result").cloned().unwrap_or_else(|| json!({})));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let stderr = err_rx
-                    .recv_timeout(Duration::from_millis(250))
-                    .unwrap_or_default();
-                return Err(anyhow::Error::new(McpResponseTimeout {
-                    phase: phase.to_string(),
-                    timeout,
-                    stderr,
-                }));
+                if Instant::now() < deadline {
+                    continue;
+                }
+                return mcp_timeout_error(
+                    child,
+                    err_rx,
+                    phase,
+                    control.map_or(timeout, |v| v.timeout),
+                );
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let err = err_rx.try_recv().unwrap_or_default();
@@ -800,6 +857,24 @@ fn read_response(
             }
         }
     }
+}
+
+fn mcp_timeout_error(
+    child: &mut Child,
+    err_rx: &mpsc::Receiver<String>,
+    phase: &str,
+    timeout: Duration,
+) -> Result<Value> {
+    let _ = child.kill();
+    let _ = child.wait();
+    let stderr = err_rx
+        .recv_timeout(Duration::from_millis(250))
+        .unwrap_or_default();
+    Err(anyhow::Error::new(McpResponseTimeout {
+        phase: phase.to_string(),
+        timeout,
+        stderr,
+    }))
 }
 
 fn render_template(value: &Value, input: &str) -> Value {
@@ -981,6 +1056,7 @@ fn extract_text_content(result: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::{run_external_with_managed_retry, ProgressStage, RetryBudget, RetryPolicy};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
@@ -1177,7 +1253,7 @@ mod tests {
             assert_eq!(diagnostic.status, "error");
             assert!(diagnostic.detail.contains("leading or trailing whitespace"));
 
-            let error = call_mcp_with_config(&config, "search", "query").unwrap_err();
+            let error = call_mcp_with_config(&config, "search", "query", None).unwrap_err();
             assert!(error.to_string().contains("leading or trailing whitespace"));
         }
     }
@@ -1197,7 +1273,7 @@ mod tests {
         assert_eq!(diagnostic.status, "error");
         assert!(diagnostic.detail.contains("type must be a string"));
 
-        let error = call_mcp_with_config(&invalid, "search", "query").unwrap_err();
+        let error = call_mcp_with_config(&invalid, "search", "query", None).unwrap_err();
         assert!(error.to_string().contains("type must be a string"));
     }
 
@@ -1345,7 +1421,7 @@ mod tests {
             let secret = "fake-mcp-env-secret";
             let config = fake_mcp_config(mode, &pid_file, secret);
 
-            let result = call_mcp_with_config(&config, "search", "query");
+            let result = call_mcp_with_config(&config, "search", "query", None);
             let pid = fs::read_to_string(&pid_file)
                 .unwrap()
                 .trim()
@@ -1374,7 +1450,7 @@ mod tests {
         let config = fake_mcp_config("timeout_with_stderr", &pid_file, "unused");
         env::set_var("AICMD_MCP_START_TIMEOUT_SECS", "1");
 
-        let error = call_mcp_with_config(&config, "search", "query").unwrap_err();
+        let error = call_mcp_with_config(&config, "search", "query", None).unwrap_err();
         env::remove_var("AICMD_MCP_START_TIMEOUT_SECS");
         let display = format!("{error:#}");
         let pid = fs::read_to_string(&pid_file)
@@ -1389,13 +1465,126 @@ mod tests {
         assert!(!process_exists(pid), "fake MCP child {pid} was not reaped");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn controlled_mcp_attempt_uses_shared_short_deadline() {
+        let pid_file = env::temp_dir().join(format!(
+            "aicmd-fake-mcp-controlled-timeout-{}.pid",
+            std::process::id()
+        ));
+        let config = fake_mcp_config("timeout_with_stderr", &pid_file, "unused");
+        let started = std::time::Instant::now();
+
+        let error = call_mcp_with_config_controlled(
+            &config,
+            "search",
+            "query",
+            Duration::from_millis(100),
+            crate::utils::create_abort_signal(),
+        )
+        .unwrap_err();
+        let display = format!("{error:#}");
+        let pid = fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .unwrap();
+        fs::remove_file(pid_file).unwrap();
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(display.contains("fatal: missing FAKE_API_KEY"));
+        assert!(!process_exists(pid), "fake MCP child {pid} was not reaped");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn controlled_mcp_restarts_server_until_third_attempt_succeeds() {
+        let pid_file =
+            env::temp_dir().join(format!("aicmd-fake-mcp-retry-{}.pids", std::process::id()));
+        let attempt_file = env::temp_dir().join(format!(
+            "aicmd-fake-mcp-retry-{}.attempts",
+            std::process::id()
+        ));
+        let mut config = fake_mcp_config("timeout_twice_then_success", &pid_file, "unused");
+        config["mcp"]["servers"]["fake"]["env"]["AICMD_TEST_FAKE_MCP_ATTEMPT_FILE"] =
+            attempt_file.display().to_string().into();
+        let budget = RetryBudget::with_policy(RetryPolicy {
+            attempt_timeout: Duration::from_millis(150),
+            total_timeout: Duration::from_secs(3),
+            max_attempts: 3,
+        });
+        let abort_signal = crate::utils::create_abort_signal();
+
+        let result = run_external_with_managed_retry(
+            ProgressStage::new("正在调用测试 MCP", "Calling test MCP"),
+            &budget,
+            abort_signal.clone(),
+            |attempt| {
+                let config = config.clone();
+                let abort_signal = abort_signal.clone();
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        call_mcp_with_config_controlled(
+                            &config,
+                            "search",
+                            "query",
+                            attempt.timeout,
+                            abort_signal,
+                        )
+                    })
+                    .await
+                    .unwrap()
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+        let pids = fs::read_to_string(&pid_file).unwrap();
+        fs::remove_file(pid_file).unwrap();
+        fs::remove_file(attempt_file).unwrap();
+        assert_eq!(result, "fake result");
+        assert_eq!(pids.lines().count(), 3);
+        for pid in pids.lines().map(|value| value.parse::<u32>().unwrap()) {
+            assert!(!process_exists(pid), "fake MCP child {pid} was not reaped");
+        }
+    }
+
     #[test]
     fn fake_mcp_server_child() {
         let Ok(mode) = env::var("AICMD_TEST_FAKE_MCP_MODE") else {
             return;
         };
         let pid_file = env::var("AICMD_TEST_FAKE_MCP_PID_FILE").unwrap();
-        fs::write(pid_file, std::process::id().to_string()).unwrap();
+        if mode == "timeout_twice_then_success" {
+            use std::fs::OpenOptions;
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(pid_file)
+                .unwrap();
+            writeln!(file, "{}", std::process::id()).unwrap();
+        } else {
+            fs::write(pid_file, std::process::id().to_string()).unwrap();
+        }
+        let attempt = env::var("AICMD_TEST_FAKE_MCP_ATTEMPT_FILE")
+            .ok()
+            .map(|path| {
+                let value = fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0)
+                    + 1;
+                fs::write(path, value.to_string()).unwrap();
+                value
+            })
+            .unwrap_or(1);
+        if mode == "timeout_twice_then_success" && attempt < 3 {
+            eprintln!("temporary MCP timeout on attempt {attempt}");
+            loop {
+                thread::sleep(Duration::from_secs(60));
+            }
+        }
         if mode == "timeout_with_stderr" {
             eprintln!("fatal: missing FAKE_API_KEY");
             loop {

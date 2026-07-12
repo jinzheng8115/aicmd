@@ -618,6 +618,20 @@ aicmd 当前目录下有多少文件
 
 ## 18. Safety model / 安全模型
 
+### Long-running task status and retries / 长时间任务状态与重试
+
+Model and MCP work shares one request budget: at most 3 attempts, 15 seconds per attempt, and approximately 45 seconds overall. Terminal output shows the stage, attempt number, elapsed time, and `Ctrl-C` hint. Non-TTY use writes status transitions to stderr and keeps stdout suitable for pipelines.
+
+模型和 MCP 工作共享同一个请求额度：最多尝试 3 次、每次最多 15 秒、全流程总计约 45 秒。终端会显示阶段、尝试次数、耗时和 `Ctrl-C` 提示。非 TTY 模式只把状态切换写入 stderr，stdout 仍可用于管道。
+
+Only timeouts, transport interruptions, HTTP 429/5xx, and unexpected MCP process/channel exits are retried. Authentication, request, sensitive-content, MCP configuration, and tool-selection errors stop immediately. Every MCP retry starts a fresh server process and reaps the previous child.
+
+只有超时、传输中断、HTTP 429/5xx，以及 MCP 进程或响应通道意外退出会重试。鉴权、请求、敏感内容、MCP 配置和工具选择错误会立即停止。每次 MCP 重试都会启动新的 server 进程并回收上一次子进程。
+
+Confirmed shell commands are not part of this retry policy. They have no default timeout and are never executed again automatically. When a command is quiet for 5 seconds, AICmd prints a liveness update. Cancelling with `Ctrl-C` waits briefly for SIGINT, then terminates the shell process if needed, preserves partial stdout/stderr, and stores exit code 130 plus `Termination: cancelled` in the session.
+
+已经确认的 shell 命令不属于自动重试范围。它们没有默认超时，也不会被自动再次执行。命令静默运行 5 秒后，AICmd 会显示存活状态。按 `Ctrl-C` 取消时，AICmd 会短暂等待 SIGINT；必要时终止 shell 进程，保留已有 stdout/stderr，并把退出码 130 和 `Termination: cancelled` 保存到 session。
+
 AICmd keeps a human in the loop:
 
 AICmd 保持人参与执行决策：

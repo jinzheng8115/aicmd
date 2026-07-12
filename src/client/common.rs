@@ -316,104 +316,100 @@ pub async fn create_openai_compatible_client_config(
     Ok(Some((model, clients)))
 }
 
-pub async fn call_chat_completions(
+pub async fn call_chat_completions_controlled(
     input: &Input,
     print: bool,
     extract_code: bool,
     client: &dyn Client,
     abort_signal: AbortSignal,
+    budget: &RetryBudget,
+    stage: ProgressStage<'_>,
 ) -> Result<(String, Vec<ToolResult>)> {
-    let ret = abortable_run_with_spinner(
-        client.chat_completions(input.clone()),
-        "Generating",
-        abort_signal,
-    )
-    .await;
-
-    match ret {
-        Ok(ret) => {
-            let ChatCompletionsOutput {
-                mut text,
-                tool_calls,
-                ..
-            } = ret;
-            if !text.is_empty() {
-                if extract_code {
-                    text = extract_code_block(&strip_think_tag(&text)).to_string();
-                }
-                if !extract_code {
-                    text = clean_terminal_markdown(&text);
-                }
-                if print {
-                    client.global_config().read().print_markdown(&text)?;
-                }
-            }
-            Ok((text, eval_tool_calls(client.global_config(), tool_calls)?))
+    let output = run_external_with_retry(stage, budget, abort_signal, |_| {
+        client.chat_completions(input.clone())
+    })
+    .await?;
+    let ChatCompletionsOutput {
+        mut text,
+        tool_calls,
+        ..
+    } = output;
+    if !text.is_empty() {
+        if extract_code {
+            text = extract_code_block(&strip_think_tag(&text)).to_string();
+        } else {
+            text = clean_terminal_markdown(&text);
         }
-        Err(err) => Err(err),
+        if print {
+            client.global_config().read().print_markdown(&text)?;
+        }
     }
+    Ok((text, eval_tool_calls(client.global_config(), tool_calls)?))
 }
 
-pub async fn call_chat_completions_raw(
+pub async fn call_chat_completions_raw_controlled(
     input: &Input,
     client: &dyn Client,
     abort_signal: AbortSignal,
+    budget: &RetryBudget,
+    stage: ProgressStage<'_>,
 ) -> Result<(String, Vec<ToolResult>)> {
-    let ret = abortable_run_with_spinner(
-        client.chat_completions(input.clone()),
-        "Generating",
-        abort_signal,
-    )
-    .await;
-
-    match ret {
-        Ok(ChatCompletionsOutput {
-            text, tool_calls, ..
-        }) => Ok((text, eval_tool_calls(client.global_config(), tool_calls)?)),
-        Err(err) => Err(err),
-    }
+    let output = run_external_with_retry(stage, budget, abort_signal, |_| {
+        client.chat_completions(input.clone())
+    })
+    .await?;
+    Ok((
+        output.text,
+        eval_tool_calls(client.global_config(), output.tool_calls)?,
+    ))
 }
 
-pub async fn call_chat_completions_streaming(
+pub async fn call_chat_completions_streaming_controlled(
     input: &Input,
     client: &dyn Client,
     abort_signal: AbortSignal,
+    budget: &RetryBudget,
+    stage: ProgressStage<'_>,
 ) -> Result<(String, Vec<ToolResult>)> {
-    let (tx, rx) = unbounded_channel();
-    let mut handler = SseHandler::new(tx, abort_signal.clone());
-
-    let (send_ret, render_ret) = tokio::join!(
-        client.chat_completions_streaming(input, &mut handler),
-        render_stream(rx, client.global_config(), abort_signal.clone()),
-    );
-
-    if handler.abort().aborted() {
-        bail!("Aborted.");
-    }
-
-    render_ret?;
-
-    let (text, tool_calls) = handler.take();
-    match send_ret {
-        Ok(_) => {
+    let chinese = is_chinese();
+    let stage_text = if chinese { stage.zh } else { stage.en }.to_string();
+    run_external_with_retry_quiet(stage, budget, abort_signal.clone(), |attempt| {
+        let progress = (
+            stage_text.clone(),
+            attempt.number,
+            attempt.max_attempts,
+            chinese,
+        );
+        async {
+            let (tx, rx) = unbounded_channel();
+            let mut handler = SseHandler::new(tx, abort_signal.clone());
+            let (send_ret, render_ret) = tokio::join!(
+                client.chat_completions_streaming(input, &mut handler),
+                render_stream(rx, client.global_config(), abort_signal.clone(), progress),
+            );
+            if handler.abort().aborted() {
+                bail!("Aborted.");
+            }
+            render_ret?;
+            let (text, tool_calls) = handler.take();
+            send_ret?;
             if !text.is_empty() && !text.ends_with('\n') {
                 println!();
             }
             Ok((text, eval_tool_calls(client.global_config(), tool_calls)?))
         }
-        Err(err) => {
-            if !text.is_empty() {
-                println!();
-            }
-            Err(err)
-        }
-    }
+    })
+    .await
 }
 
 pub fn catch_error(data: &Value, status: u16) -> Result<()> {
     if (200..300).contains(&status) {
         return Ok(());
     }
+    catch_error_inner(data, status).with_context(|| format!("HTTP status {status}"))
+}
+
+fn catch_error_inner(data: &Value, status: u16) -> Result<()> {
     debug!("Invalid response, status: {status}, data: {data}");
     if let Some(error) = data["error"].as_object() {
         if let (Some(typ), Some(message)) = (
@@ -563,4 +559,20 @@ fn prompt_input_string(
     }
     let text = text.prompt()?;
     Ok(text)
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[test]
+    fn api_errors_preserve_http_status_for_retry_classification() {
+        let error = catch_error(
+            &json!({"error": {"type": "server_error", "message": "busy"}}),
+            503,
+        )
+        .unwrap_err();
+
+        assert!(format!("{error:#}").contains("HTTP status 503"));
+    }
 }

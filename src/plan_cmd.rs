@@ -1,8 +1,8 @@
 use crate::{
-    client::call_chat_completions_raw,
+    client::call_chat_completions_raw_controlled,
     config::{GlobalConfig, Input, SHELL_ROLE},
     preflight_cmd::{validate_checks, PreflightCheck},
-    utils::AbortSignal,
+    utils::{AbortSignal, ProgressStage, RetryBudget},
 };
 
 use anyhow::{bail, Result};
@@ -117,12 +117,20 @@ pub async fn request_execution_plan(
     config: &GlobalConfig,
     input: &Input,
     abort_signal: AbortSignal,
+    retry_budget: &RetryBudget,
 ) -> Result<ExecutionPlan> {
     let role = config.read().retrieve_role(SHELL_ROLE)?;
     let planner_input = input.clone().with_role(role);
     let client = planner_input.create_client()?;
     config.write().before_chat_completion(&planner_input)?;
-    let (raw, _) = call_chat_completions_raw(&planner_input, client.as_ref(), abort_signal).await?;
+    let (raw, _) = call_chat_completions_raw_controlled(
+        &planner_input,
+        client.as_ref(),
+        abort_signal,
+        retry_budget,
+        ProgressStage::new("正在生成执行计划", "Generating execution plan"),
+    )
+    .await?;
     parse_planner_response(&raw)
 }
 
