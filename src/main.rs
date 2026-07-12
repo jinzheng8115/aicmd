@@ -55,7 +55,7 @@ use std::{env, process, sync::Arc};
 #[tokio::main]
 async fn main() -> Result<()> {
     load_env_file()?;
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     let natural_intent = intent_cmd::parse(cli.text_args())?;
     if let Some(code) = run_pre_config_intent(natural_intent.as_ref())? {
         process::exit(code);
@@ -63,7 +63,18 @@ async fn main() -> Result<()> {
     if let Some(code) = run_pre_config_shortcut(cli.text_args())? {
         process::exit(code);
     }
-    let text = cli.text()?;
+    let text = match natural_intent.as_ref() {
+        Some(NaturalIntent::ClearSession { name }) => {
+            cli.session = name.clone().map(Some);
+            cli.empty_session = true;
+            None
+        }
+        Some(NaturalIntent::RunInSession { name, task }) => {
+            cli.session = Some(Some(name.clone()));
+            Some(task.clone())
+        }
+        _ => cli.text()?,
+    };
     let info_flag = cli.list_sessions;
     setup_logger()?;
     let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
@@ -90,6 +101,20 @@ fn run_pre_config_intent(intent: Option<&NaturalIntent>) -> Result<Option<i32>> 
         }
         Some(NaturalIntent::ShowRecentContext { limit }) => {
             let args = vec!["show".to_string(), "--limit".to_string(), limit.to_string()];
+            Ok(Some(session_cmd::run_session_command(&args)?))
+        }
+        Some(NaturalIntent::CurrentSession) => Ok(Some(session_cmd::run_session_command(&[])?)),
+        Some(NaturalIntent::ListSessions) => {
+            let args = vec!["list".to_string()];
+            Ok(Some(session_cmd::run_session_command(&args)?))
+        }
+        Some(NaturalIntent::ShowSessionRecent { name, limit }) => {
+            let args = vec![
+                "show".to_string(),
+                name.clone(),
+                "--limit".to_string(),
+                limit.to_string(),
+            ];
             Ok(Some(session_cmd::run_session_command(&args)?))
         }
         _ => Ok(None),
@@ -1233,6 +1258,18 @@ fn setup_logger() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pre_config_session_intents_are_handled() {
+        assert_eq!(
+            run_pre_config_intent(Some(&NaturalIntent::CurrentSession)).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            run_pre_config_intent(Some(&NaturalIntent::ListSessions)).unwrap(),
+            Some(0)
+        );
+    }
 
     #[test]
     fn plan_request_uses_cache_only_for_an_eligible_cache_hit() {
