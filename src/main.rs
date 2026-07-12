@@ -1,3 +1,4 @@
+mod change_report_cmd;
 mod cli;
 mod client;
 mod command_cache;
@@ -191,6 +192,12 @@ enum CommandRiskLevel {
     ReadOnly,
     ChangesSystem,
     Destructive,
+}
+
+impl CommandRiskLevel {
+    fn captures_git_changes(self) -> bool {
+        matches!(self, Self::ChangesSystem | Self::Destructive)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1052,7 +1059,20 @@ async fn handle_generated_command(
                     }
                     let eval_command = execute_cmd::with_cwd_capture(shell, &eval_str);
                     debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
+                    let before = if risk.level.captures_git_changes() {
+                        change_report_cmd::GitSnapshot::capture(&cwd)
+                    } else {
+                        None
+                    };
                     let output = execute_cmd::run_command_capture(shell, &eval_command)?;
+                    if let (Some(before), Some(after)) =
+                        (before, change_report_cmd::GitSnapshot::capture(&cwd))
+                    {
+                        let changes = before.changes_since(&after);
+                        if !changes.is_empty() {
+                            println!("\n{}", change_report_cmd::format_recovery_report(&changes));
+                        }
+                    }
                     let (code, stdout, stderr) = (output.code, output.stdout, output.stderr);
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
@@ -1326,6 +1346,13 @@ fn setup_logger() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_change_capture_is_limited_to_modifying_risk_levels() {
+        assert!(!CommandRiskLevel::ReadOnly.captures_git_changes());
+        assert!(CommandRiskLevel::ChangesSystem.captures_git_changes());
+        assert!(CommandRiskLevel::Destructive.captures_git_changes());
+    }
 
     #[test]
     fn run_in_session_intent_sets_named_session_and_task() {
