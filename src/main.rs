@@ -1065,12 +1065,15 @@ async fn handle_generated_command(
                         None
                     };
                     let output = execute_cmd::run_command_capture(shell, &eval_command)?;
-                    if let (Some(before), Some(after)) =
-                        (before, change_report_cmd::GitSnapshot::capture(&cwd))
-                    {
-                        let changes = before.changes_since(&after);
-                        if !changes.is_empty() {
-                            println!("\n{}", change_report_cmd::format_recovery_report(&changes));
+                    if let Some(before) = before {
+                        if let Some(after) = change_report_cmd::GitSnapshot::capture(&cwd) {
+                            let changes = before.changes_since(&after);
+                            if !changes.is_empty() {
+                                println!(
+                                    "\n{}",
+                                    change_report_cmd::format_recovery_report(&changes)
+                                );
+                            }
                         }
                     }
                     let (code, stdout, stderr) = (output.code, output.stdout, output.stderr);

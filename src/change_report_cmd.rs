@@ -91,6 +91,18 @@ mod tests {
     }
 
     #[test]
+    fn preserves_spaces_renames_and_non_ascii_paths() {
+        let before = GitSnapshot::from_porcelain("");
+        let after =
+            GitSnapshot::from_porcelain("?? path with spaces.txt\nR  old name.txt -> 新名称.txt\n");
+
+        assert_eq!(
+            before.changes_since(&after),
+            vec!["R  old name.txt -> 新名称.txt", "?? path with spaces.txt"]
+        );
+    }
+
+    #[test]
     fn recovery_report_recommends_manual_git_inspection() {
         let report = format_recovery_report(&["?? new.txt".to_string()]);
 
