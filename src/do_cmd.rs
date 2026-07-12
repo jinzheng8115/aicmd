@@ -1,6 +1,10 @@
 use anyhow::{bail, Context, Result};
 use chrono::Local;
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use crate::{search_cmd, utils::strip_ansi_codes};
 
@@ -208,13 +212,29 @@ fn resolve_context_files(files: &[String], search_refs: &[String]) -> Result<Vec
                 raw_path.display()
             );
         }
-        let raw = search_cmd::load_raw_search(name)?;
-        search_cmd::validate_execution_evidence(&raw)?;
         let raw_path = search_cmd::raw_search_path(name)?;
-        resolved.push(summary_path.display().to_string());
-        resolved.push(raw_path.display().to_string());
+        let raw = search_cmd::load_raw_search(name)?;
+        resolved.extend(validated_search_context_files(
+            name,
+            &summary_path,
+            &raw_path,
+            &raw,
+        )?);
     }
     Ok(resolved)
+}
+
+fn validated_search_context_files(
+    name: &str,
+    summary_path: &Path,
+    raw_path: &Path,
+    raw: &search_cmd::RawSearchRecord,
+) -> Result<Vec<String>> {
+    search_cmd::validate_execution_evidence(name, raw)?;
+    Ok(vec![
+        summary_path.display().to_string(),
+        raw_path.display().to_string(),
+    ])
 }
 
 fn read_file_context(files: &[String]) -> Result<String> {
@@ -270,9 +290,6 @@ fn usage() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static SEARCHES_DIR_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn search_context_prompt_does_not_force_script_creation() {
@@ -324,43 +341,36 @@ mod tests {
 
     #[test]
     fn search_context_requires_and_includes_summary_and_raw_files() {
-        let _lock = SEARCHES_DIR_LOCK.lock().unwrap();
-        let root = env::temp_dir().join(format!("aicmd-do-search-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&root).unwrap();
-        env::set_var("AICMD_SEARCHES_DIR", &root);
+        let summary = PathBuf::from("/tmp/aicmd-searches/demo.txt");
+        let raw = PathBuf::from("/tmp/aicmd-searches/demo.raw.txt");
+        let record = search_cmd::RawSearchRecord {
+            query: "demo".to_string(),
+            raw_output: "https://example.com\nbrew install demo".to_string(),
+        };
 
-        let summary = root.join("demo.txt");
-        let raw = root.join("demo.raw.txt");
-        fs::write(&summary, "summary").unwrap();
-        fs::write(
-            &raw,
-            "AICmd raw search\nQuery: demo\n\n---\n\nhttps://example.com\nbrew install demo\n",
-        )
-        .unwrap();
-
-        let files = resolve_context_files(&[], &["demo".to_string()]).unwrap();
+        let files = validated_search_context_files("demo", &summary, &raw, &record).unwrap();
         assert_eq!(
             files,
             vec![summary.display().to_string(), raw.display().to_string()]
         );
+    }
 
-        fs::write(
-            &raw,
-            "AICmd raw search\nQuery: demo\n\n---\n\nhttps://example.com\n",
+    #[test]
+    fn search_context_error_identifies_the_failing_reference() {
+        let error = validated_search_context_files(
+            "second-search",
+            PathBuf::from("/tmp/aicmd-searches/second-search.txt").as_path(),
+            PathBuf::from("/tmp/aicmd-searches/second-search.raw.txt").as_path(),
+            &search_cmd::RawSearchRecord {
+                query: "demo".to_string(),
+                raw_output: "https://example.com".to_string(),
+            },
         )
-        .unwrap();
-        let error = resolve_context_files(&[], &["demo".to_string()])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("second-search"));
         assert!(error.contains("saved search is insufficient"));
-
-        fs::remove_file(&raw).unwrap();
-        let error = resolve_context_files(&[], &["demo".to_string()])
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("Raw search not found"));
-
-        env::remove_var("AICMD_SEARCHES_DIR");
-        fs::remove_dir_all(root).unwrap();
+        assert!(error.contains("aicmd search <more specific query>"));
     }
 }

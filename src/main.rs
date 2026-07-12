@@ -62,6 +62,7 @@ async fn main() -> Result<()> {
     }
     load_env_file()?;
     let parsed_intent = intent_cmd::parse(cli.text_args())?;
+    apply_intent_cli_overrides(&mut cli, parsed_intent.as_ref());
     let natural_intent = parsed_intent
         .as_ref()
         .filter(|intent| should_run_session_intent(&cli, Some(intent)));
@@ -92,6 +93,12 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn apply_intent_cli_overrides(cli: &mut Cli, intent: Option<&NaturalIntent>) {
+    if matches!(intent, Some(NaturalIntent::ContinueLastFailure)) {
+        cli.no_cache = true;
+    }
 }
 
 fn translate_session_intent(
@@ -1341,13 +1348,39 @@ mod tests {
             "aicmd", "continue", "fixing", "the", "last", "failed", "task",
         ])
         .unwrap();
+        apply_intent_cli_overrides(&mut cli, Some(&NaturalIntent::ContinueLastFailure));
         let text = translate_session_intent(&mut cli, Some(&NaturalIntent::ContinueLastFailure));
 
+        assert!(cli.no_cache);
         assert_eq!(cli.session, Some(Some(default_session_name())));
         assert_eq!(
             text,
             Some(Some("continue fixing the last failed task".to_string()))
         );
+    }
+
+    #[test]
+    fn continue_last_failure_disables_cache_before_explicit_session_precedence() {
+        let mut cli = Cli::try_parse_from([
+            "aicmd",
+            "-s",
+            "cmd-20260712",
+            "continue",
+            "fixing",
+            "the",
+            "last",
+            "failed",
+            "task",
+        ])
+        .unwrap();
+        let intent = NaturalIntent::ContinueLastFailure;
+
+        apply_intent_cli_overrides(&mut cli, Some(&intent));
+
+        assert!(cli.no_cache);
+        assert!(!should_run_session_intent(&cli, Some(&intent)));
+        assert_eq!(translate_session_intent(&mut cli, Some(&intent)), None);
+        assert_eq!(cli.session, Some(Some("cmd-20260712".to_string())));
     }
 
     #[test]

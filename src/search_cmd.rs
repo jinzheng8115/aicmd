@@ -155,7 +155,7 @@ pub fn load_raw_search(name: &str) -> Result<RawSearchRecord> {
         .with_context(|| format!("Failed to parse raw search: {}", path.display()))
 }
 
-pub fn validate_execution_evidence(raw: &RawSearchRecord) -> Result<()> {
+pub fn validate_execution_evidence(name: &str, raw: &RawSearchRecord) -> Result<()> {
     const COMMAND_PREFIXES: &[&str] = &[
         "brew ", "npm ", "npx ", "pnpm ", "yarn ", "apt ", "apt-get ", "dnf ", "yum ", "pacman ",
         "curl ", "wget ", "pip ", "pip3 ", "python ", "python3 ", "cargo ", "go ", "git ",
@@ -172,7 +172,7 @@ pub fn validate_execution_evidence(raw: &RawSearchRecord) -> Result<()> {
     });
     if !has_url || !has_command {
         bail!(
-            "The saved search is insufficient for execution. Run a more specific search that includes a complete source URL and installation command."
+            "The saved search is insufficient for execution: `{name}`. Run `aicmd search <more specific query>` to collect a complete source URL and installation command."
         );
     }
     Ok(())
@@ -627,7 +627,7 @@ mod tests {
             query: "install demo".to_string(),
             raw_output: "Source: https://example.com/demo\n- $ brew install demo".to_string(),
         };
-        assert!(validate_execution_evidence(&valid).is_ok());
+        assert!(validate_execution_evidence("demo-install", &valid).is_ok());
 
         for raw_output in [
             "Source: https://example.com/demo\nRead the installation guide.",
@@ -635,14 +635,18 @@ mod tests {
             "brew install demo",
             "Read the installation guide.",
         ] {
-            let error = validate_execution_evidence(&RawSearchRecord {
-                query: "install demo".to_string(),
-                raw_output: raw_output.to_string(),
-            })
+            let error = validate_execution_evidence(
+                "demo-install",
+                &RawSearchRecord {
+                    query: "install demo".to_string(),
+                    raw_output: raw_output.to_string(),
+                },
+            )
             .unwrap_err()
             .to_string();
+            assert!(error.contains("demo-install"));
             assert!(error.contains("saved search is insufficient"));
-            assert!(error.contains("more specific search"));
+            assert!(error.contains("aicmd search <more specific query>"));
         }
     }
 }
