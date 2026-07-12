@@ -604,8 +604,12 @@ fn executable_exists(command: &str) -> bool {
         return is_executable(path);
     }
     env::var_os("PATH")
-        .map(|path| env::split_paths(&path).any(|dir| is_executable(&dir.join(command))))
+        .map(|path| executable_exists_in_path(command, &path))
         .unwrap_or(false)
+}
+
+fn executable_exists_in_path(command: &str, path: &std::ffi::OsStr) -> bool {
+    env::split_paths(path).any(|dir| is_executable(&dir.join(command)))
 }
 
 #[cfg(unix)]
@@ -1102,17 +1106,16 @@ mod tests {
         let command = dir.join("fake-mcp-command");
         fs::write(&command, "#!/bin/sh\n").unwrap();
         fs::set_permissions(&command, fs::Permissions::from_mode(0o644)).unwrap();
-        let old_path = env::var_os("PATH");
-        env::set_var("PATH", &dir);
-        assert!(!executable_exists("fake-mcp-command"));
+        assert!(!executable_exists_in_path(
+            "fake-mcp-command",
+            dir.as_os_str()
+        ));
 
         fs::set_permissions(&command, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(executable_exists("fake-mcp-command"));
-        if let Some(old_path) = old_path {
-            env::set_var("PATH", old_path);
-        } else {
-            env::remove_var("PATH");
-        }
+        assert!(executable_exists_in_path(
+            "fake-mcp-command",
+            dir.as_os_str()
+        ));
         fs::remove_dir_all(dir).unwrap();
     }
 
