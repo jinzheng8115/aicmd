@@ -6,12 +6,20 @@ use std::{
     collections::HashMap,
     env, fs,
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc,
     thread,
     time::Duration,
 };
+
+#[derive(Debug)]
+pub struct McpDiagnostic {
+    pub name: String,
+    pub status: &'static str,
+    pub detail: String,
+    pub suggestion: Option<String>,
+}
 
 pub fn run_mcp_command(args: &[String]) -> Result<i32> {
     let command = args.first().map(String::as_str).unwrap_or("help");
@@ -105,10 +113,22 @@ pub fn call_mcp_command(command_name: &str, user_input: &str) -> Result<String> 
         .unwrap_or_default();
 
     let mut child = spawn_mcp_server(server_command, &server_args, &server_env)
-        .with_context(|| format!("failed to start MCP server {server_name:?}: {server_command}"))?;
-    let mut stdin = child.stdin.take().context("failed to open MCP stdin")?;
-    let stdout = child.stdout.take().context("failed to open MCP stdout")?;
-    let stderr = child.stderr.take().context("failed to open MCP stderr")?;
+        .map_err(|err| mcp_runtime_error("start", server_name, err, None))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("failed to open MCP stdin")
+        .map_err(|err| mcp_runtime_error("start", server_name, err, None))?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("failed to open MCP stdout")
+        .map_err(|err| mcp_runtime_error("start", server_name, err, None))?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("failed to open MCP stderr")
+        .map_err(|err| mcp_runtime_error("start", server_name, err, None))?;
     let (tx, rx) = mpsc::channel::<Value>();
     thread::spawn(move || {
         let reader = BufReader::new(stdout);
@@ -131,61 +151,93 @@ pub fn call_mcp_command(command_name: &str, user_input: &str) -> Result<String> 
     let start_timeout = mcp_timeout("AICMD_MCP_START_TIMEOUT_SECS", 180);
     let call_timeout = mcp_timeout("AICMD_MCP_CALL_TIMEOUT_SECS", 300);
     let mut next_id = 1_u64;
-    let init_id = send_request(
-        &mut stdin,
-        &mut next_id,
-        "initialize",
-        Some(json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "aicmd", "version": env!("CARGO_PKG_VERSION")}
-        })),
-    )?;
-    read_response(
-        &rx,
-        &mut child,
-        &err_rx,
-        init_id,
-        "initialize",
-        start_timeout,
-    )?;
-    send_notification(&mut stdin, "notifications/initialized", Some(json!({})))?;
+    (|| -> Result<()> {
+        let init_id = send_request(
+            &mut stdin,
+            &mut next_id,
+            "initialize",
+            Some(json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "aicmd", "version": env!("CARGO_PKG_VERSION")}
+            })),
+        )?;
+        read_response(
+            &rx,
+            &mut child,
+            &err_rx,
+            init_id,
+            "initialize",
+            start_timeout,
+        )?;
+        send_notification(&mut stdin, "notifications/initialized", Some(json!({})))?;
+        Ok(())
+    })()
+    .map_err(|err| {
+        mcp_runtime_error(
+            "initialize",
+            server_name,
+            err,
+            Some("AICMD_MCP_START_TIMEOUT_SECS"),
+        )
+    })?;
 
     let selected_tool = if let Some(tool) = tool_override {
         tool.to_string()
     } else {
-        let list_id = send_request(&mut stdin, &mut next_id, "tools/list", None)?;
-        let tools_result = read_response(
-            &rx,
-            &mut child,
-            &err_rx,
-            list_id,
-            "tools/list",
-            start_timeout,
-        )?;
+        let tools_result = (|| -> Result<Value> {
+            let list_id = send_request(&mut stdin, &mut next_id, "tools/list", None)?;
+            read_response(
+                &rx,
+                &mut child,
+                &err_rx,
+                list_id,
+                "tools/list",
+                start_timeout,
+            )
+        })()
+        .map_err(|err| {
+            mcp_runtime_error(
+                "tools/list",
+                server_name,
+                err,
+                Some("AICMD_MCP_START_TIMEOUT_SECS"),
+            )
+        })?;
         choose_tool(
             command_name,
             command_spec,
             user_input,
             server_name,
             tools_result.get("tools"),
-        )?
+        )
+        .map_err(|err| mcp_runtime_error("tool selection", server_name, err, None))?
     };
-    let tool_arguments = build_tool_arguments(command_spec, &selected_tool, user_input)?;
-    let call_id = send_request(
-        &mut stdin,
-        &mut next_id,
-        "tools/call",
-        Some(json!({"name": selected_tool, "arguments": tool_arguments})),
-    )?;
-    let result = read_response(
-        &rx,
-        &mut child,
-        &err_rx,
-        call_id,
-        "tools/call",
-        call_timeout,
-    )?;
+    let result = (|| -> Result<Value> {
+        let tool_arguments = build_tool_arguments(command_spec, &selected_tool, user_input)?;
+        let call_id = send_request(
+            &mut stdin,
+            &mut next_id,
+            "tools/call",
+            Some(json!({"name": selected_tool, "arguments": tool_arguments})),
+        )?;
+        read_response(
+            &rx,
+            &mut child,
+            &err_rx,
+            call_id,
+            "tools/call",
+            call_timeout,
+        )
+    })()
+    .map_err(|err| {
+        mcp_runtime_error(
+            "tools/call",
+            server_name,
+            err,
+            Some("AICMD_MCP_CALL_TIMEOUT_SECS"),
+        )
+    })?;
     let _ = child.kill();
     Ok(extract_text_content(&result))
 }
@@ -236,6 +288,259 @@ fn mcp_commands(config: &Value) -> Result<&Map<String, Value>> {
         .get("commands")
         .and_then(Value::as_object)
         .context("MCP config missing mcp.commands")
+}
+
+pub fn diagnose_config() -> Vec<McpDiagnostic> {
+    let path = mcp_config_path();
+    diagnose_path(&path)
+}
+
+fn diagnose_path(path: &Path) -> Vec<McpDiagnostic> {
+    if !path.exists() {
+        return vec![diagnostic(
+            "MCP config",
+            "warning",
+            format!("not found at {}", path.display()),
+            Some(
+                "Create ~/.aicmd/mcp.json or place mcp.json next to .env and run: aicmd init --from-env --force",
+            ),
+        )];
+    }
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) => {
+            return vec![diagnostic(
+                "MCP config",
+                "error",
+                format!("unable to read {}: {err}", path.display()),
+                Some("Check file permissions for ~/.aicmd/mcp.json"),
+            )]
+        }
+    };
+    let value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(err) => {
+            return vec![diagnostic(
+                "MCP config",
+                "error",
+                format!("invalid JSON at {}: {err}", path.display()),
+                Some("Fix ~/.aicmd/mcp.json JSON syntax"),
+            )]
+        }
+    };
+
+    let mut diagnostics = vec![diagnostic(
+        "MCP config",
+        "ok",
+        path.display().to_string(),
+        None,
+    )];
+    diagnostics.extend(diagnose_value(&value));
+    diagnostics
+}
+
+fn diagnose_value(config: &Value) -> Vec<McpDiagnostic> {
+    let root = mcp_root(config);
+    let servers = match root
+        .get("servers")
+        .or_else(|| root.get("mcpServers"))
+        .and_then(Value::as_object)
+    {
+        Some(servers) => servers,
+        None => {
+            return vec![diagnostic(
+                "MCP servers",
+                "error",
+                "missing mcp.servers",
+                Some("Add mcp.servers to ~/.aicmd/mcp.json"),
+            )]
+        }
+    };
+    let commands = match mcp_commands(config) {
+        Ok(commands) => commands,
+        Err(err) => {
+            return vec![diagnostic(
+                "MCP commands",
+                "error",
+                err.to_string(),
+                Some("Add mcp.commands to ~/.aicmd/mcp.json"),
+            )]
+        }
+    };
+
+    let mut diagnostics = servers
+        .iter()
+        .map(|(name, server)| diagnose_server(name, server))
+        .collect::<Vec<_>>();
+    diagnostics.extend(
+        commands
+            .iter()
+            .map(|(name, command)| diagnose_command(name, command, servers)),
+    );
+    diagnostics
+}
+
+fn diagnose_server(name: &str, server: &Value) -> McpDiagnostic {
+    let diagnostic_name = format!("MCP server {name}");
+    let Some(server) = server.as_object() else {
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            "server configuration must be an object",
+            Some("Fix this server in ~/.aicmd/mcp.json"),
+        );
+    };
+    let server_type = server
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("stdio");
+    if server_type != "stdio" {
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            format!("unsupported type {server_type:?}; expected stdio"),
+            Some("Set this MCP server type to stdio"),
+        );
+    }
+    let Some(command) = server
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|command| !command.is_empty())
+    else {
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            "server requires a non-empty command",
+            Some("Set this MCP server command in ~/.aicmd/mcp.json"),
+        );
+    };
+    if !executable_exists(command) {
+        let detail = if Path::new(command).components().count() > 1 {
+            format!("executable not found: {command}")
+        } else {
+            format!("executable not found in PATH: {command}")
+        };
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            detail,
+            Some("Install the executable or fix the MCP server command"),
+        );
+    }
+
+    diagnostic(
+        diagnostic_name,
+        "ok",
+        format!("stdio executable available: {command}"),
+        None,
+    )
+}
+
+fn diagnose_command(name: &str, command: &Value, servers: &Map<String, Value>) -> McpDiagnostic {
+    let diagnostic_name = format!("MCP command {name}");
+    let Some(command) = command.as_object() else {
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            "command configuration must be an object",
+            Some("Fix this command in ~/.aicmd/mcp.json"),
+        );
+    };
+    let Some(server) = command
+        .get("server")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|server| !server.is_empty())
+    else {
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            "command requires a non-empty server",
+            Some("Set this command server in ~/.aicmd/mcp.json"),
+        );
+    };
+    if !servers.contains_key(server) {
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            format!("references missing server {server:?}"),
+            Some("Add the server or fix this command mapping"),
+        );
+    }
+    if command.get("tool").is_some()
+        && command
+            .get("tool")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|tool| !tool.is_empty())
+            .is_none()
+    {
+        return diagnostic(
+            diagnostic_name,
+            "error",
+            "optional tool must be a non-empty string",
+            Some("Remove tool or set it to an MCP tool name"),
+        );
+    }
+
+    diagnostic(
+        diagnostic_name,
+        "ok",
+        format!("mapped to server {server}"),
+        None,
+    )
+}
+
+fn executable_exists(command: &str) -> bool {
+    let path = Path::new(command);
+    if path.components().count() > 1 {
+        return path.is_file();
+    }
+    env::var_os("PATH")
+        .map(|path| env::split_paths(&path).any(|dir| dir.join(command).is_file()))
+        .unwrap_or(false)
+}
+
+fn diagnostic(
+    name: impl Into<String>,
+    status: &'static str,
+    detail: impl Into<String>,
+    suggestion: Option<&str>,
+) -> McpDiagnostic {
+    McpDiagnostic {
+        name: name.into(),
+        status,
+        detail: detail.into(),
+        suggestion: suggestion.map(str::to_string),
+    }
+}
+
+pub fn mcp_stage_error(
+    stage: &str,
+    server: &str,
+    detail: anyhow::Error,
+    suggestion: &str,
+) -> anyhow::Error {
+    detail.context(format!(
+        "MCP {stage} failed for server {server:?}. {suggestion}"
+    ))
+}
+
+fn mcp_runtime_error(
+    stage: &str,
+    server: &str,
+    detail: anyhow::Error,
+    timeout_env: Option<&str>,
+) -> anyhow::Error {
+    let suggestion = if detail.to_string().contains("timed out") {
+        timeout_env
+            .map(|name| format!("Increase {name} and retry"))
+            .unwrap_or_else(|| "Run: aicmd doctor".to_string())
+    } else {
+        "Run: aicmd doctor".to_string()
+    };
+    mcp_stage_error(stage, server, detail, &suggestion)
 }
 
 fn available_commands(commands: &Map<String, Value>) -> String {
@@ -553,4 +858,208 @@ fn extract_text_content(result: &Value) -> String {
                 .join("\n")
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn diagnostic_for<'a>(diagnostics: &'a [McpDiagnostic], name: &str) -> &'a McpDiagnostic {
+        diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.name == name)
+            .unwrap_or_else(|| panic!("missing diagnostic {name:?}: {diagnostics:#?}"))
+    }
+
+    #[test]
+    fn diagnose_rejects_command_with_missing_server() {
+        let diagnostics = diagnose_value(&json!({
+            "mcp": {
+                "servers": {},
+                "commands": {"search": {"server": "missing"}}
+            }
+        }));
+
+        let diagnostic = diagnostic_for(&diagnostics, "MCP command search");
+        assert_eq!(diagnostic.status, "error");
+        assert!(diagnostic.detail.contains("missing"));
+    }
+
+    #[test]
+    fn diagnose_rejects_unsupported_server_type() {
+        let diagnostics = diagnose_value(&json!({
+            "mcp": {
+                "servers": {
+                    "web": {"type": "http", "command": "/bin/echo"}
+                },
+                "commands": {"search": {"server": "web"}}
+            }
+        }));
+
+        let diagnostic = diagnostic_for(&diagnostics, "MCP server web");
+        assert_eq!(diagnostic.status, "error");
+        assert!(diagnostic.detail.contains("stdio"));
+    }
+
+    #[test]
+    fn diagnose_rejects_missing_or_empty_server_command() {
+        for server in [
+            json!({"type": "stdio"}),
+            json!({"type": "stdio", "command": "  "}),
+        ] {
+            let diagnostics = diagnose_value(&json!({
+                "mcp": {
+                    "servers": {"web": server},
+                    "commands": {"search": {"server": "web"}}
+                }
+            }));
+
+            let diagnostic = diagnostic_for(&diagnostics, "MCP server web");
+            assert_eq!(diagnostic.status, "error");
+            assert!(diagnostic.detail.contains("non-empty command"));
+        }
+    }
+
+    #[test]
+    fn diagnose_rejects_missing_absolute_executable_without_leaking_env() {
+        let secret = "super-secret-value";
+        let missing = env::temp_dir().join("aicmd-missing-mcp-executable");
+        let diagnostics = diagnose_value(&json!({
+            "mcp": {
+                "servers": {
+                    "web": {
+                        "type": "stdio",
+                        "command": missing,
+                        "env": {"API_KEY": secret}
+                    }
+                },
+                "commands": {"search": {"server": "web"}}
+            }
+        }));
+
+        let diagnostic = diagnostic_for(&diagnostics, "MCP server web");
+        assert_eq!(diagnostic.status, "error");
+        assert!(diagnostic.detail.contains("not found"));
+        assert!(!format!("{diagnostics:#?}").contains(secret));
+    }
+
+    #[test]
+    fn diagnose_rejects_missing_path_executable() {
+        let diagnostics = diagnose_value(&json!({
+            "mcp": {
+                "servers": {
+                    "web": {
+                        "type": "stdio",
+                        "command": "aicmd-command-that-does-not-exist-4f8b09"
+                    }
+                },
+                "commands": {"search": {"server": "web"}}
+            }
+        }));
+
+        let diagnostic = diagnostic_for(&diagnostics, "MCP server web");
+        assert_eq!(diagnostic.status, "error");
+        assert!(diagnostic.detail.contains("PATH"));
+    }
+
+    #[test]
+    fn diagnose_rejects_empty_optional_tool() {
+        let executable = env::current_exe().unwrap();
+        let diagnostics = diagnose_value(&json!({
+            "mcp": {
+                "servers": {
+                    "web": {"type": "stdio", "command": executable}
+                },
+                "commands": {"search": {"server": "web", "tool": " "}}
+            }
+        }));
+
+        let diagnostic = diagnostic_for(&diagnostics, "MCP command search");
+        assert_eq!(diagnostic.status, "error");
+        assert!(diagnostic.detail.contains("tool"));
+    }
+
+    #[test]
+    fn diagnose_accepts_valid_server_and_command_mapping() {
+        let executable = env::current_exe().unwrap();
+        let diagnostics = diagnose_value(&json!({
+            "mcp": {
+                "servers": {
+                    "web": {"type": "stdio", "command": executable}
+                },
+                "commands": {
+                    "search": {"server": "web", "tool": "search"}
+                }
+            }
+        }));
+
+        assert_eq!(diagnostic_for(&diagnostics, "MCP server web").status, "ok");
+        assert_eq!(
+            diagnostic_for(&diagnostics, "MCP command search").status,
+            "ok"
+        );
+    }
+
+    #[test]
+    fn diagnose_path_reports_invalid_json() {
+        let path = env::temp_dir().join(format!(
+            "aicmd-invalid-mcp-{}-{}.json",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        fs::write(&path, "{invalid").unwrap();
+
+        let diagnostics = diagnose_path(&path);
+
+        fs::remove_file(&path).unwrap();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].status, "error");
+        assert!(diagnostics[0].detail.contains("invalid JSON"));
+    }
+
+    #[test]
+    fn stage_error_labels_stage_and_preserves_source() {
+        let error = mcp_stage_error(
+            "initialize",
+            "web",
+            anyhow::anyhow!("original failure"),
+            "Run: aicmd doctor",
+        );
+
+        assert!(error.to_string().contains("initialize"));
+        assert!(error.to_string().contains("web"));
+        assert!(error.to_string().contains("aicmd doctor"));
+        assert_eq!(error.source().unwrap().to_string(), "original failure");
+    }
+
+    #[test]
+    fn stage_error_supports_each_runtime_stage() {
+        for stage in [
+            "start",
+            "initialize",
+            "tools/list",
+            "tool selection",
+            "tools/call",
+        ] {
+            let error = mcp_stage_error(
+                stage,
+                "web",
+                anyhow::anyhow!("original failure"),
+                "Run: aicmd doctor",
+            );
+            assert!(error.to_string().contains(stage));
+        }
+    }
+
+    #[test]
+    fn timeout_stage_error_names_existing_timeout_variable() {
+        let error = mcp_stage_error(
+            "tools/call",
+            "web",
+            anyhow::anyhow!("timed out waiting for MCP response"),
+            "Increase AICMD_MCP_CALL_TIMEOUT_SECS and retry",
+        );
+
+        assert!(error.to_string().contains("AICMD_MCP_CALL_TIMEOUT_SECS"));
+    }
 }
