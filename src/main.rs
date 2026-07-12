@@ -125,28 +125,6 @@ fn should_run_session_intent(cli: &Cli, intent: Option<&NaturalIntent>) -> bool 
     !is_session_intent || !(cli.session.is_some() || cli.empty_session || cli.list_sessions)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClearSessionStep {
-    Confirm,
-    Cancel,
-    CheckExists,
-    NotFound,
-    LoadAndClear,
-}
-
-fn next_clear_session_step(
-    confirmed: Option<bool>,
-    target_exists: Option<bool>,
-) -> ClearSessionStep {
-    match (confirmed, target_exists) {
-        (None, _) => ClearSessionStep::Confirm,
-        (Some(false), _) => ClearSessionStep::Cancel,
-        (Some(true), None) => ClearSessionStep::CheckExists,
-        (Some(true), Some(false)) => ClearSessionStep::NotFound,
-        (Some(true), Some(true)) => ClearSessionStep::LoadAndClear,
-    }
-}
-
 fn run_pre_config_intent(intent: Option<&NaturalIntent>) -> Result<Option<i32>> {
     match intent {
         Some(NaturalIntent::SaveLastSearch { name }) => {
@@ -679,29 +657,16 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         .empty_session
         .then(|| session_name.unwrap_or(TEMP_SESSION_NAME));
     if let Some(target) = clear_target {
-        debug_assert_eq!(
-            next_clear_session_step(None, None),
-            ClearSessionStep::Confirm
-        );
-        let confirmed = confirm_cmd::confirm_high_risk(&format!(
+        if !confirm_cmd::confirm_high_risk(&format!(
             "{} '{target}'?",
             localized("确认清空会话的全部历史记录", "Clear all history in session")
-        ))?;
-        match next_clear_session_step(Some(confirmed), None) {
-            ClearSessionStep::Cancel => {
-                println!("{}", localized("已取消", "cancelled"));
-                return Ok(());
-            }
-            ClearSessionStep::CheckExists => {}
-            _ => unreachable!("confirmation must precede the existence check"),
+        ))? {
+            println!("{}", localized("已取消", "cancelled"));
+            return Ok(());
         }
         let target_path = config.read().session_file(target);
-        match next_clear_session_step(Some(true), Some(target_path.exists())) {
-            ClearSessionStep::NotFound => {
-                bail!("Session not found: {target} ({})", target_path.display())
-            }
-            ClearSessionStep::LoadAndClear => {}
-            _ => unreachable!("existence check must precede loading the session"),
+        if !target_path.exists() {
+            bail!("Session not found: {target} ({})", target_path.display());
         }
     }
     if let Some(target) = clear_target {
@@ -1394,34 +1359,6 @@ mod tests {
         for (cli, intent) in cases {
             assert!(!should_run_session_intent(&cli, Some(&intent)));
         }
-    }
-
-    #[test]
-    fn clear_session_order_requires_confirmation_before_existence_check() {
-        assert_eq!(
-            next_clear_session_step(None, None),
-            ClearSessionStep::Confirm
-        );
-        assert_eq!(
-            next_clear_session_step(Some(false), None),
-            ClearSessionStep::Cancel
-        );
-        assert_eq!(
-            next_clear_session_step(Some(true), None),
-            ClearSessionStep::CheckExists
-        );
-    }
-
-    #[test]
-    fn clear_session_missing_target_never_reaches_load_step() {
-        assert_eq!(
-            next_clear_session_step(Some(true), Some(false)),
-            ClearSessionStep::NotFound
-        );
-        assert_eq!(
-            next_clear_session_step(Some(true), Some(true)),
-            ClearSessionStep::LoadAndClear
-        );
     }
 
     #[test]
