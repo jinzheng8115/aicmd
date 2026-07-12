@@ -42,7 +42,8 @@ use crate::config::{
 };
 use crate::intent_cmd::NaturalIntent;
 use crate::plan_cmd::{
-    parse_generated_command, request_execution_plan, route_kind, ExecutionPlan, RouteKind,
+    parse_generated_command, render_execution_plan, request_execution_plan, route_kind,
+    ExecutionPlan, RouteKind,
 };
 use crate::preflight_cmd::PreflightCheck;
 use crate::render::render_error;
@@ -186,118 +187,6 @@ async fn run_builtin_intent(
     ];
     run_do_shortcut(config, &args, create_abort_signal()).await?;
     Ok(Some(0))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CommandRiskLevel {
-    ReadOnly,
-    ChangesSystem,
-    Destructive,
-}
-
-impl CommandRiskLevel {
-    fn captures_git_changes(self) -> bool {
-        matches!(self, Self::ChangesSystem | Self::Destructive)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CommandRisk {
-    level: CommandRiskLevel,
-    reasons: Vec<&'static str>,
-}
-
-impl CommandRisk {
-    fn label(&self) -> &'static str {
-        match self.level {
-            CommandRiskLevel::ReadOnly => localized("只读", "read-only"),
-            CommandRiskLevel::ChangesSystem => localized("会修改系统或文件", "changes system"),
-            CommandRiskLevel::Destructive => localized("可能造成破坏", "destructive"),
-        }
-    }
-
-    fn requires_confirmation(&self) -> bool {
-        matches!(self.level, CommandRiskLevel::Destructive)
-    }
-
-    fn display(&self) -> String {
-        if self.reasons.is_empty() {
-            format!("{}: {}", localized("风险", "Risk"), self.label())
-        } else {
-            format!(
-                "{}: {} ({})",
-                localized("风险", "Risk"),
-                self.label(),
-                self.reasons.join(", ")
-            )
-        }
-    }
-}
-
-fn classify_command_risk(command: &str) -> CommandRisk {
-    let lower = command.to_lowercase();
-    let mut level = CommandRiskLevel::ReadOnly;
-    let mut reasons = Vec::new();
-
-    let destructive_patterns = [
-        ("rm -rf", "recursive force delete"),
-        ("rm -fr", "recursive force delete"),
-        ("mkfs", "format filesystem"),
-        ("dd if=", "raw disk write/copy"),
-        ("diskutil erase", "erase disk"),
-        ("docker system prune", "docker prune"),
-        ("git reset --hard", "discard git changes"),
-        ("git clean -fd", "delete untracked files"),
-        ("chmod -r", "recursive permission change"),
-        ("chown -r", "recursive owner change"),
-        ("drop database", "drop database"),
-        ("truncate table", "truncate table"),
-        ("delete from", "database delete"),
-    ];
-    for (pattern, reason) in destructive_patterns {
-        if lower.contains(pattern) {
-            level = CommandRiskLevel::Destructive;
-            reasons.push(reason);
-        }
-    }
-
-    let changing_patterns = [
-        ("sudo ", "sudo"),
-        (" >", "redirect write"),
-        (">>", "append write"),
-        ("tee ", "write file"),
-        ("mkdir ", "create directory"),
-        ("touch ", "create/update file"),
-        ("mv ", "move/rename"),
-        ("cp ", "copy"),
-        ("rm ", "delete"),
-        ("chmod ", "permission change"),
-        ("chown ", "owner change"),
-        ("install ", "install"),
-        ("npm install", "install package"),
-        ("brew install", "install package"),
-        ("apt install", "install package"),
-        ("apt-get install", "install package"),
-        ("pip install", "install package"),
-        ("curl ", "network"),
-        ("wget ", "network"),
-        ("docker run", "start container"),
-        ("docker compose up", "start containers"),
-        ("systemctl ", "service control"),
-        ("launchctl ", "service control"),
-    ];
-    if !matches!(level, CommandRiskLevel::Destructive) {
-        for (pattern, reason) in changing_patterns {
-            if lower.contains(pattern) {
-                level = CommandRiskLevel::ChangesSystem;
-                reasons.push(reason);
-            }
-        }
-    }
-
-    reasons.sort_unstable();
-    reasons.dedup();
-    CommandRisk { level, reasons }
 }
 
 fn default_session_name() -> String {
@@ -970,22 +859,6 @@ async fn request_and_route_execution_plan(
     retry_budget: RetryBudget,
     cache_task: Option<String>,
 ) -> Result<()> {
-    if config.read().dry_run {
-        let role = config.read().retrieve_role(SHELL_ROLE)?;
-        let planner_input = input.with_role(role);
-        let client = planner_input.create_client()?;
-        config.write().before_chat_completion(&planner_input)?;
-        let (raw, _) = call_chat_completions_raw_controlled(
-            &planner_input,
-            client.as_ref(),
-            abort_signal,
-            &retry_budget,
-            ProgressStage::new("正在生成执行计划", "Generating execution plan"),
-        )
-        .await?;
-        config.read().print_markdown(&raw)?;
-        return Ok(());
-    }
     let plan = request_execution_plan(config, &input, abort_signal.clone(), &retry_budget)
         .await
         .context(localized("无效执行计划", "Invalid execution plan"))?;
@@ -1011,7 +884,7 @@ async fn route_execution_plan(
     cache_task: Option<String>,
 ) -> Result<()> {
     if config.read().dry_run {
-        println!("{}", serde_json::to_string_pretty(&plan)?);
+        println!("{}", render_execution_plan(&plan)?);
         return Ok(());
     }
 
@@ -1164,77 +1037,13 @@ async fn handle_generated_command(
             return Ok(());
         }
         let client = input.create_client()?;
-        let command = color_text(&eval_str, nu_ansi_term::Color::Rgb(255, 165, 0));
-        let risk = classify_command_risk(&eval_str);
+        let risk = confirm_cmd::classify_command_risk(&eval_str);
         loop {
-            println!("{command}");
-            println!("{}", dimmed_text(&risk.display()));
-            let mut answer_char = confirm_cmd::read_action(
-                &['y', 'n', '?'],
-                'y',
-                localized("执行？[Y/n/?] ", "Run? [Y/n/?] "),
-            )?;
-            if answer_char == '?' {
-                let first_letter_color = nu_ansi_term::Color::Cyan;
-                let mut keys = vec!['r', 'd', 'c', 'q'];
-                let mut options = vec![
-                    format!(
-                        "{}{}",
-                        color_text("r", first_letter_color),
-                        localized(" 修改", "evise")
-                    ),
-                    format!(
-                        "{}{}",
-                        color_text("d", first_letter_color),
-                        localized(" 解释", "escribe")
-                    ),
-                    format!(
-                        "{}{}",
-                        color_text("c", first_letter_color),
-                        localized(" 复制", "opy")
-                    ),
-                    format!(
-                        "{}{}",
-                        color_text("q", first_letter_color),
-                        localized(" 退出", "uit")
-                    ),
-                ];
-                if from_cache {
-                    keys.insert(0, 'g');
-                    options.insert(
-                        0,
-                        format!(
-                            "{}{}",
-                            color_text("g", first_letter_color),
-                            localized(" 重新生成", "enerate")
-                        ),
-                    );
-                }
-                answer_char = confirm_cmd::read_action(
-                    &keys,
-                    'q',
-                    &format!(
-                        "{}：{}: ",
-                        localized("更多", "More"),
-                        options.join(&dimmed_text(" | "))
-                    ),
-                )?;
-            }
-
-            match answer_char {
-                'y' => {
-                    if risk.requires_confirmation()
-                        && !confirm_cmd::confirm_high_risk(localized(
-                            "高风险命令，确认执行？",
-                            "High-risk command. Continue?",
-                        ))?
-                    {
-                        println!("{}", localized("已取消", "cancelled"));
-                        continue;
-                    }
+            match confirm_cmd::confirm_command(&eval_str, &risk, from_cache)? {
+                confirm_cmd::ConfirmationAction::Execute => {
                     let eval_command = execute_cmd::with_cwd_capture(shell, &eval_str);
                     debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
-                    let before = if risk.level.captures_git_changes() {
+                    let before = if risk.captures_git_changes() {
                         change_report_cmd::GitSnapshot::capture(&cwd)
                     } else {
                         None
@@ -1324,52 +1133,8 @@ async fn handle_generated_command(
                     }
                     if code != 0 && *IS_STDOUT_TERMINAL {
                         loop {
-                            let first_letter_color = nu_ansi_term::Color::Cyan;
-                            let mut option_keys = vec!['e', 'c', 'q'];
-                            let mut options = vec![
-                                format!(
-                                    "{}{}",
-                                    color_text("e", first_letter_color),
-                                    localized(" 解释", "xplain")
-                                ),
-                                format!(
-                                    "{}{}",
-                                    color_text("c", first_letter_color),
-                                    localized(" 复制", "opy")
-                                ),
-                                format!(
-                                    "{}{}",
-                                    color_text("q", first_letter_color),
-                                    localized(" 退出", "uit")
-                                ),
-                            ];
-                            if repair_attempts < 2 {
-                                option_keys.insert(0, 'f');
-                                options.insert(
-                                    0,
-                                    format!(
-                                        "{}{}",
-                                        color_text("f", first_letter_color),
-                                        localized(" 修复", "ix")
-                                    ),
-                                );
-                            } else {
-                                println!(
-                                    "{}",
-                                    dimmed_text(localized(
-                                        "已达到自动修复次数上限。请手动检查错误，或修改任务描述。",
-                                        "Repair limit reached. Please inspect the error manually or revise the task."
-                                    ))
-                                );
-                            }
-                            let prompt = format!(
-                                "{}。{}: ",
-                                localized("命令执行失败", "Command failed"),
-                                options.join(&dimmed_text(" | "))
-                            );
-                            let next = confirm_cmd::read_action(&option_keys, 'e', &prompt)?;
-                            match next {
-                                'f' if repair_attempts < 2 => {
+                            match result_cmd::prompt_failure_action(repair_attempts)? {
+                                result_cmd::FailureAction::Repair => {
                                     let cwd = env::current_dir()
                                         .map(|path| path.display().to_string())
                                         .unwrap_or_else(|_| "unknown".to_string());
@@ -1398,7 +1163,7 @@ async fn handle_generated_command(
                                     )
                                     .await;
                                 }
-                                'e' => {
+                                result_cmd::FailureAction::Explain => {
                                     if let Err(err) = summarize_command_output(
                                         config,
                                         &eval_str,
@@ -1413,7 +1178,7 @@ async fn handle_generated_command(
                                     }
                                     continue;
                                 }
-                                'c' => {
+                                result_cmd::FailureAction::Copy => {
                                     set_text(&eval_str)?;
                                     println!("{}", dimmed_text("✓ Copied the failed command."));
                                     continue;
@@ -1424,7 +1189,7 @@ async fn handle_generated_command(
                     }
                     process::exit(code);
                 }
-                'g' if from_cache => {
+                confirm_cmd::ConfirmationAction::Regenerate => {
                     return request_and_route_execution_plan(
                         config,
                         shell,
@@ -1435,7 +1200,7 @@ async fn handle_generated_command(
                     )
                     .await;
                 }
-                'r' => {
+                confirm_cmd::ConfirmationAction::Revise => {
                     let revision =
                         Text::new(localized("输入修改要求:", "Enter revision:")).prompt()?;
                     let text = format!("{}\n{revision}", input.text());
@@ -1451,7 +1216,7 @@ async fn handle_generated_command(
                     )
                     .await;
                 }
-                'd' => {
+                confirm_cmd::ConfirmationAction::Describe => {
                     let role = config.read().retrieve_role(EXPLAIN_SHELL_ROLE)?;
                     let input = Input::from_str(config, &eval_str, Some(role));
                     let retry_budget = RetryBudget::default();
@@ -1479,7 +1244,7 @@ async fn handle_generated_command(
                     println!();
                     continue;
                 }
-                'c' => {
+                confirm_cmd::ConfirmationAction::Copy => {
                     set_text(&eval_str)?;
                     println!("{}", dimmed_text("✓ Copied the command."));
                     continue;
@@ -1551,9 +1316,9 @@ mod tests {
 
     #[test]
     fn git_change_capture_is_limited_to_modifying_risk_levels() {
-        assert!(!CommandRiskLevel::ReadOnly.captures_git_changes());
-        assert!(CommandRiskLevel::ChangesSystem.captures_git_changes());
-        assert!(CommandRiskLevel::Destructive.captures_git_changes());
+        assert!(!confirm_cmd::CommandRiskLevel::ReadOnly.captures_git_changes());
+        assert!(confirm_cmd::CommandRiskLevel::ChangesSystem.captures_git_changes());
+        assert!(confirm_cmd::CommandRiskLevel::Destructive.captures_git_changes());
     }
 
     #[test]

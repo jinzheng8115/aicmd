@@ -1,4 +1,67 @@
-use crate::preflight_cmd::PreflightReport;
+use crate::{
+    confirm_cmd,
+    preflight_cmd::PreflightReport,
+    utils::{color_text, dimmed_text, localized},
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureAction {
+    Repair,
+    Explain,
+    Copy,
+    Quit,
+}
+
+pub fn failure_actions(repair_attempts: u8) -> Vec<FailureAction> {
+    let mut actions = vec![
+        FailureAction::Explain,
+        FailureAction::Copy,
+        FailureAction::Quit,
+    ];
+    if repair_attempts < 2 {
+        actions.insert(0, FailureAction::Repair);
+    }
+    actions
+}
+
+pub fn prompt_failure_action(repair_attempts: u8) -> anyhow::Result<FailureAction> {
+    let actions = failure_actions(repair_attempts);
+    if !actions.contains(&FailureAction::Repair) {
+        println!(
+            "{}",
+            dimmed_text(localized(
+                "已达到自动修复次数上限。请手动检查错误，或修改任务描述。",
+                "Repair limit reached. Please inspect the error manually or revise the task.",
+            ))
+        );
+    }
+    let (keys, labels): (Vec<_>, Vec<_>) = actions
+        .iter()
+        .map(|action| match action {
+            FailureAction::Repair => ('f', localized(" 修复", "ix")),
+            FailureAction::Explain => ('e', localized(" 解释", "xplain")),
+            FailureAction::Copy => ('c', localized(" 复制", "opy")),
+            FailureAction::Quit => ('q', localized(" 退出", "uit")),
+        })
+        .unzip();
+    let options = keys
+        .iter()
+        .zip(labels)
+        .map(|(key, label)| color_text(&key.to_string(), nu_ansi_term::Color::Cyan) + label)
+        .collect::<Vec<_>>();
+    let prompt = format!(
+        "{}。{}: ",
+        localized("命令执行失败", "Command failed"),
+        options.join(&dimmed_text(" | "))
+    );
+    let choice = confirm_cmd::read_action(&keys, 'e', &prompt)?;
+    Ok(match choice {
+        'f' => FailureAction::Repair,
+        'e' => FailureAction::Explain,
+        'c' => FailureAction::Copy,
+        _ => FailureAction::Quit,
+    })
+}
 
 pub fn truncate_for_session(value: &str, max_chars: usize) -> String {
     let mut out: String = value.chars().take(max_chars).collect();
@@ -50,6 +113,12 @@ pub fn build_preflight_session_note(task: &str, report: &PreflightReport) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repair_is_unavailable_after_two_attempts() {
+        assert!(failure_actions(0).contains(&FailureAction::Repair));
+        assert!(!failure_actions(2).contains(&FailureAction::Repair));
+    }
 
     #[test]
     fn builds_execution_note() {

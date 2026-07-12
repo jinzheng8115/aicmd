@@ -100,6 +100,10 @@ pub fn parse_execution_plan(raw: &str) -> Result<ExecutionPlan> {
     }
 }
 
+pub fn render_execution_plan(plan: &ExecutionPlan) -> Result<String> {
+    Ok(serde_json::to_string_pretty(plan)?)
+}
+
 pub fn parse_generated_command(raw: &str) -> Result<GeneratedCommand> {
     let generated: GeneratedCommand = serde_json::from_str(raw)?;
     if generated.command.trim().is_empty() {
@@ -188,6 +192,19 @@ mod tests {
         assert_eq!(route_kind(&PlanMode::Script), RouteKind::Command);
         assert_eq!(route_kind(&PlanMode::Search), RouteKind::Search);
         assert_eq!(route_kind(&PlanMode::Diagnose), RouteKind::Diagnose);
+    }
+
+    #[test]
+    fn renders_validated_plan_for_dry_run() -> anyhow::Result<()> {
+        let plan = parse_execution_plan(
+            r#"{"mode":"search","command":"","query":"Rust docs","problem":"","preflight":[]}"#,
+        )?;
+
+        let rendered = render_execution_plan(&plan)?;
+
+        assert!(rendered.contains("\"mode\": \"search\""));
+        assert!(rendered.contains("\"query\": \"Rust docs\""));
+        Ok(())
     }
 
     #[test]
