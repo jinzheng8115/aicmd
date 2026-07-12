@@ -226,6 +226,14 @@ With `language: zh`, this prompt is shown in Chinese only.
 - `do`: generate an execution script from the search result and current system environment.
 - `open`: open the latest search record.
 
+You can also use natural language without remembering the search subcommands:
+
+```bash
+aicmd save the last search
+aicmd save the last search as docker-install
+aicmd use the last search result to install Docker
+```
+
 ## 6. Command usage
 
 ### 6.1 Regular command
@@ -315,6 +323,7 @@ aicmd session
 aicmd session list
 aicmd session show
 aicmd session show dev --limit 5
+aicmd show last 5 messages
 aicmd last
 ```
 

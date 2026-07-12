@@ -388,6 +388,15 @@ After an interactive search:
 save(保存) | do(基于结果执行) | open(打开) | quit(退出):
 ```
 
+Equivalent natural-language forms / 等效的自然语言表达：
+
+```bash
+aicmd 保存刚才的搜索结果为 docker-install
+aicmd 用刚才的搜索结果安装 Docker
+aicmd save the last search as docker-install
+aicmd use the last search result to install Docker
+```
+
 `aicmd mcp-raw <command> ...` prints raw MCP output and is mainly for debugging.
 
 `aicmd mcp-raw <command> ...` 会打印 MCP 原始输出，主要用于调试。
@@ -417,6 +426,8 @@ aicmd session
 aicmd session list
 aicmd session show
 aicmd session show dev --limit 5
+aicmd 查看最近 5 条上下文
+aicmd show last 5 messages
 aicmd last
 ```
 

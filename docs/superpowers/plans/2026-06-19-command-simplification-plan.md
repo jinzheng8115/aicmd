@@ -185,9 +185,9 @@ git diff --check
 
 ## Phase 4: Small Natural-Language System Intents / 小范围自然语言系统意图
 
-Status / 状态：deferred for now. Current session/session switching semantics are not persistent global state, so broad natural-language routing could surprise users. Keep this phase for a later, narrower design pass.
+Status / 状态：partially implemented. The first narrow batch supports saving the latest search, using it as `do` context, and showing recent session messages. Session switching and clearing remain deferred because their state and destructive semantics need a separate narrow design.
 
-状态：暂缓。当前 session 切换语义不是持久全局状态，直接做较宽的自然语言路由可能让用户困惑。本阶段保留为后续更窄的设计任务。
+状态：部分完成。第一批支持保存最近搜索、将最近搜索作为 `do` 上下文，以及查看最近 session 消息。会话切换和清空仍暂缓，因为其状态和破坏性语义需要单独设计。
 
 **Files:**
 - Modify: `src/main.rs`

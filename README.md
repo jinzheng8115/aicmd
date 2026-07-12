@@ -226,6 +226,14 @@ s 保存 | d 基于结果执行 | o 打开 | q 退出:
 - `do`：基于搜索结果和当前系统环境生成执行脚本。
 - `open`：打开最近搜索记录。
 
+也可以直接使用自然语言，不需要记住搜索子命令：
+
+```bash
+aicmd 保存刚才的搜索结果
+aicmd 保存刚才的搜索结果为 docker-install
+aicmd 用刚才的搜索结果安装 Docker
+```
+
 ## 6. 常用命令
 
 ### 6.1 普通命令
@@ -315,6 +323,7 @@ aicmd session
 aicmd session list
 aicmd session show
 aicmd session show dev --limit 5
+aicmd 查看最近 5 条上下文
 aicmd last
 ```
 

@@ -10,6 +10,7 @@ mod err_cmd;
 mod execute_cmd;
 mod function;
 mod help_cmd;
+mod intent_cmd;
 mod mcp_cmd;
 mod model_cmd;
 mod plan_cmd;
@@ -36,6 +37,7 @@ use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
     EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_COMMAND_ROLE, SHELL_ROLE,
 };
+use crate::intent_cmd::NaturalIntent;
 use crate::plan_cmd::{
     parse_generated_command, request_execution_plan, route_kind, ExecutionPlan, RouteKind,
 };
@@ -54,6 +56,10 @@ use std::{env, process, sync::Arc};
 async fn main() -> Result<()> {
     load_env_file()?;
     let cli = Cli::parse();
+    let natural_intent = intent_cmd::parse(cli.text_args())?;
+    if let Some(code) = run_pre_config_intent(natural_intent.as_ref())? {
+        process::exit(code);
+    }
     if let Some(code) = run_pre_config_shortcut(cli.text_args())? {
         process::exit(code);
     }
@@ -64,6 +70,9 @@ async fn main() -> Result<()> {
     if let Some(model_id) = &cli.model {
         config.write().set_model(model_id)?;
     }
+    if let Some(code) = run_builtin_intent(&config, natural_intent.as_ref()).await? {
+        process::exit(code);
+    }
     if let Some(code) = run_builtin_shortcut(&config, cli.text_args()).await? {
         process::exit(code);
     }
@@ -72,6 +81,36 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn run_pre_config_intent(intent: Option<&NaturalIntent>) -> Result<Option<i32>> {
+    match intent {
+        Some(NaturalIntent::SaveLastSearch { name }) => {
+            Ok(Some(search_cmd::save_last(name.as_deref())?))
+        }
+        Some(NaturalIntent::ShowRecentContext { limit }) => {
+            let args = vec!["show".to_string(), "--limit".to_string(), limit.to_string()];
+            Ok(Some(session_cmd::run_session_command(&args)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+async fn run_builtin_intent(
+    config: &GlobalConfig,
+    intent: Option<&NaturalIntent>,
+) -> Result<Option<i32>> {
+    let Some(NaturalIntent::DoFromLastSearch { task }) = intent else {
+        return Ok(None);
+    };
+    let args = vec![
+        "do".to_string(),
+        "--from-search".to_string(),
+        "last".to_string(),
+        task.clone(),
+    ];
+    run_do_shortcut(config, &args, create_abort_signal()).await?;
+    Ok(Some(0))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
