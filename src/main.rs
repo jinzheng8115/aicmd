@@ -49,14 +49,15 @@ use crate::utils::*;
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use inquire::Text;
+use is_terminal::IsTerminal;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
-use std::{env, process, sync::Arc};
+use std::{env, io, process, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
-    if interactive_cmd::should_start(&cli) {
+    if interactive_cmd::should_start(&cli, io::stdin().is_terminal(), io::stdout().is_terminal()) {
         process::exit(interactive_cmd::run(&default_session_name())?);
     }
     load_env_file()?;

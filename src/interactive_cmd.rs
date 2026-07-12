@@ -1,13 +1,13 @@
 use crate::cli::Cli;
+use crate::utils::localized;
 use anyhow::{Context, Result};
-use is_terminal::IsTerminal;
 use std::{
     env,
     io::{self, Write},
     process::Command,
 };
 
-pub fn should_start(cli: &Cli) -> bool {
+pub fn is_eligible(cli: &Cli) -> bool {
     cli.text_args().is_empty()
         && cli.model.is_none()
         && cli.session.is_none()
@@ -19,7 +19,10 @@ pub fn should_start(cli: &Cli) -> bool {
         && !cli.no_summary
         && !cli.no_cache
         && !cli.list_sessions
-        && io::stdin().is_terminal()
+}
+
+pub fn should_start(cli: &Cli, stdin_is_terminal: bool, stdout_is_terminal: bool) -> bool {
+    is_eligible(cli) && stdin_is_terminal && stdout_is_terminal
 }
 
 pub fn is_exit_input(input: &str) -> bool {
@@ -33,8 +36,14 @@ pub fn child_args(session: &str, input: &str) -> Vec<String> {
 pub fn run(session: &str) -> Result<i32> {
     let exe = env::current_exe().context("Unable to resolve current executable")?;
     println!("AICmd {}", env!("CARGO_PKG_VERSION"));
-    println!("Session: {session}");
-    println!("输入任务，exit 退出。");
+    println!("{}: {session}", localized("会话", "Session"));
+    println!(
+        "{}",
+        localized(
+            "输入任务，输入 exit 退出。",
+            "Enter a task; type exit to quit."
+        )
+    );
     println!();
 
     loop {
@@ -45,7 +54,6 @@ pub fn run(session: &str) -> Result<i32> {
         match io::stdin().read_line(&mut input) {
             Ok(0) => return Ok(0),
             Ok(_) => {}
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => return Ok(0),
             Err(err) => return Err(err.into()),
         }
 
@@ -90,7 +98,21 @@ mod tests {
     }
 
     #[test]
-    fn explicit_inputs_and_options_suppress_prompt() {
+    fn no_arguments_are_prompt_eligible() {
+        assert!(is_eligible(&cli(&["aicmd"])));
+    }
+
+    #[test]
+    fn prompt_requires_both_terminal_streams() {
+        let cli = cli(&["aicmd"]);
+        assert!(should_start(&cli, true, true));
+        assert!(!should_start(&cli, true, false));
+        assert!(!should_start(&cli, false, true));
+        assert!(!should_start(&cli, false, false));
+    }
+
+    #[test]
+    fn explicit_inputs_and_options_are_not_prompt_eligible() {
         let cases = [
             cli(&["aicmd", "查看内存"]),
             cli(&["aicmd", "--dry-run"]),
@@ -106,7 +128,7 @@ mod tests {
         ];
 
         for cli in cases {
-            assert!(!should_start(&cli));
+            assert!(!is_eligible(&cli));
         }
     }
 }
