@@ -17,6 +17,24 @@ pub fn can_repair_workflow(attempts: u8) -> bool {
     attempts < MAX_WORKFLOW_REPAIRS
 }
 
+pub fn validate_read_only_workflow_steps(plan: &WorkflowPlan) -> Result<()> {
+    for step in &plan.steps {
+        if matches!(
+            step.kind,
+            WorkflowStepKind::Check | WorkflowStepKind::Verify
+        ) && effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly
+        {
+            let kind = match step.kind {
+                WorkflowStepKind::Check => "check",
+                WorkflowStepKind::Verify => "verify",
+                WorkflowStepKind::Action => unreachable!(),
+            };
+            anyhow::bail!("workflow {kind} '{}' is not read-only", step.id);
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepStatus {
     Pending,
@@ -420,6 +438,7 @@ pub async fn execute_prepared_workflow(
     workflow: &mut PreparedWorkflow,
     abort_signal: AbortSignal,
 ) -> Result<WorkflowStatus> {
+    validate_read_only_workflow_steps(&workflow.plan)?;
     while let Some(step) = workflow.next_step().cloned() {
         if step.kind == WorkflowStepKind::Check {
             anyhow::bail!("workflow check '{}' was not executed", step.id);
@@ -636,6 +655,28 @@ mod tests {
         assert!(can_repair_workflow(0));
         assert!(can_repair_workflow(1));
         assert!(!can_repair_workflow(2));
+    }
+
+    #[test]
+    fn modifying_verify_declared_read_only_is_rejected_before_execution() {
+        let mut plan = fixture_plan();
+        let verify = plan
+            .steps
+            .iter_mut()
+            .find(|step| step.kind == WorkflowStepKind::Verify)
+            .unwrap();
+        verify.command = "touch /tmp/aicmd-unsafe-verify".to_string();
+        verify.risk = WorkflowRisk::ReadOnly;
+
+        let error = validate_read_only_workflow_steps(&plan).unwrap_err();
+
+        assert!(error.to_string().contains("verify"));
+        assert!(error.to_string().contains("not read-only"));
+    }
+
+    #[test]
+    fn locally_read_only_verify_remains_valid() {
+        assert!(validate_read_only_workflow_steps(&fixture_plan()).is_ok());
     }
 
     #[test]
@@ -991,6 +1032,38 @@ mod tests {
                 .count(),
             1
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unsafe_verify_is_rejected_before_prior_action_runs() {
+        let root = std::env::temp_dir().join(format!("aicmd-workflow-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let marker = root.join("must-not-exist.txt");
+        let marker_command = shell_quote(&marker.display().to_string());
+        let unsafe_output = shell_quote(&root.join("unsafe.txt").display().to_string());
+        let plan = parse_execution_plan(&format!(
+            r#"{{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Reject unsafe verification",
+              "steps":[
+                {{"id":"action","kind":"action","command":"touch {marker_command}","risk":"changes_files","on_failure":"stop"}},
+                {{"id":"verify","kind":"verify","command":"touch {unsafe_output}","risk":"read_only","on_failure":"repair"}}
+              ]
+            }}"#
+        ))
+        .unwrap()
+        .workflow()
+        .unwrap();
+        let mut workflow = prepare_workflow(plan, &[]).unwrap();
+        let shell = Shell::new("sh", "/bin/sh", "-c");
+
+        let error = execute_prepared_workflow(&shell, &mut workflow, create_abort_signal())
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("verify"));
+        assert!(!marker.exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

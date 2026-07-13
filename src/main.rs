@@ -44,8 +44,7 @@ use crate::config::{
 use crate::intent_cmd::NaturalIntent;
 use crate::plan_cmd::{
     parse_generated_command, render_execution_plan, request_execution_plan, route_kind,
-    ExecutionPlan, PlanMode, RouteKind, WorkflowFailurePolicy, WorkflowPlan, WorkflowRisk,
-    WorkflowStepKind,
+    ExecutionPlan, PlanMode, RouteKind, WorkflowFailurePolicy, WorkflowPlan, WorkflowStepKind,
 };
 use crate::preflight_cmd::PreflightCheck;
 use crate::render::render_error;
@@ -958,18 +957,12 @@ async fn run_workflow_plan(
 ) -> Result<()> {
     let mut check_results = Vec::new();
     let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> = async {
+        workflow_cmd::validate_read_only_workflow_steps(&plan)?;
         let checks = plan
             .steps
             .iter()
             .take_while(|step| step.kind == WorkflowStepKind::Check)
             .collect::<Vec<_>>();
-        for step in &checks {
-            if confirm_cmd::effective_workflow_risk(&step.command, step.risk)
-                > WorkflowRisk::ReadOnly
-            {
-                bail!("workflow check '{}' is not read-only", step.id);
-            }
-        }
         for step in checks {
             let command = execute_cmd::with_cwd_capture(shell, &step.command);
             let output =
@@ -1018,8 +1011,8 @@ async fn run_workflow_plan(
     }
     .await;
 
-    let terminal = classify_workflow_terminal(&run_result);
-    let record = workflow_cmd::WorkflowRecord::from_partial(
+    let mut terminal = classify_workflow_terminal(&run_result);
+    let mut record = workflow_cmd::WorkflowRecord::from_partial(
         request.clone(),
         plan,
         check_results,
@@ -1027,6 +1020,17 @@ async fn run_workflow_plan(
         terminal.status,
         terminal.pending_termination,
     );
+    let has_repair = workflow_has_repair_failure(&record);
+    let pre_planner_transition = decide_workflow_repair_transition(
+        has_repair,
+        repair_attempts,
+        abort_signal.aborted(),
+        false,
+    );
+    if has_repair && workflow_cmd::can_repair_workflow(repair_attempts) && abort_signal.aborted() {
+        terminal = cancelled_workflow_terminal();
+        mark_workflow_record_cancelled(&mut record);
+    }
     let save_result = config
         .write()
         .append_session_note(result_cmd::build_workflow_session_note(&record));
@@ -1059,24 +1063,51 @@ async fn run_workflow_plan(
         (Ok(_), Ok(())) => {}
     }
 
-    let repair_prompt = if workflow_cmd::can_repair_workflow(repair_attempts) {
+    if pre_planner_transition != WorkflowRepairTransition::RequestPlanner {
+        return Ok(());
+    }
+    let repair_prompt = {
         let cwd = env::current_dir()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|_| "unknown".to_string());
         build_next_workflow_repair_prompt(&record, &shell.name, &cwd)?
-    } else {
-        None
     };
     if let Some(repair_prompt) = repair_prompt {
+        if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), false)
+            != WorkflowRepairTransition::RequestPlanner
+        {
+            save_cancelled_workflow_and_exit(config, record.clone());
+        }
         let input = Input::from_str(config, &repair_prompt, None).with_session_context();
         let retry_budget = RetryBudget::default();
-        let revised = request_execution_plan(config, &input, abort_signal.clone(), &retry_budget)
-            .await
-            .context(localized(
-                "无法生成有效的 workflow 修订计划",
-                "Failed to generate a valid revised workflow plan",
-            ))?;
+        let revised =
+            match request_execution_plan(config, &input, abort_signal.clone(), &retry_budget).await
+            {
+                Ok(revised) => revised,
+                Err(_) if abort_signal.aborted() => {
+                    save_cancelled_workflow_and_exit(config, record.clone())
+                }
+                Err(error) => {
+                    return Err(error).context(localized(
+                        "无法生成有效的 workflow 修订计划",
+                        "Failed to generate a valid revised workflow plan",
+                    ))
+                }
+            };
         let revised = require_workflow_repair_plan(revised)?;
+        if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), true)
+            != WorkflowRepairTransition::ExecuteRevisedPlan
+        {
+            let cancelled = workflow_cmd::WorkflowRecord::from_partial(
+                request.clone(),
+                revised,
+                Vec::new(),
+                repair_attempts + 1,
+                workflow_cmd::WorkflowStatus::Cancelled,
+                "cancelled",
+            );
+            save_cancelled_workflow_and_exit(config, cancelled);
+        }
         return run_workflow_plan(
             config,
             shell,
@@ -1088,6 +1119,75 @@ async fn run_workflow_plan(
         .await;
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkflowRepairTransition {
+    Stop,
+    RequestPlanner,
+    ExecuteRevisedPlan,
+}
+
+fn decide_workflow_repair_transition(
+    has_repair_failure: bool,
+    repair_attempts: u8,
+    aborted: bool,
+    revised_plan_ready: bool,
+) -> WorkflowRepairTransition {
+    if !has_repair_failure || !workflow_cmd::can_repair_workflow(repair_attempts) || aborted {
+        WorkflowRepairTransition::Stop
+    } else if revised_plan_ready {
+        WorkflowRepairTransition::ExecuteRevisedPlan
+    } else {
+        WorkflowRepairTransition::RequestPlanner
+    }
+}
+
+fn workflow_has_repair_failure(record: &workflow_cmd::WorkflowRecord) -> bool {
+    record.status == workflow_cmd::WorkflowStatus::Failed
+        && record.results.iter().any(|result| {
+            result.status == workflow_cmd::StepStatus::Failed
+                && record.plan.steps.iter().any(|step| {
+                    step.id == result.step_id && step.on_failure == WorkflowFailurePolicy::Repair
+                })
+        })
+}
+
+fn cancelled_workflow_terminal() -> WorkflowTerminal {
+    WorkflowTerminal {
+        status: workflow_cmd::WorkflowStatus::Cancelled,
+        pending_termination: "cancelled",
+        exit_code: Some(130),
+    }
+}
+
+fn mark_workflow_record_cancelled(record: &mut workflow_cmd::WorkflowRecord) {
+    record.status = workflow_cmd::WorkflowStatus::Cancelled;
+    for result in &mut record.results {
+        if result.status == workflow_cmd::StepStatus::Pending {
+            result.termination = "cancelled".to_string();
+        }
+    }
+}
+
+fn save_cancelled_workflow_and_exit(
+    config: &GlobalConfig,
+    mut record: workflow_cmd::WorkflowRecord,
+) -> ! {
+    mark_workflow_record_cancelled(&mut record);
+    if let Err(error) = config
+        .write()
+        .append_session_note(result_cmd::build_workflow_session_note(&record))
+    {
+        eprintln!(
+            "{}: {error:#}",
+            localized(
+                "工作流结果保存失败；任务仍按取消处理",
+                "Workflow result save failed; task remains cancelled"
+            )
+        );
+    }
+    process::exit(130)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1164,7 +1264,7 @@ fn build_next_workflow_repair_prompt(
     shell: &str,
     cwd: &str,
 ) -> Result<Option<String>> {
-    if record.status != workflow_cmd::WorkflowStatus::Failed {
+    if !workflow_has_repair_failure(record) {
         return Ok(None);
     }
     let Some(failed_result) = record.results.iter().find(|result| {
@@ -1765,13 +1865,13 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(prompt.contains("Original request / 原始请求: save workflow"));
+        assert!(prompt.contains("\"original_request\": \"save workflow\""));
         assert!(prompt.contains("\"mode\": \"workflow\""));
         assert!(prompt.contains("\"summary\": \"Save terminal workflow\""));
         assert!(prompt.contains("check: passed"));
         assert!(prompt.contains("write: passed"));
-        assert!(prompt.contains("Failed step / 失败步骤: verify"));
-        assert!(prompt.contains("STDERR:\nnot ready"));
+        assert!(prompt.contains("\"failed_step\": \"verify\""));
+        assert!(prompt.contains("\"stderr\": \"not ready\""));
     }
 
     #[test]
@@ -1782,6 +1882,92 @@ mod tests {
         .unwrap();
 
         assert!(require_workflow_repair_plan(plan).is_err());
+    }
+
+    #[test]
+    fn repair_transition_stops_on_pre_and_post_planner_cancellation() {
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, true, false),
+            WorkflowRepairTransition::Stop
+        );
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, true, true),
+            WorkflowRepairTransition::Stop
+        );
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, false, false),
+            WorkflowRepairTransition::RequestPlanner
+        );
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, false, true),
+            WorkflowRepairTransition::ExecuteRevisedPlan
+        );
+    }
+
+    #[test]
+    fn repair_transition_and_records_are_bounded_to_two_attempts() {
+        for (attempts, expected) in [
+            (0, WorkflowRepairTransition::RequestPlanner),
+            (1, WorkflowRepairTransition::RequestPlanner),
+            (2, WorkflowRepairTransition::Stop),
+        ] {
+            assert_eq!(
+                decide_workflow_repair_transition(true, attempts, false, false),
+                expected
+            );
+            let record = workflow_cmd::WorkflowRecord::from_partial(
+                "save workflow".to_string(),
+                workflow_save_fixture(),
+                Vec::new(),
+                attempts,
+                workflow_cmd::WorkflowStatus::Failed,
+                "blocked_by_failure",
+            );
+            assert_eq!(record.repair_attempts, attempts);
+        }
+    }
+
+    #[test]
+    fn unsafe_verify_is_saved_as_failure_without_repair_transition() {
+        let mut plan = workflow_save_fixture();
+        plan.steps
+            .iter_mut()
+            .find(|step| step.kind == WorkflowStepKind::Verify)
+            .unwrap()
+            .command = "touch /tmp/aicmd-unsafe-verify".to_string();
+        let run_result = workflow_cmd::validate_read_only_workflow_steps(&plan)
+            .map(|_| (workflow_cmd::WorkflowStatus::Completed, "not_run", false));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut saved = Vec::new();
+
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "unsafe verify",
+            plan.clone(),
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        )
+        .unwrap();
+        let record = workflow_cmd::WorkflowRecord::from_partial(
+            "unsafe verify".to_string(),
+            plan,
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        );
+
+        assert_eq!(terminal.status, workflow_cmd::WorkflowStatus::Failed);
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].contains("Workflow status: failed"));
+        assert!(build_next_workflow_repair_prompt(&record, "zsh", "/tmp")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
