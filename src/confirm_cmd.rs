@@ -1,4 +1,7 @@
-use crate::utils::{color_text, dimmed_text, localized, read_single_key};
+use crate::{
+    plan_cmd::WorkflowRisk,
+    utils::{color_text, dimmed_text, localized, read_single_key},
+};
 use anyhow::Result;
 use nu_ansi_term::Color;
 use std::fs::OpenOptions;
@@ -28,13 +31,14 @@ pub fn read_action(keys: &[char], default: char, prompt: &str) -> Result<char> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandRiskLevel {
     ReadOnly,
+    ChangesFiles,
     ChangesSystem,
     Destructive,
 }
 
 impl CommandRiskLevel {
     pub fn captures_git_changes(self) -> bool {
-        matches!(self, Self::ChangesSystem | Self::Destructive)
+        !matches!(self, Self::ReadOnly)
     }
 }
 
@@ -45,9 +49,14 @@ pub struct CommandRisk {
 }
 
 impl CommandRisk {
+    pub fn level(&self) -> CommandRiskLevel {
+        self.level
+    }
+
     fn label(&self) -> &'static str {
         match self.level {
             CommandRiskLevel::ReadOnly => localized("只读", "read-only"),
+            CommandRiskLevel::ChangesFiles => localized("会修改文件", "changes files"),
             CommandRiskLevel::ChangesSystem => localized("会修改系统或文件", "changes system"),
             CommandRiskLevel::Destructive => localized("可能造成破坏", "destructive"),
         }
@@ -102,16 +111,6 @@ pub fn classify_command_risk(command: &str) -> CommandRisk {
     if !matches!(level, CommandRiskLevel::Destructive) {
         for (pattern, reason) in [
             ("sudo ", "sudo"),
-            (" >", "redirect write"),
-            (">>", "append write"),
-            ("tee ", "write file"),
-            ("mkdir ", "create directory"),
-            ("touch ", "create/update file"),
-            ("mv ", "move/rename"),
-            ("cp ", "copy"),
-            ("rm ", "delete"),
-            ("chmod ", "permission change"),
-            ("chown ", "owner change"),
             ("install ", "install"),
             ("npm install", "install package"),
             ("brew install", "install package"),
@@ -130,10 +129,39 @@ pub fn classify_command_risk(command: &str) -> CommandRisk {
                 reasons.push(reason);
             }
         }
+        if !matches!(level, CommandRiskLevel::ChangesSystem) {
+            for (pattern, reason) in [
+                (">", "redirect write"),
+                (">>", "append write"),
+                ("tee ", "write file"),
+                ("mkdir ", "create directory"),
+                ("touch ", "create/update file"),
+                ("mv ", "move/rename"),
+                ("cp ", "copy"),
+                ("rm ", "delete"),
+                ("chmod ", "permission change"),
+                ("chown ", "owner change"),
+            ] {
+                if lower.contains(pattern) {
+                    level = CommandRiskLevel::ChangesFiles;
+                    reasons.push(reason);
+                }
+            }
+        }
     }
     reasons.sort_unstable();
     reasons.dedup();
     CommandRisk { level, reasons }
+}
+
+pub fn effective_workflow_risk(command: &str, declared: WorkflowRisk) -> WorkflowRisk {
+    let local = match classify_command_risk(command).level() {
+        CommandRiskLevel::ReadOnly => WorkflowRisk::ReadOnly,
+        CommandRiskLevel::ChangesFiles => WorkflowRisk::ChangesFiles,
+        CommandRiskLevel::ChangesSystem => WorkflowRisk::ChangesSystem,
+        CommandRiskLevel::Destructive => WorkflowRisk::Destructive,
+    };
+    declared.max(local)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,6 +257,32 @@ pub fn confirm_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan_cmd::WorkflowRisk;
+
+    #[test]
+    fn local_risk_can_raise_but_not_lower_declared_risk() {
+        assert_eq!(
+            effective_workflow_risk("rm -rf /tmp/x", WorkflowRisk::ReadOnly),
+            WorkflowRisk::Destructive
+        );
+        assert_eq!(
+            effective_workflow_risk("pwd", WorkflowRisk::ChangesSystem),
+            WorkflowRisk::ChangesSystem
+        );
+    }
+
+    #[test]
+    fn file_and_system_changes_keep_their_risk_levels() {
+        assert_eq!(
+            classify_command_risk("touch output.txt").level(),
+            CommandRiskLevel::ChangesFiles
+        );
+        assert_eq!(
+            classify_command_risk("brew install tool").level(),
+            CommandRiskLevel::ChangesSystem
+        );
+        assert!(classify_command_risk("touch output.txt").captures_git_changes());
+    }
 
     #[test]
     fn destructive_commands_require_a_second_confirmation() {

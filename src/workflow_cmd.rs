@@ -1,3 +1,4 @@
+use crate::confirm_cmd::{confirm_high_risk, effective_workflow_risk, read_action};
 use crate::plan_cmd::{
     WorkflowConditionResult, WorkflowFailurePolicy, WorkflowPlan, WorkflowRisk, WorkflowStep,
     WorkflowStepKind,
@@ -75,8 +76,9 @@ impl PreparedWorkflow {
     }
 
     pub fn needs_confirmation(&self) -> bool {
-        self.next_step()
-            .is_some_and(|step| step.risk > WorkflowRisk::ReadOnly)
+        self.next_step().is_some_and(|step| {
+            effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly
+        })
     }
 
     pub fn next_step(&self) -> Option<&WorkflowStep> {
@@ -168,6 +170,68 @@ impl PreparedWorkflow {
     }
 }
 
+pub fn render_workflow_confirmation(prepared: &PreparedWorkflow) -> String {
+    let mut lines = vec![
+        format!(
+            "Workflow confirmation / 工作流确认: {}",
+            prepared.plan.summary
+        ),
+        "Prepared plan / 已准备计划:".to_string(),
+    ];
+
+    for step in &prepared.plan.steps {
+        let status = prepared.status_of(&step.id);
+        match status {
+            StepStatus::Pending => lines.push(format!(
+                "  [pending / 待执行] {} ({}) : {}",
+                step.id,
+                workflow_risk_label(effective_workflow_risk(&step.command, step.risk)),
+                step.command
+            )),
+            StepStatus::Skipped => lines.push(format!("  [skipped / 已跳过] {}", step.id)),
+            StepStatus::Passed => lines.push(format!("  [passed / 已完成] {}", step.id)),
+            StepStatus::Failed => lines.push(format!("  [failed / 已失败] {}", step.id)),
+            StepStatus::Cancelled => lines.push(format!("  [cancelled / 已取消] {}", step.id)),
+        }
+    }
+    lines.join("\n")
+}
+
+pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
+    let risks: Vec<_> = prepared
+        .plan
+        .steps
+        .iter()
+        .filter(|step| prepared.status_of(&step.id) == StepStatus::Pending)
+        .map(|step| effective_workflow_risk(&step.command, step.risk))
+        .collect();
+    if !risks.iter().any(|risk| *risk > WorkflowRisk::ReadOnly) {
+        return Ok(true);
+    }
+
+    println!("{}", render_workflow_confirmation(prepared));
+    if read_action(&['y', 'n'], 'n', "Execute this plan? / 执行此计划？ [y/N] ")? != 'y' {
+        return Ok(false);
+    }
+    if risks.contains(&WorkflowRisk::Destructive)
+        && !confirm_high_risk(
+            "Destructive step detected. Continue? / 检测到破坏性步骤，确认继续？",
+        )?
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn workflow_risk_label(risk: WorkflowRisk) -> &'static str {
+    match risk {
+        WorkflowRisk::ReadOnly => "read-only / 只读",
+        WorkflowRisk::ChangesFiles => "changes files / 会修改文件",
+        WorkflowRisk::ChangesSystem => "changes system / 会修改系统或文件",
+        WorkflowRisk::Destructive => "destructive / 可能造成破坏",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,6 +278,29 @@ mod tests {
         assert_eq!(prepared.status_of("install"), StepStatus::Skipped);
         assert!(!prepared.needs_confirmation());
         assert_eq!(prepared.next_step().unwrap().id, "verify");
+    }
+
+    #[test]
+    fn workflow_confirmation_shows_only_pending_changes_and_verification() {
+        let prepared = prepare_workflow(
+            fixture_plan(),
+            &[StepResult::exited("check", 0, "/usr/bin/tool", "")],
+        )
+        .unwrap();
+        let text = render_workflow_confirmation(&prepared);
+        assert!(text.contains("verify"));
+        assert!(text.contains("skipped"));
+        assert!(!text.contains("brew install tool"));
+    }
+
+    #[test]
+    fn workflow_confirmation_skips_prompt_without_pending_modifications() {
+        let prepared = prepare_workflow(
+            fixture_plan(),
+            &[StepResult::exited("check", 0, "/usr/bin/tool", "")],
+        )
+        .unwrap();
+        assert!(confirm_workflow(&prepared).unwrap());
     }
 
     #[test]
