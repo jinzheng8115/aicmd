@@ -126,19 +126,23 @@ pub fn build_workflow_session_note(record: &WorkflowRecord) -> String {
                 .iter()
                 .find(|step| step.id == result.step_id);
             let skip_reason = if result.status == StepStatus::Skipped {
-                step
-                    .and_then(|step| step.run_if.as_ref())
-                    .map(|condition| {
-                        let expected = match condition.result {
-                            WorkflowConditionResult::Passed => "passed",
-                            WorkflowConditionResult::Failed => "failed",
-                        };
-                        format!(
-                            "\nSkip reason: condition {}={} was not met",
-                            condition.step, expected
-                        )
-                    })
-                    .unwrap_or_else(|| "\nSkip reason: not eligible".to_string())
+                if result.termination == "blocked_by_failure" {
+                    "\nSkip reason: blocked by an earlier modifying failure".to_string()
+                } else {
+                    step
+                        .and_then(|step| step.run_if.as_ref())
+                        .map(|condition| {
+                            let expected = match condition.result {
+                                WorkflowConditionResult::Passed => "passed",
+                                WorkflowConditionResult::Failed => "failed",
+                            };
+                            format!(
+                                "\nSkip reason: condition {}={} was not met",
+                                condition.step, expected
+                            )
+                        })
+                        .unwrap_or_else(|| "\nSkip reason: not eligible".to_string())
+                }
             } else {
                 String::new()
             };
@@ -332,6 +336,50 @@ mod tests {
         assert_eq!(record.results[2].step_id, "verify");
         assert_eq!(record.results[2].status, StepStatus::Pending);
         assert_eq!(record.results[2].termination, "blocked_by_failure");
+    }
+
+    #[test]
+    fn workflow_note_explains_modification_skipped_after_continue_failure() {
+        let plan = parse_execution_plan(
+            r#"{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Apply changes",
+              "steps":[
+                {"id":"check","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+                {"id":"write","kind":"action","command":"touch /tmp/aicmd-safe","risk":"changes_files","on_failure":"continue"},
+                {"id":"remove","kind":"action","command":"rm -rf /tmp/aicmd-danger","risk":"destructive","on_failure":"stop"},
+                {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+              ]
+            }"#,
+        )
+        .unwrap()
+        .workflow()
+        .unwrap();
+        let record = WorkflowRecord {
+            request: "Apply changes".to_string(),
+            plan,
+            results: vec![
+                StepResult::exited("check", 0, "", ""),
+                StepResult::exited("write", 1, "", "failed"),
+                StepResult {
+                    step_id: "remove".to_string(),
+                    status: StepStatus::Skipped,
+                    exit_code: 0,
+                    termination: "blocked_by_failure".to_string(),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                },
+                StepResult::exited("verify", 0, "verified", ""),
+            ],
+            repair_attempts: 0,
+            status: WorkflowStatus::Failed,
+        };
+
+        let note = build_workflow_session_note(&record);
+
+        assert!(note.contains("Status: skipped"));
+        assert!(note.contains("Termination: blocked_by_failure"));
+        assert!(note.contains("Skip reason: blocked by an earlier modifying failure"));
     }
 
     #[test]

@@ -212,6 +212,9 @@ fn validate_workflow(plan: &ExecutionPlan) -> Result<()> {
         if !ids.insert(step.id.clone()) {
             bail!("Invalid workflow plan: duplicate step id '{}'", step.id)
         }
+        if step.kind == WorkflowStepKind::Check && step.run_if.is_some() {
+            bail!("Invalid workflow plan: check steps cannot include run_if")
+        }
         if let Some(condition) = &step.run_if {
             if !checks.contains(&condition.step) {
                 bail!(
@@ -425,6 +428,19 @@ mod tests {
 
         assert!(parse_execution_plan(&check_after_action).is_err());
         assert!(parse_execution_plan(&check_after_verify).is_err());
+    }
+
+    #[test]
+    fn workflow_rejects_conditional_checks() {
+        let conditional_check = workflow_json_with_steps(
+            r#"[
+              {"id":"check-one","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+              {"id":"check-two","kind":"check","command":"true","risk":"read_only","run_if":{"step":"check-one","result":"passed"},"on_failure":"continue"},
+              {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+            ]"#,
+        );
+
+        assert!(parse_execution_plan(&conditional_check).is_err());
     }
 
     #[test]

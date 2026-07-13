@@ -1248,7 +1248,7 @@ fn classify_workflow_terminal(
             pending_termination,
             exit_code: interrupted.then_some(130),
         },
-        Err(error) if error.to_string() == "Interrupted" => WorkflowTerminal {
+        Err(error) if workflow_confirmation_interrupted(error) => WorkflowTerminal {
             status: workflow_cmd::WorkflowStatus::Cancelled,
             pending_termination: "cancelled",
             exit_code: Some(130),
@@ -1259,6 +1259,15 @@ fn classify_workflow_terminal(
             exit_code: None,
         },
     }
+}
+
+fn workflow_confirmation_interrupted(error: &anyhow::Error) -> bool {
+    error.to_string() == "Interrupted"
+        || error.chain().any(|cause| {
+            cause
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::Interrupted)
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1844,6 +1853,59 @@ mod tests {
         assert_eq!(saved[0].matches("Step:").count(), 3);
         assert!(saved[0].contains("Workflow status: cancelled"));
         assert!(saved[0].contains("Termination: cancelled"));
+    }
+
+    #[test]
+    fn destructive_confirmation_interrupt_is_cancelled_once_and_exits_130_after_save_failure() {
+        let mut plan = workflow_save_fixture();
+        plan.steps
+            .iter_mut()
+            .find(|step| step.id == "write")
+            .unwrap()
+            .command = "rm -rf /tmp/aicmd-confirm-interrupted".to_string();
+        let prepared = workflow_cmd::prepare_workflow(
+            plan.clone(),
+            &[workflow_cmd::StepResult::exited(
+                "check",
+                0,
+                "leading check output",
+                "",
+            )],
+        )
+        .unwrap();
+        let run_result = workflow_cmd::confirm_workflow_with(
+            &prepared,
+            false,
+            || Ok(true),
+            || Err(std::io::Error::from(std::io::ErrorKind::Interrupted).into()),
+        )
+        .map(|_| (workflow_cmd::WorkflowStatus::Completed, "not_run", false));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut saved = Vec::new();
+        let save_result = append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                anyhow::bail!("session disk full")
+            },
+            "remove temporary files",
+            plan,
+            prepared.results.clone(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        );
+        let action = workflow_after_save_action(terminal, &save_result);
+
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].contains("leading check output"));
+        assert!(saved[0].contains("Workflow status: cancelled"));
+        assert_eq!(
+            action,
+            WorkflowAfterSaveAction::Exit {
+                code: 130,
+                report_save_error: true,
+            }
+        );
     }
 
     #[test]

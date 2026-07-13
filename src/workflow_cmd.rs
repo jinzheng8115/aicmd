@@ -317,6 +317,7 @@ impl PreparedWorkflow {
         }
         let failed_id = result.step_id.clone();
         let mut after_failure = false;
+        let mut blocked_steps = Vec::new();
         for step in &self.plan.steps {
             if step.id == failed_id {
                 after_failure = true;
@@ -327,8 +328,18 @@ impl PreparedWorkflow {
                 && effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly
             {
                 self.statuses.insert(step.id.clone(), StepStatus::Skipped);
+                blocked_steps.push(step.id.clone());
             }
         }
+        self.results
+            .extend(blocked_steps.into_iter().map(|step_id| StepResult {
+                step_id,
+                status: StepStatus::Skipped,
+                exit_code: 0,
+                termination: "blocked_by_failure".to_string(),
+                stdout: String::new(),
+                stderr: String::new(),
+            }));
     }
 
     fn apply_conditions(&mut self) {
@@ -396,38 +407,69 @@ pub fn render_workflow_confirmation(prepared: &PreparedWorkflow) -> String {
 }
 
 pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
-    confirm_workflow_plan(prepared, false)
+    confirm_workflow_with(
+        prepared,
+        false,
+        || {
+            Ok(read_action(
+                &['y', 'n'],
+                'n',
+                localized("执行此计划？ [y/N] ", "Execute this plan? [y/N] "),
+            )? == 'y')
+        },
+        || {
+            confirm_high_risk(localized(
+                "检测到破坏性步骤，确认继续？",
+                "Destructive step detected. Continue?",
+            ))
+        },
+    )
 }
 
 pub fn confirm_repaired_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
-    confirm_workflow_plan(prepared, true)
+    confirm_workflow_with(
+        prepared,
+        true,
+        || {
+            Ok(read_action(
+                &['y', 'n'],
+                'n',
+                localized("执行此计划？ [y/N] ", "Execute this plan? [y/N] "),
+            )? == 'y')
+        },
+        || {
+            confirm_high_risk(localized(
+                "检测到破坏性步骤，确认继续？",
+                "Destructive step detected. Continue?",
+            ))
+        },
+    )
 }
 
 fn workflow_confirmation_required(prepared: &PreparedWorkflow, revised: bool) -> bool {
     revised || prepared.needs_confirmation()
 }
 
-fn confirm_workflow_plan(prepared: &PreparedWorkflow, revised: bool) -> Result<bool> {
+pub(crate) fn confirm_workflow_with<F, G>(
+    prepared: &PreparedWorkflow,
+    revised: bool,
+    confirm_plan: F,
+    confirm_destructive: G,
+) -> Result<bool>
+where
+    F: FnOnce() -> Result<bool>,
+    G: FnOnce() -> Result<bool>,
+{
     if !workflow_confirmation_required(prepared, revised) {
         return Ok(true);
     }
     let risk = prepared.confirmation_risk();
 
     println!("{}", render_workflow_confirmation(prepared));
-    if read_action(
-        &['y', 'n'],
-        'n',
-        localized("执行此计划？ [y/N] ", "Execute this plan? [y/N] "),
-    )? != 'y'
-    {
+    if !confirm_plan()? {
         return Ok(false);
     }
-    if risk == Some(WorkflowRisk::Destructive)
-        && !confirm_high_risk(localized(
-            "检测到破坏性步骤，确认继续？",
-            "Destructive step detected. Continue?",
-        ))?
-    {
+    if risk == Some(WorkflowRisk::Destructive) && !confirm_destructive()? {
         return Ok(false);
     }
     Ok(true)
@@ -835,6 +877,30 @@ mod tests {
         assert!(!workflow.is_stopped());
         assert_eq!(workflow.status_of("remove"), StepStatus::Skipped);
         assert_eq!(workflow.next_step().unwrap().id, "verify");
+
+        let skipped = workflow
+            .results
+            .iter()
+            .find(|result| result.step_id == "remove")
+            .expect("blocked modifying step must be recorded");
+        assert_eq!(skipped.status, StepStatus::Skipped);
+        assert_eq!(skipped.termination, "blocked_by_failure");
+
+        let record = WorkflowRecord::from_partial(
+            "apply changes".to_string(),
+            workflow.plan.clone(),
+            workflow.results.clone(),
+            0,
+            WorkflowStatus::Failed,
+            "blocked_by_failure",
+        );
+        let skipped = record
+            .results
+            .iter()
+            .find(|result| result.step_id == "remove")
+            .unwrap();
+        assert_eq!(skipped.status, StepStatus::Skipped);
+        assert_eq!(skipped.termination, "blocked_by_failure");
     }
 
     #[test]
