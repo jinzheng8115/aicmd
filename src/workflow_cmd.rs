@@ -11,6 +11,12 @@ use crate::utils::{localized, AbortSignal, Shell};
 use anyhow::Result;
 use indexmap::IndexMap;
 
+pub const MAX_WORKFLOW_REPAIRS: u8 = 2;
+
+pub fn can_repair_workflow(attempts: u8) -> bool {
+    attempts < MAX_WORKFLOW_REPAIRS
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepStatus {
     Pending,
@@ -372,12 +378,22 @@ pub fn render_workflow_confirmation(prepared: &PreparedWorkflow) -> String {
 }
 
 pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
-    if !prepared.needs_confirmation() {
+    confirm_workflow_plan(prepared, false)
+}
+
+pub fn confirm_repaired_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
+    confirm_workflow_plan(prepared, true)
+}
+
+fn workflow_confirmation_required(prepared: &PreparedWorkflow, revised: bool) -> bool {
+    revised || prepared.needs_confirmation()
+}
+
+fn confirm_workflow_plan(prepared: &PreparedWorkflow, revised: bool) -> Result<bool> {
+    if !workflow_confirmation_required(prepared, revised) {
         return Ok(true);
     }
-    let risk = prepared
-        .confirmation_risk()
-        .expect("confirmation is required only for a risky pending step");
+    let risk = prepared.confirmation_risk();
 
     println!("{}", render_workflow_confirmation(prepared));
     if read_action(
@@ -388,7 +404,7 @@ pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
     {
         return Ok(false);
     }
-    if risk == WorkflowRisk::Destructive
+    if risk == Some(WorkflowRisk::Destructive)
         && !confirm_high_risk(localized(
             "检测到破坏性步骤，确认继续？",
             "Destructive step detected. Continue?",
@@ -616,6 +632,13 @@ mod tests {
     }
 
     #[test]
+    fn repair_limit_is_two() {
+        assert!(can_repair_workflow(0));
+        assert!(can_repair_workflow(1));
+        assert!(!can_repair_workflow(2));
+    }
+
+    #[test]
     fn confirmation_after_failed_check_enables_risky_action() {
         let plan = fixture_plan();
         let results = vec![StepResult::exited("check", 1, "", "not found")];
@@ -732,6 +755,18 @@ mod tests {
         )
         .unwrap();
         assert!(confirm_workflow(&prepared).unwrap());
+    }
+
+    #[test]
+    fn repaired_workflow_requires_confirmation_even_when_read_only() {
+        let prepared = prepare_workflow(
+            fixture_plan(),
+            &[StepResult::exited("check", 0, "/usr/bin/tool", "")],
+        )
+        .unwrap();
+
+        assert!(!prepared.needs_confirmation());
+        assert!(workflow_confirmation_required(&prepared, true));
     }
 
     #[test]
@@ -869,6 +904,93 @@ mod tests {
         assert_eq!(workflow.status_of("write"), StepStatus::Skipped);
         assert_eq!(workflow.status_of("verify"), StepStatus::Passed);
         assert!(!root.join("must-not-exist.txt").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancellation_preserves_partial_output_and_stops_later_action() {
+        let plan = parse_execution_plan(
+            r#"{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Cancel a running workflow",
+              "steps":[
+                {"id":"running-action","kind":"action","command":"printf 'before-cancel\\n'; while :; do sleep 1; done","risk":"changes_files","on_failure":"stop"},
+                {"id":"later-action","kind":"action","command":"printf 'must-not-run\\n'","risk":"changes_files","on_failure":"stop"},
+                {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+              ]
+            }"#,
+        )
+        .unwrap()
+        .workflow()
+        .unwrap();
+        let mut workflow = prepare_workflow(plan.clone(), &[]).unwrap();
+        let shell = Shell::new("sh", "/bin/sh", "-c");
+        let abort_signal = create_abort_signal();
+        let cancel = abort_signal.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            cancel.set_ctrlc();
+        });
+
+        let status = execute_prepared_workflow(&shell, &mut workflow, abort_signal)
+            .await
+            .unwrap();
+        let record = WorkflowRecord {
+            request: "cancel workflow".to_string(),
+            plan,
+            results: workflow.results,
+            repair_attempts: 0,
+            status,
+        };
+
+        assert_eq!(record.status, WorkflowStatus::Cancelled);
+        assert_eq!(record.results[0].exit_code, 130);
+        assert!(record.results[0].stdout.contains("before-cancel"));
+        assert!(record
+            .results
+            .iter()
+            .all(|result| result.step_id != "later-action"));
+    }
+
+    #[tokio::test]
+    async fn failed_modification_is_recorded_once_and_not_retried() {
+        let root = std::env::temp_dir().join(format!("aicmd-workflow-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("attempts.txt");
+        let file = shell_quote(&file.display().to_string());
+        let plan = parse_execution_plan(&format!(
+            r#"{{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Do not retry modifications",
+              "steps":[
+                {{"id":"failing-action","kind":"action","command":"printf 'attempt\\n' >> {file}; exit 1","risk":"changes_files","on_failure":"repair"}},
+                {{"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}}
+              ]
+            }}"#
+        ))
+        .unwrap()
+        .workflow()
+        .unwrap();
+        let mut workflow = prepare_workflow(plan, &[]).unwrap();
+        let shell = Shell::new("sh", "/bin/sh", "-c");
+
+        let status = execute_prepared_workflow(&shell, &mut workflow, create_abort_signal())
+            .await
+            .unwrap();
+
+        assert_eq!(status, WorkflowStatus::Failed);
+        assert_eq!(
+            std::fs::read_to_string(root.join("attempts.txt")).unwrap(),
+            "attempt\n"
+        );
+        assert_eq!(
+            workflow
+                .results
+                .iter()
+                .filter(|result| result.step_id == "failing-action")
+                .count(),
+            1
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }

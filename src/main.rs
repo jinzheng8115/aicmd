@@ -44,7 +44,8 @@ use crate::config::{
 use crate::intent_cmd::NaturalIntent;
 use crate::plan_cmd::{
     parse_generated_command, render_execution_plan, request_execution_plan, route_kind,
-    ExecutionPlan, RouteKind, WorkflowFailurePolicy, WorkflowPlan, WorkflowRisk, WorkflowStepKind,
+    ExecutionPlan, PlanMode, RouteKind, WorkflowFailurePolicy, WorkflowPlan, WorkflowRisk,
+    WorkflowStepKind,
 };
 use crate::preflight_cmd::PreflightCheck;
 use crate::render::render_error;
@@ -946,6 +947,7 @@ async fn route_execution_plan(
     }
 }
 
+#[async_recursion::async_recursion]
 async fn run_workflow_plan(
     config: &GlobalConfig,
     shell: &Shell,
@@ -987,7 +989,12 @@ async fn run_workflow_plan(
         }
 
         let mut prepared = workflow_cmd::prepare_workflow(plan.clone(), &check_results)?;
-        if !workflow_cmd::confirm_workflow(&prepared)? {
+        let confirmed = if repair_attempts == 0 {
+            workflow_cmd::confirm_workflow(&prepared)?
+        } else {
+            workflow_cmd::confirm_repaired_workflow(&prepared)?
+        };
+        if !confirmed {
             return Ok((
                 workflow_cmd::WorkflowStatus::Cancelled,
                 "confirmation_declined",
@@ -995,7 +1002,8 @@ async fn run_workflow_plan(
             ));
         }
         let execution =
-            workflow_cmd::execute_prepared_workflow(shell, &mut prepared, abort_signal).await;
+            workflow_cmd::execute_prepared_workflow(shell, &mut prepared, abort_signal.clone())
+                .await;
         check_results = prepared.results.clone();
         let status = execution?;
         let interrupted = check_results
@@ -1011,15 +1019,17 @@ async fn run_workflow_plan(
     .await;
 
     let terminal = classify_workflow_terminal(&run_result);
-    let save_result = append_workflow_terminal_note(
-        &mut |note| config.write().append_session_note(note),
-        &request,
+    let record = workflow_cmd::WorkflowRecord::from_partial(
+        request.clone(),
         plan,
         check_results,
         repair_attempts,
         terminal.status,
         terminal.pending_termination,
     );
+    let save_result = config
+        .write()
+        .append_session_note(result_cmd::build_workflow_session_note(&record));
     if let WorkflowAfterSaveAction::Exit {
         code,
         report_save_error,
@@ -1047,6 +1057,35 @@ async fn run_workflow_plan(
         (Err(_), Ok(())) => {}
         (Ok(_), Err(save_error)) => return Err(save_error),
         (Ok(_), Ok(())) => {}
+    }
+
+    let repair_prompt = if workflow_cmd::can_repair_workflow(repair_attempts) {
+        let cwd = env::current_dir()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+        build_next_workflow_repair_prompt(&record, &shell.name, &cwd)?
+    } else {
+        None
+    };
+    if let Some(repair_prompt) = repair_prompt {
+        let input = Input::from_str(config, &repair_prompt, None).with_session_context();
+        let retry_budget = RetryBudget::default();
+        let revised = request_execution_plan(config, &input, abort_signal.clone(), &retry_budget)
+            .await
+            .context(localized(
+                "无法生成有效的 workflow 修订计划",
+                "Failed to generate a valid revised workflow plan",
+            ))?;
+        let revised = require_workflow_repair_plan(revised)?;
+        return run_workflow_plan(
+            config,
+            shell,
+            request,
+            revised,
+            abort_signal,
+            repair_attempts + 1,
+        )
+        .await;
     }
     Ok(())
 }
@@ -1099,6 +1138,7 @@ fn workflow_after_save_action(
     }
 }
 
+#[cfg(test)]
 fn append_workflow_terminal_note(
     append_note: &mut dyn FnMut(String) -> Result<()>,
     request: &str,
@@ -1117,6 +1157,80 @@ fn append_workflow_terminal_note(
         pending_termination,
     );
     append_note(result_cmd::build_workflow_session_note(&record))
+}
+
+fn build_next_workflow_repair_prompt(
+    record: &workflow_cmd::WorkflowRecord,
+    shell: &str,
+    cwd: &str,
+) -> Result<Option<String>> {
+    if record.status != workflow_cmd::WorkflowStatus::Failed {
+        return Ok(None);
+    }
+    let Some(failed_result) = record.results.iter().find(|result| {
+        result.status == workflow_cmd::StepStatus::Failed
+            && record.plan.steps.iter().any(|step| {
+                step.id == result.step_id && step.on_failure == WorkflowFailurePolicy::Repair
+            })
+    }) else {
+        return Ok(None);
+    };
+    let failed_step = record
+        .plan
+        .steps
+        .iter()
+        .find(|step| step.id == failed_result.step_id)
+        .expect("failed workflow result belongs to its plan");
+    let previous_plan = serde_json::json!({
+        "mode": "workflow",
+        "command": "",
+        "query": "",
+        "problem": "",
+        "preflight": [],
+        "summary": &record.plan.summary,
+        "steps": &record.plan.steps,
+    });
+    let previous_plan_json = serde_json::to_string_pretty(&previous_plan)
+        .context("failed to serialize previous workflow plan")?;
+    let completed_results = record
+        .results
+        .iter()
+        .filter(|result| result.status != workflow_cmd::StepStatus::Pending)
+        .map(|result| {
+            format!(
+                "{}: {} (exit_code={}, termination={})",
+                result.step_id,
+                result.status.as_str(),
+                result.exit_code,
+                result.termination
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(Some(repair_cmd::build_workflow_repair_prompt(
+        &repair_cmd::WorkflowRepairContext {
+            user_task: &record.request,
+            shell,
+            os: env::consts::OS,
+            cwd,
+            previous_plan_json: &previous_plan_json,
+            completed_results: &completed_results,
+            failed_step: &failed_step.id,
+            exit_code: failed_result.exit_code,
+            stdout: &failed_result.stdout,
+            stderr: &failed_result.stderr,
+        },
+    )))
+}
+
+fn require_workflow_repair_plan(plan: ExecutionPlan) -> Result<WorkflowPlan> {
+    if plan.mode != PlanMode::Workflow {
+        bail!(localized(
+            "修订计划必须保持 workflow 模式",
+            "Revised plan must remain in workflow mode"
+        ));
+    }
+    plan.workflow().context("workflow payload missing")
 }
 
 #[async_recursion::async_recursion]
@@ -1630,6 +1744,44 @@ mod tests {
                 report_save_error: true,
             }
         );
+    }
+
+    #[test]
+    fn repair_prompt_uses_aggregate_failed_workflow_record() {
+        let record = workflow_cmd::WorkflowRecord::from_partial(
+            "save workflow".to_string(),
+            workflow_save_fixture(),
+            vec![
+                workflow_cmd::StepResult::exited("check", 0, "ready", ""),
+                workflow_cmd::StepResult::exited("write", 0, "written", ""),
+                workflow_cmd::StepResult::exited("verify", 1, "", "not ready"),
+            ],
+            0,
+            workflow_cmd::WorkflowStatus::Failed,
+            "blocked_by_failure",
+        );
+
+        let prompt = build_next_workflow_repair_prompt(&record, "zsh", "/tmp")
+            .unwrap()
+            .unwrap();
+
+        assert!(prompt.contains("Original request / 原始请求: save workflow"));
+        assert!(prompt.contains("\"mode\": \"workflow\""));
+        assert!(prompt.contains("\"summary\": \"Save terminal workflow\""));
+        assert!(prompt.contains("check: passed"));
+        assert!(prompt.contains("write: passed"));
+        assert!(prompt.contains("Failed step / 失败步骤: verify"));
+        assert!(prompt.contains("STDERR:\nnot ready"));
+    }
+
+    #[test]
+    fn repaired_plan_must_remain_workflow_mode() {
+        let plan = plan_cmd::parse_execution_plan(
+            r#"{"mode":"direct","command":"true","query":"","problem":"","preflight":[]}"#,
+        )
+        .unwrap();
+
+        assert!(require_workflow_repair_plan(plan).is_err());
     }
 
     #[test]
