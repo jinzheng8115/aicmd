@@ -168,7 +168,7 @@ Commands:
 
 const DO_HELP_ZH: &str = r#"脚本任务帮助
 
-多步骤任务、安装流程、文件/数据处理建议使用 `do`。
+多步骤任务、安装流程、文件/数据处理建议使用 do。
 
 示例：
   aicmd do "处理 input.csv，输出 cleaned.csv"
@@ -181,7 +181,7 @@ AICmd 仍会在执行前询问确认。
 
 const DO_HELP_EN: &str = r#"Do help
 
-Use `do` for multi-step tasks, installs, and file/data processing.
+Use do for multi-step tasks, installs, and file/data processing.
 
 Examples:
   aicmd do "process input.csv and write cleaned.csv"
@@ -196,7 +196,7 @@ const SESSION_HELP_ZH: &str = r#"会话帮助
 
 默认会话按日期生成，例如 cmd-YYYYMMDD。
 
-普通 `aicmd <任务>` 会写入当天历史，但不会把之前内容发送给模型；需要连续上下文时使用 `-s <名称>`。
+普通 aicmd <任务> 会写入当天历史，但不会把之前内容发送给模型；需要连续上下文时使用 -s <名称>。
 
 命令：
   aicmd -s                         显示当前默认会话
@@ -211,7 +211,7 @@ const SESSION_HELP_EN: &str = r#"Session help
 
 Default session is daily, like cmd-YYYYMMDD.
 
-Plain `aicmd <task>` saves history in the daily session, but does not send prior history to the model. Use `-s <name>` when you want a continuous conversation.
+Plain aicmd <task> saves history in the daily session, but does not send prior history to the model. Use -s <name> when you want a continuous conversation.
 
 Commands:
   aicmd -s                         Show current default session
@@ -230,7 +230,7 @@ const UX_HELP_ZH: &str = r#"缓存、总结、修复帮助
   aicmd --no-cache <任务>      不复用成功命令缓存
 
 AI summary 默认不自动执行。命令完成后，选择是否生成。
-使用 `--no-summary` 跳过选择，或使用 `aicmd config summary on` 改为自动生成。
+使用 --no-summary 跳过选择，或使用 aicmd config summary on 改为自动生成。
 
 命令确认：
   执行？[Y/n/?]                 回车/Y 执行；N 跳过；? 显示修改、解释、复制、退出
@@ -254,7 +254,7 @@ Useful flags:
   aicmd --no-cache <task>      Do not reuse successful command cache
 
 AI summary is not automatic by default. After execution, choose whether to generate it.
-Use `--no-summary` to skip that choice, or `aicmd config summary on` to enable it automatically.
+Use --no-summary to skip that choice, or aicmd config summary on to enable it automatically.
 
 Command confirmation:
   Run? [Y/n/?]                 Enter/Y runs; N skips; ? shows revise, explain, copy, quit
@@ -318,5 +318,20 @@ mod tests {
         assert!(english.contains("aicmd \"安装 jq，并验证安装结果\""));
         assert!(english.contains("Read-only checks run automatically"));
         assert!(!english.contains("只读检查会自动运行"));
+    }
+
+    #[test]
+    fn generated_help_has_no_markdown_backticks() {
+        for topic in [
+            "overview", "setup", "search", "do", "session", "fix", "doctor",
+        ] {
+            for chinese in [true, false] {
+                let help = help_text(topic, chinese);
+                assert!(
+                    !help.contains('`'),
+                    "{topic} help must not contain Markdown backticks"
+                );
+            }
+        }
     }
 }
