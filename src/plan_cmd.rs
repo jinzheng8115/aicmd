@@ -200,6 +200,7 @@ fn validate_workflow(plan: &ExecutionPlan) -> Result<()> {
     let mut ids: HashSet<String> = HashSet::new();
     let mut checks: HashSet<String> = HashSet::new();
     let mut has_verify = false;
+    let mut checks_finished = false;
 
     for step in &plan.steps {
         if step.id.trim().is_empty() {
@@ -222,13 +223,17 @@ fn validate_workflow(plan: &ExecutionPlan) -> Result<()> {
 
         match step.kind {
             WorkflowStepKind::Check => {
+                if checks_finished {
+                    bail!("Invalid workflow plan: check steps must form a leading prefix")
+                }
                 if step.risk != WorkflowRisk::ReadOnly {
                     bail!("Invalid workflow plan: check steps must be read_only")
                 }
                 checks.insert(step.id.clone());
             }
-            WorkflowStepKind::Action => {}
+            WorkflowStepKind::Action => checks_finished = true,
             WorkflowStepKind::Verify => {
+                checks_finished = true;
                 if step.risk != WorkflowRisk::ReadOnly {
                     bail!("Invalid workflow plan: verify steps must be read_only")
                 }
@@ -399,6 +404,27 @@ mod tests {
     ]"#,
         );
         assert!(parse_execution_plan(&forward_reference).is_err());
+    }
+
+    #[test]
+    fn workflow_checks_must_be_a_leading_contiguous_prefix() {
+        let check_after_action = workflow_json_with_steps(
+            r#"[
+              {"id":"action","kind":"action","command":"true","risk":"changes_files","on_failure":"stop"},
+              {"id":"check","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+              {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+            ]"#,
+        );
+        let check_after_verify = workflow_json_with_steps(
+            r#"[
+              {"id":"verify-first","kind":"verify","command":"true","risk":"read_only","on_failure":"continue"},
+              {"id":"check","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+              {"id":"verify-last","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+            ]"#,
+        );
+
+        assert!(parse_execution_plan(&check_after_action).is_err());
+        assert!(parse_execution_plan(&check_after_verify).is_err());
     }
 
     #[test]

@@ -288,4 +288,79 @@ mod tests {
         assert!(note.contains("Workflow status: cancelled"));
         assert!(note.contains("partial output"));
     }
+
+    #[test]
+    fn declined_workflow_record_contains_every_plan_step() {
+        let plan = parse_execution_plan(THREE_STEP_WORKFLOW_JSON)
+            .unwrap()
+            .workflow()
+            .unwrap();
+        let record = WorkflowRecord::from_partial(
+            "Install tool".to_string(),
+            plan,
+            vec![StepResult::exited("check", 1, "", "not found")],
+            0,
+            WorkflowStatus::Cancelled,
+            "confirmation_declined",
+        );
+        let note = build_workflow_session_note(&record);
+
+        assert_eq!(record.results.len(), 3);
+        assert_eq!(note.matches("Step:").count(), 3);
+        assert!(note.contains("Termination: confirmation_declined"));
+    }
+
+    #[test]
+    fn failed_workflow_record_marks_later_steps_blocked() {
+        let plan = parse_execution_plan(THREE_STEP_WORKFLOW_JSON)
+            .unwrap()
+            .workflow()
+            .unwrap();
+        let record = WorkflowRecord::from_partial(
+            "Install tool".to_string(),
+            plan,
+            vec![
+                StepResult::exited("check", 1, "", "not found"),
+                StepResult::exited("install", 1, "", "failed"),
+            ],
+            0,
+            WorkflowStatus::Failed,
+            "blocked_by_failure",
+        );
+
+        assert_eq!(record.results.len(), 3);
+        assert_eq!(record.results[2].step_id, "verify");
+        assert_eq!(record.results[2].status, StepStatus::Pending);
+        assert_eq!(record.results[2].termination, "blocked_by_failure");
+    }
+
+    #[test]
+    fn cancelled_workflow_record_marks_later_steps_cancelled() {
+        let plan = parse_execution_plan(THREE_STEP_WORKFLOW_JSON)
+            .unwrap()
+            .workflow()
+            .unwrap();
+        let record = WorkflowRecord::from_partial(
+            "Install tool".to_string(),
+            plan,
+            vec![
+                StepResult::exited("check", 1, "", "not found"),
+                StepResult {
+                    step_id: "install".to_string(),
+                    status: StepStatus::Cancelled,
+                    exit_code: 130,
+                    termination: "cancelled".to_string(),
+                    stdout: "partial output".to_string(),
+                    stderr: String::new(),
+                },
+            ],
+            0,
+            WorkflowStatus::Cancelled,
+            "cancelled",
+        );
+
+        assert_eq!(record.results.len(), 3);
+        assert_eq!(record.results[2].step_id, "verify");
+        assert_eq!(record.results[2].termination, "cancelled");
+    }
 }

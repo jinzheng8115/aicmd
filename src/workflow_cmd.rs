@@ -85,6 +85,66 @@ pub struct WorkflowRecord {
     pub status: WorkflowStatus,
 }
 
+impl WorkflowRecord {
+    pub fn from_partial(
+        request: String,
+        plan: WorkflowPlan,
+        partial_results: Vec<StepResult>,
+        repair_attempts: u8,
+        status: WorkflowStatus,
+        pending_termination: &str,
+    ) -> Self {
+        let results = plan
+            .steps
+            .iter()
+            .map(|step| {
+                if let Some(result) = partial_results
+                    .iter()
+                    .find(|result| result.step_id == step.id)
+                {
+                    return result.clone();
+                }
+                let skipped = step.run_if.as_ref().is_some_and(|condition| {
+                    partial_results
+                        .iter()
+                        .find(|result| result.step_id == condition.step)
+                        .is_some_and(|result| {
+                            matches!(result.status, StepStatus::Passed | StepStatus::Failed)
+                                && !matches!(
+                                    (result.status, condition.result),
+                                    (StepStatus::Passed, WorkflowConditionResult::Passed)
+                                        | (StepStatus::Failed, WorkflowConditionResult::Failed)
+                                )
+                        })
+                });
+                StepResult {
+                    step_id: step.id.clone(),
+                    status: if skipped {
+                        StepStatus::Skipped
+                    } else {
+                        StepStatus::Pending
+                    },
+                    exit_code: if skipped { 0 } else { -1 },
+                    termination: if skipped {
+                        "not_run".to_string()
+                    } else {
+                        pending_termination.to_string()
+                    },
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }
+            })
+            .collect();
+        Self {
+            request,
+            plan,
+            results,
+            repair_attempts,
+            status,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PreparedWorkflow {
     pub plan: WorkflowPlan,
@@ -122,9 +182,22 @@ impl PreparedWorkflow {
     }
 
     fn confirmation_risk(&self) -> Option<WorkflowRisk> {
-        self.next_step()
+        if self.is_stopped()
+            || self.plan.steps.iter().any(|step| {
+                step.kind == WorkflowStepKind::Check
+                    && self.status_of(&step.id) == StepStatus::Pending
+            })
+        {
+            return None;
+        }
+        self.plan
+            .steps
+            .iter()
+            .filter(|step| self.status_of(&step.id) == StepStatus::Pending)
+            .filter(|step| self.condition_matches(step))
             .map(|step| effective_workflow_risk(&step.command, step.risk))
             .filter(|risk| *risk > WorkflowRisk::ReadOnly)
+            .max()
     }
 
     pub fn next_step(&self) -> Option<&WorkflowStep> {
@@ -156,16 +229,18 @@ impl PreparedWorkflow {
             .ok_or_else(|| anyhow::anyhow!("unknown workflow step '{}'", result.step_id))?;
         *status = result.status;
         self.results.push(result);
+        self.block_later_modifications_after_continue_failure();
         self.apply_conditions();
         Ok(())
     }
 
     pub fn is_stopped(&self) -> bool {
         self.results.iter().any(|result| {
+            let step = self.step(&result.step_id);
             result.status == StepStatus::Cancelled
                 || (result.status == StepStatus::Failed
                     && matches!(
-                        self.step(&result.step_id).on_failure,
+                        step.on_failure,
                         WorkflowFailurePolicy::Stop | WorkflowFailurePolicy::Repair
                     ))
         })
@@ -191,6 +266,45 @@ impl PreparedWorkflow {
             .iter()
             .find(|step| step.id == step_id)
             .expect("recorded result belongs to the workflow plan")
+    }
+
+    fn condition_matches(&self, step: &WorkflowStep) -> bool {
+        let Some(condition) = &step.run_if else {
+            return true;
+        };
+        matches!(
+            (self.status_of(&condition.step), condition.result),
+            (StepStatus::Passed, WorkflowConditionResult::Passed)
+                | (StepStatus::Failed, WorkflowConditionResult::Failed)
+        )
+    }
+
+    fn block_later_modifications_after_continue_failure(&mut self) {
+        let Some(result) = self.results.last() else {
+            return;
+        };
+        let failed_step = self.step(&result.step_id);
+        if result.status != StepStatus::Failed
+            || failed_step.on_failure != WorkflowFailurePolicy::Continue
+            || effective_workflow_risk(&failed_step.command, failed_step.risk)
+                == WorkflowRisk::ReadOnly
+        {
+            return;
+        }
+        let failed_id = result.step_id.clone();
+        let mut after_failure = false;
+        for step in &self.plan.steps {
+            if step.id == failed_id {
+                after_failure = true;
+                continue;
+            }
+            if after_failure
+                && self.statuses[&step.id] == StepStatus::Pending
+                && effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly
+            {
+                self.statuses.insert(step.id.clone(), StepStatus::Skipped);
+            }
+        }
     }
 
     fn apply_conditions(&mut self) {
@@ -405,6 +519,42 @@ mod tests {
         .unwrap()
     }
 
+    fn multi_modification_plan() -> WorkflowPlan {
+        parse_execution_plan(
+            r#"{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Apply multiple changes",
+              "steps":[
+                {"id":"check","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+                {"id":"write","kind":"action","command":"touch /tmp/aicmd-safe","risk":"changes_files","on_failure":"continue"},
+                {"id":"remove","kind":"action","command":"rm -rf /tmp/aicmd-danger","risk":"read_only","on_failure":"stop"},
+                {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+              ]
+            }"#,
+        )
+        .unwrap()
+        .workflow()
+        .unwrap()
+    }
+
+    fn conditional_destructive_plan() -> WorkflowPlan {
+        parse_execution_plan(
+            r#"{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Conditionally remove files",
+              "steps":[
+                {"id":"check","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+                {"id":"write","kind":"action","command":"touch /tmp/aicmd-safe","risk":"changes_files","on_failure":"continue"},
+                {"id":"remove","kind":"action","command":"rm -rf /tmp/aicmd-danger","risk":"destructive","run_if":{"step":"check","result":"failed"},"on_failure":"stop"},
+                {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+              ]
+            }"#,
+        )
+        .unwrap()
+        .workflow()
+        .unwrap()
+    }
+
     fn shell_quote(value: &str) -> String {
         format!("'{}'", value.replace('\'', "'\\''"))
     }
@@ -482,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn confirmation_risk_tracks_only_the_currently_eligible_step() {
+    fn confirmation_waits_for_checks_and_respects_resolved_conditions() {
         let before_check = prepare_workflow(destructive_fixture_plan(), &[]).unwrap();
         assert_eq!(before_check.confirmation_risk(), None);
 
@@ -502,6 +652,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(after_passed_check.confirmation_risk(), None);
+    }
+
+    #[test]
+    fn confirmation_aggregates_maximum_risk_across_all_pending_modifications() {
+        let prepared = prepare_workflow(
+            multi_modification_plan(),
+            &[StepResult::exited("check", 0, "", "")],
+        )
+        .unwrap();
+
+        assert_eq!(
+            prepared.confirmation_risk(),
+            Some(WorkflowRisk::Destructive)
+        );
+    }
+
+    #[test]
+    fn confirmation_excludes_condition_skipped_destructive_steps() {
+        let prepared = prepare_workflow(
+            conditional_destructive_plan(),
+            &[StepResult::exited("check", 0, "", "")],
+        )
+        .unwrap();
+
+        assert_eq!(prepared.status_of("remove"), StepStatus::Skipped);
+        assert_eq!(
+            prepared.confirmation_risk(),
+            Some(WorkflowRisk::ChangesFiles)
+        );
     }
 
     #[test]
@@ -564,6 +743,22 @@ mod tests {
             .unwrap();
         assert!(workflow.is_stopped());
         assert!(workflow.next_step().is_none());
+    }
+
+    #[test]
+    fn modifying_failure_with_continue_stops_later_modifications() {
+        let mut workflow = prepare_workflow(
+            multi_modification_plan(),
+            &[StepResult::exited("check", 0, "", "")],
+        )
+        .unwrap();
+        workflow
+            .record(StepResult::exited("write", 1, "", "failed"))
+            .unwrap();
+
+        assert!(!workflow.is_stopped());
+        assert_eq!(workflow.status_of("remove"), StepStatus::Skipped);
+        assert_eq!(workflow.next_step().unwrap().id, "verify");
     }
 
     #[test]
@@ -639,6 +834,41 @@ mod tests {
             .unwrap();
         assert_eq!(status, WorkflowStatus::Completed);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "ok\n");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_continue_modification_does_not_run_later_modification() {
+        let root = std::env::temp_dir().join(format!("aicmd-workflow-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let marker = root.join("must-not-exist.txt");
+        let marker = shell_quote(&marker.display().to_string());
+        let plan = parse_execution_plan(&format!(
+            r#"{{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Stop later modifications",
+              "steps":[
+                {{"id":"fail","kind":"action","command":"false","risk":"changes_files","on_failure":"continue"}},
+                {{"id":"write","kind":"action","command":"touch {marker}","risk":"changes_files","on_failure":"stop"}},
+                {{"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}}
+              ]
+            }}"#
+        ))
+        .unwrap()
+        .workflow()
+        .unwrap();
+        let mut workflow = prepare_workflow(plan, &[]).unwrap();
+        assert!(workflow.needs_confirmation());
+        let shell = Shell::new("sh", "/bin/sh", "-c");
+
+        let status = execute_prepared_workflow(&shell, &mut workflow, create_abort_signal())
+            .await
+            .unwrap();
+
+        assert_eq!(status, WorkflowStatus::Failed);
+        assert_eq!(workflow.status_of("write"), StepStatus::Skipped);
+        assert_eq!(workflow.status_of("verify"), StepStatus::Passed);
+        assert!(!root.join("must-not-exist.txt").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

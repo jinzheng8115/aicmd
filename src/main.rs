@@ -954,89 +954,107 @@ async fn run_workflow_plan(
     abort_signal: AbortSignal,
     repair_attempts: u8,
 ) -> Result<()> {
-    for step in plan
-        .steps
-        .iter()
-        .filter(|step| step.kind == WorkflowStepKind::Check)
-    {
-        if confirm_cmd::effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly {
-            bail!("workflow check '{}' is not read-only", step.id);
-        }
-    }
-
     let mut check_results = Vec::new();
-    for step in plan
-        .steps
-        .iter()
-        .filter(|step| step.kind == WorkflowStepKind::Check)
-    {
-        let command = execute_cmd::with_cwd_capture(shell, &step.command);
-        let output =
-            execute_cmd::run_command_capture_controlled(shell, &command, abort_signal.clone())
-                .await?;
-        let result = workflow_cmd::step_result_from_output(&step.id, output);
-        let stop = result.status == workflow_cmd::StepStatus::Cancelled
-            || (result.status == workflow_cmd::StepStatus::Failed
-                && matches!(
-                    step.on_failure,
-                    WorkflowFailurePolicy::Stop | WorkflowFailurePolicy::Repair
-                ));
-        check_results.push(result);
-        if stop {
-            break;
+    let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> = async {
+        let checks = plan
+            .steps
+            .iter()
+            .take_while(|step| step.kind == WorkflowStepKind::Check)
+            .collect::<Vec<_>>();
+        for step in &checks {
+            if confirm_cmd::effective_workflow_risk(&step.command, step.risk)
+                > WorkflowRisk::ReadOnly
+            {
+                bail!("workflow check '{}' is not read-only", step.id);
+            }
         }
-    }
+        for step in checks {
+            let command = execute_cmd::with_cwd_capture(shell, &step.command);
+            let output =
+                execute_cmd::run_command_capture_controlled(shell, &command, abort_signal.clone())
+                    .await?;
+            let result = workflow_cmd::step_result_from_output(&step.id, output);
+            let stop = result.status == workflow_cmd::StepStatus::Cancelled
+                || (result.status == workflow_cmd::StepStatus::Failed
+                    && matches!(
+                        step.on_failure,
+                        WorkflowFailurePolicy::Stop | WorkflowFailurePolicy::Repair
+                    ));
+            check_results.push(result);
+            if stop {
+                break;
+            }
+        }
 
-    let mut prepared = workflow_cmd::prepare_workflow(plan, &check_results)?;
-    let confirmed = workflow_cmd::confirm_workflow(&prepared)?;
-    let status = if confirmed {
-        workflow_cmd::execute_prepared_workflow(shell, &mut prepared, abort_signal).await?
-    } else {
-        workflow_cmd::WorkflowStatus::Cancelled
+        let mut prepared = workflow_cmd::prepare_workflow(plan.clone(), &check_results)?;
+        if !workflow_cmd::confirm_workflow(&prepared)? {
+            return Ok((
+                workflow_cmd::WorkflowStatus::Cancelled,
+                "confirmation_declined",
+                false,
+            ));
+        }
+        let execution =
+            workflow_cmd::execute_prepared_workflow(shell, &mut prepared, abort_signal).await;
+        check_results = prepared.results.clone();
+        let status = execution?;
+        let interrupted = check_results
+            .iter()
+            .any(|result| result.status == workflow_cmd::StepStatus::Cancelled);
+        let pending_termination = match status {
+            workflow_cmd::WorkflowStatus::Completed => "not_run",
+            workflow_cmd::WorkflowStatus::Failed => "blocked_by_failure",
+            workflow_cmd::WorkflowStatus::Cancelled => "cancelled",
+        };
+        Ok((status, pending_termination, interrupted))
+    }
+    .await;
+
+    let (status, pending_termination, interrupted) = match &run_result {
+        Ok(terminal) => *terminal,
+        Err(_) => (workflow_cmd::WorkflowStatus::Failed, "not_run", false),
     };
-    let interrupted = prepared
-        .results
-        .iter()
-        .any(|result| result.status == workflow_cmd::StepStatus::Cancelled);
-    let results = prepared
-        .plan
-        .steps
-        .iter()
-        .filter_map(|step| {
-            prepared
-                .results
-                .iter()
-                .find(|result| result.step_id == step.id)
-                .cloned()
-                .or_else(|| {
-                    (prepared.status_of(&step.id) == workflow_cmd::StepStatus::Skipped).then(|| {
-                        workflow_cmd::StepResult {
-                            step_id: step.id.clone(),
-                            status: workflow_cmd::StepStatus::Skipped,
-                            exit_code: 0,
-                            termination: "not_run".to_string(),
-                            stdout: String::new(),
-                            stderr: String::new(),
-                        }
-                    })
-                })
-        })
-        .collect();
-    let record = workflow_cmd::WorkflowRecord {
-        request,
-        plan: prepared.plan,
-        results,
+    let save_result = append_workflow_terminal_note(
+        &mut |note| config.write().append_session_note(note),
+        &request,
+        plan,
+        check_results,
         repair_attempts,
         status,
-    };
-    config
-        .write()
-        .append_session_note(result_cmd::build_workflow_session_note(&record))?;
-
+        pending_termination,
+    );
+    match (run_result, save_result) {
+        (Err(error), Err(save_error)) => {
+            return Err(error.context(format!("failed to save workflow result: {save_error:#}")))
+        }
+        (Err(error), Ok(())) => return Err(error),
+        (Ok(_), Err(save_error)) => return Err(save_error),
+        (Ok(_), Ok(())) => {}
+    }
     if interrupted {
         process::exit(130);
     }
     Ok(())
+}
+
+fn append_workflow_terminal_note(
+    append_note: &mut dyn FnMut(String) -> Result<()>,
+    request: &str,
+    plan: WorkflowPlan,
+    results: Vec<workflow_cmd::StepResult>,
+    repair_attempts: u8,
+    status: workflow_cmd::WorkflowStatus,
+    pending_termination: &str,
+) -> Result<()> {
+    let record = workflow_cmd::WorkflowRecord::from_partial(
+        request.to_string(),
+        plan,
+        results,
+        repair_attempts,
+        status,
+        pending_termination,
+    );
+    append_note(result_cmd::build_workflow_session_note(&record))
 }
 
 #[async_recursion::async_recursion]
@@ -1412,6 +1430,75 @@ fn setup_logger() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workflow_save_fixture() -> WorkflowPlan {
+        plan_cmd::parse_execution_plan(
+            r#"{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Save terminal workflow",
+              "steps":[
+                {"id":"check","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+                {"id":"write","kind":"action","command":"touch /tmp/aicmd-save","risk":"changes_files","on_failure":"stop"},
+                {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+              ]
+            }"#,
+        )
+        .unwrap()
+        .workflow()
+        .unwrap()
+    }
+
+    #[test]
+    fn early_workflow_failure_appends_complete_terminal_note() {
+        let mut saved = Vec::new();
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            Vec::new(),
+            0,
+            workflow_cmd::WorkflowStatus::Failed,
+            "not_run",
+        )
+        .unwrap();
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].matches("Step:").count(), 3);
+        assert!(saved[0].contains("Workflow status: failed"));
+    }
+
+    #[test]
+    fn cancelled_workflow_appends_partial_output_and_later_steps() {
+        let mut saved = Vec::new();
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            vec![workflow_cmd::StepResult {
+                step_id: "check".to_string(),
+                status: workflow_cmd::StepStatus::Cancelled,
+                exit_code: 130,
+                termination: "cancelled".to_string(),
+                stdout: "partial output".to_string(),
+                stderr: String::new(),
+            }],
+            0,
+            workflow_cmd::WorkflowStatus::Cancelled,
+            "cancelled",
+        )
+        .unwrap();
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].matches("Step:").count(), 3);
+        assert!(saved[0].contains("partial output"));
+        assert!(saved[0].contains("Termination: cancelled"));
+    }
 
     #[test]
     fn git_change_capture_is_limited_to_modifying_risk_levels() {
