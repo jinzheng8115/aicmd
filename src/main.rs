@@ -1010,31 +1010,58 @@ async fn run_workflow_plan(
     }
     .await;
 
-    let (status, pending_termination, interrupted) = match &run_result {
-        Ok(terminal) => *terminal,
-        Err(_) => (workflow_cmd::WorkflowStatus::Failed, "not_run", false),
-    };
+    let terminal = classify_workflow_terminal(&run_result);
     let save_result = append_workflow_terminal_note(
         &mut |note| config.write().append_session_note(note),
         &request,
         plan,
         check_results,
         repair_attempts,
-        status,
-        pending_termination,
+        terminal.status,
+        terminal.pending_termination,
     );
     match (run_result, save_result) {
         (Err(error), Err(save_error)) => {
             return Err(error.context(format!("failed to save workflow result: {save_error:#}")))
         }
-        (Err(error), Ok(())) => return Err(error),
+        (Err(error), Ok(())) if terminal.exit_code.is_none() => return Err(error),
+        (Err(_), Ok(())) => {}
         (Ok(_), Err(save_error)) => return Err(save_error),
         (Ok(_), Ok(())) => {}
     }
-    if interrupted {
-        process::exit(130);
+    if let Some(code) = terminal.exit_code {
+        process::exit(code);
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorkflowTerminal {
+    status: workflow_cmd::WorkflowStatus,
+    pending_termination: &'static str,
+    exit_code: Option<i32>,
+}
+
+fn classify_workflow_terminal(
+    run_result: &Result<(workflow_cmd::WorkflowStatus, &'static str, bool)>,
+) -> WorkflowTerminal {
+    match run_result {
+        Ok((status, pending_termination, interrupted)) => WorkflowTerminal {
+            status: *status,
+            pending_termination,
+            exit_code: interrupted.then_some(130),
+        },
+        Err(error) if error.to_string() == "Interrupted" => WorkflowTerminal {
+            status: workflow_cmd::WorkflowStatus::Cancelled,
+            pending_termination: "cancelled",
+            exit_code: Some(130),
+        },
+        Err(_) => WorkflowTerminal {
+            status: workflow_cmd::WorkflowStatus::Failed,
+            pending_termination: "not_run",
+            exit_code: None,
+        },
+    }
 }
 
 fn append_workflow_terminal_note(
@@ -1498,6 +1525,45 @@ mod tests {
         assert_eq!(saved[0].matches("Step:").count(), 3);
         assert!(saved[0].contains("partial output"));
         assert!(saved[0].contains("Termination: cancelled"));
+    }
+
+    #[test]
+    fn confirmation_interruption_is_saved_as_cancelled_with_exit_130() {
+        let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> =
+            Err(anyhow::anyhow!("Interrupted"));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut saved = Vec::new();
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        )
+        .unwrap();
+
+        assert_eq!(terminal.status, workflow_cmd::WorkflowStatus::Cancelled);
+        assert_eq!(terminal.exit_code, Some(130));
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].matches("Step:").count(), 3);
+        assert!(saved[0].contains("Workflow status: cancelled"));
+        assert!(saved[0].contains("Termination: cancelled"));
+    }
+
+    #[test]
+    fn non_interruption_confirmation_error_remains_failed() {
+        let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> =
+            Err(anyhow::anyhow!("confirmation failed: Interrupted"));
+        let terminal = classify_workflow_terminal(&run_result);
+
+        assert_eq!(terminal.status, workflow_cmd::WorkflowStatus::Failed);
+        assert_eq!(terminal.pending_termination, "not_run");
+        assert_eq!(terminal.exit_code, None);
     }
 
     #[test]
