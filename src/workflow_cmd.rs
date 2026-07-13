@@ -3,6 +3,7 @@ use crate::plan_cmd::{
     WorkflowConditionResult, WorkflowFailurePolicy, WorkflowPlan, WorkflowRisk, WorkflowStep,
     WorkflowStepKind,
 };
+use crate::utils::localized;
 
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -76,9 +77,13 @@ impl PreparedWorkflow {
     }
 
     pub fn needs_confirmation(&self) -> bool {
-        self.next_step().is_some_and(|step| {
-            effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly
-        })
+        self.confirmation_risk().is_some()
+    }
+
+    fn confirmation_risk(&self) -> Option<WorkflowRisk> {
+        self.next_step()
+            .map(|step| effective_workflow_risk(&step.command, step.risk))
+            .filter(|risk| *risk > WorkflowRisk::ReadOnly)
     }
 
     pub fn next_step(&self) -> Option<&WorkflowStep> {
@@ -173,50 +178,63 @@ impl PreparedWorkflow {
 pub fn render_workflow_confirmation(prepared: &PreparedWorkflow) -> String {
     let mut lines = vec![
         format!(
-            "Workflow confirmation / 工作流确认: {}",
+            "{}: {}",
+            localized("工作流确认", "Workflow confirmation"),
             prepared.plan.summary
         ),
-        "Prepared plan / 已准备计划:".to_string(),
+        localized("已准备计划:", "Prepared plan:").to_string(),
     ];
 
     for step in &prepared.plan.steps {
         let status = prepared.status_of(&step.id);
         match status {
             StepStatus::Pending => lines.push(format!(
-                "  [pending / 待执行] {} ({}) : {}",
+                "  [{}] {} ({}) : {}",
+                localized("待执行", "pending"),
                 step.id,
                 workflow_risk_label(effective_workflow_risk(&step.command, step.risk)),
                 step.command
             )),
-            StepStatus::Skipped => lines.push(format!("  [skipped / 已跳过] {}", step.id)),
-            StepStatus::Passed => lines.push(format!("  [passed / 已完成] {}", step.id)),
-            StepStatus::Failed => lines.push(format!("  [failed / 已失败] {}", step.id)),
-            StepStatus::Cancelled => lines.push(format!("  [cancelled / 已取消] {}", step.id)),
+            StepStatus::Skipped => lines.push(format!(
+                "  [{}] {}",
+                localized("已跳过", "skipped"),
+                step.id
+            )),
+            StepStatus::Passed => {
+                lines.push(format!("  [{}] {}", localized("已完成", "passed"), step.id))
+            }
+            StepStatus::Failed => {
+                lines.push(format!("  [{}] {}", localized("已失败", "failed"), step.id))
+            }
+            StepStatus::Cancelled => lines.push(format!(
+                "  [{}] {}",
+                localized("已取消", "cancelled"),
+                step.id
+            )),
         }
     }
     lines.join("\n")
 }
 
 pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
-    let risks: Vec<_> = prepared
-        .plan
-        .steps
-        .iter()
-        .filter(|step| prepared.status_of(&step.id) == StepStatus::Pending)
-        .map(|step| effective_workflow_risk(&step.command, step.risk))
-        .collect();
-    if !risks.iter().any(|risk| *risk > WorkflowRisk::ReadOnly) {
+    let Some(risk) = prepared.confirmation_risk() else {
         return Ok(true);
-    }
+    };
 
     println!("{}", render_workflow_confirmation(prepared));
-    if read_action(&['y', 'n'], 'n', "Execute this plan? / 执行此计划？ [y/N] ")? != 'y' {
+    if read_action(
+        &['y', 'n'],
+        'n',
+        localized("执行此计划？ [y/N] ", "Execute this plan? [y/N] "),
+    )? != 'y'
+    {
         return Ok(false);
     }
-    if risks.contains(&WorkflowRisk::Destructive)
-        && !confirm_high_risk(
-            "Destructive step detected. Continue? / 检测到破坏性步骤，确认继续？",
-        )?
+    if risk == WorkflowRisk::Destructive
+        && !confirm_high_risk(localized(
+            "检测到破坏性步骤，确认继续？",
+            "Destructive step detected. Continue?",
+        ))?
     {
         return Ok(false);
     }
@@ -225,10 +243,10 @@ pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
 
 fn workflow_risk_label(risk: WorkflowRisk) -> &'static str {
     match risk {
-        WorkflowRisk::ReadOnly => "read-only / 只读",
-        WorkflowRisk::ChangesFiles => "changes files / 会修改文件",
-        WorkflowRisk::ChangesSystem => "changes system / 会修改系统或文件",
-        WorkflowRisk::Destructive => "destructive / 可能造成破坏",
+        WorkflowRisk::ReadOnly => localized("只读", "read-only"),
+        WorkflowRisk::ChangesFiles => localized("会修改文件", "changes files"),
+        WorkflowRisk::ChangesSystem => localized("会修改系统或文件", "changes system"),
+        WorkflowRisk::Destructive => localized("可能造成破坏", "destructive"),
     }
 }
 
@@ -236,6 +254,15 @@ fn workflow_risk_label(risk: WorkflowRisk) -> &'static str {
 mod tests {
     use super::*;
     use crate::plan_cmd::{parse_execution_plan, WorkflowPlan};
+    use std::{
+        env,
+        ffi::OsString,
+        fs,
+        path::PathBuf,
+        sync::{LazyLock, Mutex},
+    };
+
+    static LANGUAGE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     const THREE_STEP_WORKFLOW_JSON: &str = r#"{
       "mode":"workflow","command":"","query":"","problem":"","preflight":[],
@@ -252,6 +279,62 @@ mod tests {
             .unwrap()
             .workflow()
             .unwrap()
+    }
+
+    fn destructive_fixture_plan() -> WorkflowPlan {
+        parse_execution_plan(
+            r#"{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Remove temporary files",
+              "steps":[
+                {"id":"check","kind":"check","command":"command -v tool","risk":"read_only","on_failure":"continue"},
+                {"id":"remove","kind":"action","command":"rm -rf /tmp/aicmd-test","risk":"read_only","run_if":{"step":"check","result":"failed"},"on_failure":"stop"},
+                {"id":"verify","kind":"verify","command":"tool --version","risk":"read_only","on_failure":"repair"}
+              ]
+            }"#,
+        )
+        .unwrap()
+        .workflow()
+        .unwrap()
+    }
+
+    struct TestLanguageConfig {
+        original_config_file: Option<OsString>,
+        path: PathBuf,
+    }
+
+    impl TestLanguageConfig {
+        fn new(language: &str) -> Self {
+            let path = env::temp_dir().join(format!(
+                "aicmd-workflow-language-{}.yaml",
+                uuid::Uuid::new_v4()
+            ));
+            fs::write(&path, format!("language: {language}\n")).unwrap();
+            let original_config_file = env::var_os("AICMD_CONFIG_FILE");
+            env::set_var("AICMD_CONFIG_FILE", &path);
+            Self {
+                original_config_file,
+                path,
+            }
+        }
+    }
+
+    impl Drop for TestLanguageConfig {
+        fn drop(&mut self) {
+            match &self.original_config_file {
+                Some(path) => env::set_var("AICMD_CONFIG_FILE", path),
+                None => env::remove_var("AICMD_CONFIG_FILE"),
+            }
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+
+    fn render_in_language(language: &str, prepared: &PreparedWorkflow) -> String {
+        let _lock = LANGUAGE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let _config = TestLanguageConfig::new(language);
+        render_workflow_confirmation(prepared)
     }
 
     #[test]
@@ -271,6 +354,29 @@ mod tests {
     }
 
     #[test]
+    fn confirmation_risk_tracks_only_the_currently_eligible_step() {
+        let before_check = prepare_workflow(destructive_fixture_plan(), &[]).unwrap();
+        assert_eq!(before_check.confirmation_risk(), None);
+
+        let after_failed_check = prepare_workflow(
+            destructive_fixture_plan(),
+            &[StepResult::exited("check", 1, "", "not found")],
+        )
+        .unwrap();
+        assert_eq!(
+            after_failed_check.confirmation_risk(),
+            Some(WorkflowRisk::Destructive)
+        );
+
+        let after_passed_check = prepare_workflow(
+            destructive_fixture_plan(),
+            &[StepResult::exited("check", 0, "/usr/bin/tool", "")],
+        )
+        .unwrap();
+        assert_eq!(after_passed_check.confirmation_risk(), None);
+    }
+
+    #[test]
     fn passed_check_skips_conditioned_install() {
         let plan = fixture_plan();
         let results = vec![StepResult::exited("check", 0, "/usr/bin/tool", "")];
@@ -287,10 +393,28 @@ mod tests {
             &[StepResult::exited("check", 0, "/usr/bin/tool", "")],
         )
         .unwrap();
-        let text = render_workflow_confirmation(&prepared);
+        let text = render_in_language("en", &prepared);
         assert!(text.contains("verify"));
         assert!(text.contains("skipped"));
         assert!(!text.contains("brew install tool"));
+    }
+
+    #[test]
+    fn workflow_confirmation_uses_only_the_configured_language() {
+        let prepared = prepare_workflow(fixture_plan(), &[]).unwrap();
+        let chinese = render_in_language("zh", &prepared);
+        assert!(chinese.contains("工作流确认"));
+        assert!(!chinese.contains("Workflow confirmation"));
+        assert!(!chinese.contains("[pending"));
+        assert!(!chinese.contains("[skipped"));
+        assert!(!chinese.contains("[passed"));
+
+        let english = render_in_language("en", &prepared);
+        assert!(english.contains("Workflow confirmation"));
+        assert!(!english.contains("工作流确认"));
+        assert!(!english.contains("待执行"));
+        assert!(!english.contains("已跳过"));
+        assert!(!english.contains("已完成"));
     }
 
     #[test]
