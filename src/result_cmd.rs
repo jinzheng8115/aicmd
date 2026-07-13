@@ -1,7 +1,9 @@
 use crate::{
     confirm_cmd,
+    plan_cmd::{WorkflowConditionResult, WorkflowRisk},
     preflight_cmd::PreflightReport,
     utils::{color_text, dimmed_text, localized},
+    workflow_cmd::{StepStatus, WorkflowRecord},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,9 +112,126 @@ pub fn build_preflight_session_note(task: &str, report: &PreflightReport) -> Str
     format!("Execution preflight failed:\nTask:\n{task}\n\nFailures:\n{failures}")
 }
 
+pub fn build_workflow_session_note(record: &WorkflowRecord) -> String {
+    const OUTPUT_LIMIT: usize = 4_000;
+    let plan = serde_json::to_string_pretty(&record.plan)
+        .unwrap_or_else(|error| format!("(plan serialization failed: {error})"));
+    let results = record
+        .results
+        .iter()
+        .map(|result| {
+            let step = record
+                .plan
+                .steps
+                .iter()
+                .find(|step| step.id == result.step_id);
+            let skip_reason = if result.status == StepStatus::Skipped {
+                step
+                    .and_then(|step| step.run_if.as_ref())
+                    .map(|condition| {
+                        let expected = match condition.result {
+                            WorkflowConditionResult::Passed => "passed",
+                            WorkflowConditionResult::Failed => "failed",
+                        };
+                        format!(
+                            "\nSkip reason: condition {}={} was not met",
+                            condition.step, expected
+                        )
+                    })
+                    .unwrap_or_else(|| "\nSkip reason: not eligible".to_string())
+            } else {
+                String::new()
+            };
+            let command = step.map(|step| step.command.as_str()).unwrap_or("(unknown)");
+            let risk = step
+                .map(|step| {
+                    match confirm_cmd::effective_workflow_risk(&step.command, step.risk) {
+                    WorkflowRisk::ReadOnly => "read_only",
+                    WorkflowRisk::ChangesFiles => "changes_files",
+                    WorkflowRisk::ChangesSystem => "changes_system",
+                    WorkflowRisk::Destructive => "destructive",
+                    }
+                })
+                .unwrap_or("unknown");
+            format!(
+                "Step: {}\nCommand: {}\nRisk: {}\nStatus: {}\nExit code: {}\nTermination: {}{}\nSTDOUT:\n{}\nSTDERR:\n{}",
+                result.step_id,
+                command,
+                risk,
+                result.status.as_str(),
+                result.exit_code,
+                result.termination,
+                skip_reason,
+                truncate_for_session(result.stdout.trim(), OUTPUT_LIMIT),
+                truncate_for_session(result.stderr.trim(), OUTPUT_LIMIT),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!(
+        "Workflow execution result:\nRequest:\n{}\n\nConfirmed plan:\n{}\n\nOrdered results:\n{}\n\nRepair attempts: {}\nWorkflow status: {}",
+        record.request,
+        plan,
+        results,
+        record.repair_attempts,
+        record.status.as_str(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        plan_cmd::parse_execution_plan,
+        workflow_cmd::{StepResult, StepStatus, WorkflowRecord, WorkflowStatus},
+    };
+
+    const THREE_STEP_WORKFLOW_JSON: &str = r#"{
+      "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+      "summary":"Install tool",
+      "steps":[
+        {"id":"check","kind":"check","command":"command -v tool","risk":"read_only","on_failure":"continue"},
+        {"id":"install","kind":"action","command":"brew install tool","risk":"changes_system","run_if":{"step":"check","result":"failed"},"on_failure":"stop"},
+        {"id":"verify","kind":"verify","command":"tool --version","risk":"read_only","on_failure":"repair"}
+      ]
+    }"#;
+
+    fn workflow_record_fixture(status: WorkflowStatus) -> WorkflowRecord {
+        let plan = parse_execution_plan(THREE_STEP_WORKFLOW_JSON)
+            .unwrap()
+            .workflow()
+            .unwrap();
+        let verify = if status == WorkflowStatus::Cancelled {
+            StepResult {
+                step_id: "verify".to_string(),
+                status: StepStatus::Cancelled,
+                exit_code: 130,
+                termination: "cancelled".to_string(),
+                stdout: "partial output".to_string(),
+                stderr: String::new(),
+            }
+        } else {
+            StepResult::exited("verify", 0, "tool 1.0", "")
+        };
+        WorkflowRecord {
+            request: "Install tool".to_string(),
+            plan,
+            results: vec![
+                StepResult::exited("check", 0, "/usr/bin/tool", ""),
+                StepResult {
+                    step_id: "install".to_string(),
+                    status: StepStatus::Skipped,
+                    exit_code: 0,
+                    termination: "not_run".to_string(),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                },
+                verify,
+            ],
+            repair_attempts: 0,
+            status,
+        }
+    }
 
     #[test]
     fn repair_is_unavailable_after_two_attempts() {
@@ -150,5 +269,23 @@ mod tests {
         let note = build_preflight_session_note("deploy", &report);
         assert!(note.contains("API_TOKEN"));
         assert!(!note.contains("secret-value"));
+    }
+
+    #[test]
+    fn workflow_note_contains_plan_steps_and_final_status() {
+        let record = workflow_record_fixture(WorkflowStatus::Completed);
+        let note = build_workflow_session_note(&record);
+        assert!(note.contains("Workflow status: completed"));
+        assert!(note.contains("Step: check"));
+        assert!(note.contains("Step: verify"));
+        assert!(note.contains("Exit code: 0"));
+    }
+
+    #[test]
+    fn cancelled_workflow_note_keeps_partial_output() {
+        let record = workflow_record_fixture(WorkflowStatus::Cancelled);
+        let note = build_workflow_session_note(&record);
+        assert!(note.contains("Workflow status: cancelled"));
+        assert!(note.contains("partial output"));
     }
 }

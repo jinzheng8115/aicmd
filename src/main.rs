@@ -44,7 +44,7 @@ use crate::config::{
 use crate::intent_cmd::NaturalIntent;
 use crate::plan_cmd::{
     parse_generated_command, render_execution_plan, request_execution_plan, route_kind,
-    ExecutionPlan, RouteKind,
+    ExecutionPlan, RouteKind, WorkflowFailurePolicy, WorkflowPlan, WorkflowRisk, WorkflowStepKind,
 };
 use crate::preflight_cmd::PreflightCheck;
 use crate::render::render_error;
@@ -894,13 +894,7 @@ async fn route_execution_plan(
             RouteKind::Command => println!("{}", plan.command),
             RouteKind::Search => println!("mode: search\nquery: {}", plan.query),
             RouteKind::Diagnose => println!("mode: diagnose\nproblem: {}", plan.problem),
-            RouteKind::Workflow => bail!(
-                "{}",
-                localized(
-                    "工作流执行尚未实现",
-                    "workflow execution is not implemented"
-                )
-            ),
+            RouteKind::Workflow => println!("{}", render_execution_plan(&plan)?),
         }
         return Ok(());
     }
@@ -945,14 +939,104 @@ async fn route_execution_plan(
             let input = input_with_execution_role(config, input, route)?;
             shell_execute(config, shell, input, abort_signal, retry_budget, None, 0).await
         }
-        RouteKind::Workflow => bail!(
-            "{}",
-            localized(
-                "工作流执行尚未实现",
-                "workflow execution is not implemented"
-            )
-        ),
+        RouteKind::Workflow => {
+            let workflow = plan.workflow().context("workflow payload missing")?;
+            run_workflow_plan(config, shell, input.text(), workflow, abort_signal, 0).await
+        }
     }
+}
+
+async fn run_workflow_plan(
+    config: &GlobalConfig,
+    shell: &Shell,
+    request: String,
+    plan: WorkflowPlan,
+    abort_signal: AbortSignal,
+    repair_attempts: u8,
+) -> Result<()> {
+    for step in plan
+        .steps
+        .iter()
+        .filter(|step| step.kind == WorkflowStepKind::Check)
+    {
+        if confirm_cmd::effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly {
+            bail!("workflow check '{}' is not read-only", step.id);
+        }
+    }
+
+    let mut check_results = Vec::new();
+    for step in plan
+        .steps
+        .iter()
+        .filter(|step| step.kind == WorkflowStepKind::Check)
+    {
+        let command = execute_cmd::with_cwd_capture(shell, &step.command);
+        let output =
+            execute_cmd::run_command_capture_controlled(shell, &command, abort_signal.clone())
+                .await?;
+        let result = workflow_cmd::step_result_from_output(&step.id, output);
+        let stop = result.status == workflow_cmd::StepStatus::Cancelled
+            || (result.status == workflow_cmd::StepStatus::Failed
+                && matches!(
+                    step.on_failure,
+                    WorkflowFailurePolicy::Stop | WorkflowFailurePolicy::Repair
+                ));
+        check_results.push(result);
+        if stop {
+            break;
+        }
+    }
+
+    let mut prepared = workflow_cmd::prepare_workflow(plan, &check_results)?;
+    let confirmed = workflow_cmd::confirm_workflow(&prepared)?;
+    let status = if confirmed {
+        workflow_cmd::execute_prepared_workflow(shell, &mut prepared, abort_signal).await?
+    } else {
+        workflow_cmd::WorkflowStatus::Cancelled
+    };
+    let interrupted = prepared
+        .results
+        .iter()
+        .any(|result| result.status == workflow_cmd::StepStatus::Cancelled);
+    let results = prepared
+        .plan
+        .steps
+        .iter()
+        .filter_map(|step| {
+            prepared
+                .results
+                .iter()
+                .find(|result| result.step_id == step.id)
+                .cloned()
+                .or_else(|| {
+                    (prepared.status_of(&step.id) == workflow_cmd::StepStatus::Skipped).then(|| {
+                        workflow_cmd::StepResult {
+                            step_id: step.id.clone(),
+                            status: workflow_cmd::StepStatus::Skipped,
+                            exit_code: 0,
+                            termination: "not_run".to_string(),
+                            stdout: String::new(),
+                            stderr: String::new(),
+                        }
+                    })
+                })
+        })
+        .collect();
+    let record = workflow_cmd::WorkflowRecord {
+        request,
+        plan: prepared.plan,
+        results,
+        repair_attempts,
+        status,
+    };
+    config
+        .write()
+        .append_session_note(result_cmd::build_workflow_session_note(&record))?;
+
+    if interrupted {
+        process::exit(130);
+    }
+    Ok(())
 }
 
 #[async_recursion::async_recursion]

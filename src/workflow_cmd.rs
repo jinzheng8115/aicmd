@@ -1,9 +1,12 @@
 use crate::confirm_cmd::{confirm_high_risk, effective_workflow_risk, read_action};
+use crate::execute_cmd::{
+    run_command_capture_controlled, with_cwd_capture, CommandOutput, CommandTermination,
+};
 use crate::plan_cmd::{
     WorkflowConditionResult, WorkflowFailurePolicy, WorkflowPlan, WorkflowRisk, WorkflowStep,
     WorkflowStepKind,
 };
-use crate::utils::localized;
+use crate::utils::{localized, AbortSignal, Shell};
 
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -15,6 +18,18 @@ pub enum StepStatus {
     Failed,
     Skipped,
     Cancelled,
+}
+
+impl StepStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+            Self::Cancelled => "cancelled",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +57,32 @@ impl StepResult {
             stderr: stderr.to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowStatus {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl WorkflowStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowRecord {
+    pub request: String,
+    pub plan: WorkflowPlan,
+    pub results: Vec<StepResult>,
+    pub repair_attempts: u8,
+    pub status: WorkflowStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -217,9 +258,12 @@ pub fn render_workflow_confirmation(prepared: &PreparedWorkflow) -> String {
 }
 
 pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
-    let Some(risk) = prepared.confirmation_risk() else {
+    if !prepared.needs_confirmation() {
         return Ok(true);
-    };
+    }
+    let risk = prepared
+        .confirmation_risk()
+        .expect("confirmation is required only for a risky pending step");
 
     println!("{}", render_workflow_confirmation(prepared));
     if read_action(
@@ -241,6 +285,68 @@ pub fn confirm_workflow(prepared: &PreparedWorkflow) -> Result<bool> {
     Ok(true)
 }
 
+pub async fn execute_prepared_workflow(
+    shell: &Shell,
+    workflow: &mut PreparedWorkflow,
+    abort_signal: AbortSignal,
+) -> Result<WorkflowStatus> {
+    while let Some(step) = workflow.next_step().cloned() {
+        if step.kind == WorkflowStepKind::Check {
+            anyhow::bail!("workflow check '{}' was not executed", step.id);
+        }
+        let command = with_cwd_capture(shell, &step.command);
+        let cwd = std::env::current_dir().ok();
+        let before = if effective_workflow_risk(&step.command, step.risk) > WorkflowRisk::ReadOnly {
+            cwd.as_deref()
+                .and_then(crate::change_report_cmd::GitSnapshot::capture)
+        } else {
+            None
+        };
+        let output = run_command_capture_controlled(shell, &command, abort_signal.clone()).await?;
+        if let (Some(before), Some(cwd)) = (before, cwd) {
+            if let Some(after) = crate::change_report_cmd::GitSnapshot::capture(&cwd) {
+                let changes = before.changes_since(&after);
+                if !changes.is_empty() {
+                    println!(
+                        "\n{}",
+                        crate::change_report_cmd::format_recovery_report(&changes)
+                    );
+                }
+            }
+        }
+        workflow.record(step_result_from_output(&step.id, output))?;
+    }
+
+    Ok(
+        if workflow
+            .results
+            .iter()
+            .any(|result| result.status == StepStatus::Cancelled)
+        {
+            WorkflowStatus::Cancelled
+        } else if workflow.completed() {
+            WorkflowStatus::Completed
+        } else {
+            WorkflowStatus::Failed
+        },
+    )
+}
+
+pub fn step_result_from_output(step_id: &str, output: CommandOutput) -> StepResult {
+    if output.termination == CommandTermination::Cancelled {
+        StepResult {
+            step_id: step_id.to_string(),
+            status: StepStatus::Cancelled,
+            exit_code: output.code,
+            termination: output.termination.as_str().to_string(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        }
+    } else {
+        StepResult::exited(step_id, output.code, &output.stdout, &output.stderr)
+    }
+}
+
 fn workflow_risk_label(risk: WorkflowRisk) -> &'static str {
     match risk {
         WorkflowRisk::ReadOnly => localized("只读", "read-only"),
@@ -254,6 +360,7 @@ fn workflow_risk_label(risk: WorkflowRisk) -> &'static str {
 mod tests {
     use super::*;
     use crate::plan_cmd::{parse_execution_plan, WorkflowPlan};
+    use crate::utils::{create_abort_signal, Shell};
     use std::{
         env,
         ffi::OsString,
@@ -293,6 +400,27 @@ mod tests {
               ]
             }"#,
         )
+        .unwrap()
+        .workflow()
+        .unwrap()
+    }
+
+    fn shell_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+
+    fn temp_file_plan(file: &std::path::Path) -> WorkflowPlan {
+        let file = shell_quote(&file.display().to_string());
+        parse_execution_plan(&format!(
+            r#"{{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Write and verify a temporary file",
+              "steps":[
+                {{"id":"write","kind":"action","command":"printf 'ok\\n' > {file}","risk":"changes_files","on_failure":"stop"}},
+                {{"id":"verify","kind":"verify","command":"test \"$(cat {file})\" = ok","risk":"read_only","on_failure":"repair"}}
+              ]
+            }}"#
+        ))
         .unwrap()
         .workflow()
         .unwrap()
@@ -495,5 +623,22 @@ mod tests {
             .record(StepResult::exited("verify", 0, "ok", ""))
             .unwrap();
         assert!(workflow.completed());
+    }
+
+    #[tokio::test]
+    async fn temporary_file_workflow_runs_action_then_verify() {
+        let root = std::env::temp_dir().join(format!("aicmd-workflow-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("result.txt");
+        let plan = temp_file_plan(&file);
+        let mut workflow = prepare_workflow(plan, &[]).unwrap();
+        assert!(workflow.needs_confirmation());
+        let shell = Shell::new("sh", "/bin/sh", "-c");
+        let status = execute_prepared_workflow(&shell, &mut workflow, create_abort_signal())
+            .await
+            .unwrap();
+        assert_eq!(status, WorkflowStatus::Completed);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "ok\n");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
