@@ -1020,6 +1020,25 @@ async fn run_workflow_plan(
         terminal.status,
         terminal.pending_termination,
     );
+    if let WorkflowAfterSaveAction::Exit {
+        code,
+        report_save_error,
+    } = workflow_after_save_action(terminal, &save_result)
+    {
+        if report_save_error {
+            let save_error = save_result
+                .as_ref()
+                .expect_err("save error is present when reporting is requested");
+            eprintln!(
+                "{}: {save_error:#}",
+                localized(
+                    "工作流结果保存失败；任务仍按取消处理",
+                    "Workflow result save failed; task remains cancelled"
+                )
+            );
+        }
+        process::exit(code);
+    }
     match (run_result, save_result) {
         (Err(error), Err(save_error)) => {
             return Err(error.context(format!("failed to save workflow result: {save_error:#}")))
@@ -1028,9 +1047,6 @@ async fn run_workflow_plan(
         (Err(_), Ok(())) => {}
         (Ok(_), Err(save_error)) => return Err(save_error),
         (Ok(_), Ok(())) => {}
-    }
-    if let Some(code) = terminal.exit_code {
-        process::exit(code);
     }
     Ok(())
 }
@@ -1061,6 +1077,25 @@ fn classify_workflow_terminal(
             pending_termination: "not_run",
             exit_code: None,
         },
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkflowAfterSaveAction {
+    Exit { code: i32, report_save_error: bool },
+    Continue,
+}
+
+fn workflow_after_save_action(
+    terminal: WorkflowTerminal,
+    save_result: &Result<()>,
+) -> WorkflowAfterSaveAction {
+    match terminal.exit_code {
+        Some(code) => WorkflowAfterSaveAction::Exit {
+            code,
+            report_save_error: save_result.is_err(),
+        },
+        None => WorkflowAfterSaveAction::Continue,
     }
 }
 
@@ -1564,6 +1599,37 @@ mod tests {
         assert_eq!(terminal.status, workflow_cmd::WorkflowStatus::Failed);
         assert_eq!(terminal.pending_termination, "not_run");
         assert_eq!(terminal.exit_code, None);
+    }
+
+    #[test]
+    fn cancellation_keeps_exit_130_when_session_append_fails() {
+        let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> =
+            Err(anyhow::anyhow!("Interrupted"));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut append_calls = 0;
+        let save_result = append_workflow_terminal_note(
+            &mut |_| {
+                append_calls += 1;
+                anyhow::bail!("session disk full")
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        );
+        let action = workflow_after_save_action(terminal, &save_result);
+
+        assert_eq!(append_calls, 1);
+        assert!(save_result.is_err());
+        assert_eq!(
+            action,
+            WorkflowAfterSaveAction::Exit {
+                code: 130,
+                report_save_error: true,
+            }
+        );
     }
 
     #[test]
