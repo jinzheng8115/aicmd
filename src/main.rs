@@ -1031,94 +1031,107 @@ async fn run_workflow_plan(
         terminal = cancelled_workflow_terminal();
         mark_workflow_record_cancelled(&mut record);
     }
-    let save_result = config
-        .write()
-        .append_session_note(result_cmd::build_workflow_session_note(&record));
-    if let WorkflowAfterSaveAction::Exit {
-        code,
-        report_save_error,
-    } = workflow_after_save_action(terminal, &save_result)
-    {
-        if report_save_error {
-            let save_error = save_result
-                .as_ref()
-                .expect_err("save error is present when reporting is requested");
-            eprintln!(
-                "{}: {save_error:#}",
-                localized(
-                    "工作流结果保存失败；任务仍按取消处理",
-                    "Workflow result save failed; task remains cancelled"
-                )
-            );
+    if should_append_workflow_record_before_planner(pre_planner_transition) {
+        let save_result = append_workflow_record(config, &record);
+        if let WorkflowAfterSaveAction::Exit {
+            code,
+            report_save_error,
+        } = workflow_after_save_action(terminal, &save_result)
+        {
+            if report_save_error {
+                let save_error = save_result
+                    .as_ref()
+                    .expect_err("save error is present when reporting is requested");
+                eprintln!(
+                    "{}: {save_error:#}",
+                    localized(
+                        "工作流结果保存失败；任务仍按取消处理",
+                        "Workflow result save failed; task remains cancelled"
+                    )
+                );
+            }
+            process::exit(code);
         }
-        process::exit(code);
-    }
-    match (run_result, save_result) {
-        (Err(error), Err(save_error)) => {
-            return Err(error.context(format!("failed to save workflow result: {save_error:#}")))
-        }
-        (Err(error), Ok(())) if terminal.exit_code.is_none() => return Err(error),
-        (Err(_), Ok(())) => {}
-        (Ok(_), Err(save_error)) => return Err(save_error),
-        (Ok(_), Ok(())) => {}
+        return match (run_result, save_result) {
+            (Err(error), Err(save_error)) => {
+                Err(error.context(format!("failed to save workflow result: {save_error:#}")))
+            }
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(save_error)) => Err(save_error),
+            (Ok(_), Ok(())) => Ok(()),
+        };
     }
 
-    if pre_planner_transition != WorkflowRepairTransition::RequestPlanner {
-        return Ok(());
-    }
-    let repair_prompt = {
+    let repair_prompt_result = {
         let cwd = env::current_dir()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|_| "unknown".to_string());
-        build_next_workflow_repair_prompt(&record, &shell.name, &cwd)?
+        build_next_workflow_repair_prompt(&record, &shell.name, &cwd)
     };
-    if let Some(repair_prompt) = repair_prompt {
-        if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), false)
-            != WorkflowRepairTransition::RequestPlanner
-        {
-            save_cancelled_workflow_and_exit(config, record.clone());
+    let repair_prompt = match repair_prompt_result {
+        Ok(Some(prompt)) => prompt,
+        Ok(None) => return append_workflow_record(config, &record),
+        Err(error) => {
+            return Err(error_after_workflow_save(
+                error,
+                append_workflow_record(config, &record),
+            ));
         }
-        let input = Input::from_str(config, &repair_prompt, None).with_session_context();
-        let retry_budget = RetryBudget::default();
-        let revised =
-            match request_execution_plan(config, &input, abort_signal.clone(), &retry_budget).await
-            {
-                Ok(revised) => revised,
-                Err(_) if abort_signal.aborted() => {
-                    save_cancelled_workflow_and_exit(config, record.clone())
-                }
-                Err(error) => {
-                    return Err(error).context(localized(
-                        "无法生成有效的 workflow 修订计划",
-                        "Failed to generate a valid revised workflow plan",
-                    ))
-                }
-            };
-        let revised = require_workflow_repair_plan(revised)?;
-        if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), true)
-            != WorkflowRepairTransition::ExecuteRevisedPlan
-        {
-            let cancelled = workflow_cmd::WorkflowRecord::from_partial(
-                request.clone(),
-                revised,
-                Vec::new(),
-                repair_attempts + 1,
-                workflow_cmd::WorkflowStatus::Cancelled,
-                "cancelled",
-            );
-            save_cancelled_workflow_and_exit(config, cancelled);
-        }
-        return run_workflow_plan(
-            config,
-            shell,
-            request,
-            revised,
-            abort_signal,
-            repair_attempts + 1,
-        )
-        .await;
+    };
+    if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), false)
+        != WorkflowRepairTransition::RequestPlanner
+    {
+        save_cancelled_workflow_and_exit(config, record);
     }
-    Ok(())
+    let input = Input::from_str(config, &repair_prompt, None).with_session_context();
+    let retry_budget = RetryBudget::default();
+    let revised =
+        match request_execution_plan(config, &input, abort_signal.clone(), &retry_budget).await {
+            Ok(revised) => revised,
+            Err(_) if abort_signal.aborted() => save_cancelled_workflow_and_exit(config, record),
+            Err(error) => {
+                let error = error.context(localized(
+                    "无法生成有效的 workflow 修订计划",
+                    "Failed to generate a valid revised workflow plan",
+                ));
+                return Err(error_after_workflow_save(
+                    error,
+                    append_workflow_record(config, &record),
+                ));
+            }
+        };
+    let revised = match require_workflow_repair_plan(revised) {
+        Ok(revised) => revised,
+        Err(error) => {
+            return Err(error_after_workflow_save(
+                error,
+                append_workflow_record(config, &record),
+            ));
+        }
+    };
+    append_workflow_record(config, &record)?;
+    if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), true)
+        != WorkflowRepairTransition::ExecuteRevisedPlan
+    {
+        let cancelled = workflow_cmd::WorkflowRecord::from_partial(
+            request.clone(),
+            revised,
+            Vec::new(),
+            repair_attempts + 1,
+            workflow_cmd::WorkflowStatus::Cancelled,
+            "cancelled",
+        );
+        save_cancelled_workflow_and_exit(config, cancelled);
+    }
+    run_workflow_plan(
+        config,
+        shell,
+        request,
+        revised,
+        abort_signal,
+        repair_attempts + 1,
+    )
+    .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1141,6 +1154,10 @@ fn decide_workflow_repair_transition(
     } else {
         WorkflowRepairTransition::RequestPlanner
     }
+}
+
+fn should_append_workflow_record_before_planner(transition: WorkflowRepairTransition) -> bool {
+    transition != WorkflowRepairTransition::RequestPlanner
 }
 
 fn workflow_has_repair_failure(record: &workflow_cmd::WorkflowRecord) -> bool {
@@ -1170,15 +1187,40 @@ fn mark_workflow_record_cancelled(record: &mut workflow_cmd::WorkflowRecord) {
     }
 }
 
+fn append_workflow_record(
+    config: &GlobalConfig,
+    record: &workflow_cmd::WorkflowRecord,
+) -> Result<()> {
+    config
+        .write()
+        .append_session_note(result_cmd::build_workflow_session_note(record))
+}
+
+fn append_cancelled_workflow_record(
+    append_note: &mut dyn FnMut(String) -> Result<()>,
+    record: &mut workflow_cmd::WorkflowRecord,
+) -> Result<WorkflowTerminal> {
+    mark_workflow_record_cancelled(record);
+    append_note(result_cmd::build_workflow_session_note(record))?;
+    Ok(cancelled_workflow_terminal())
+}
+
+fn error_after_workflow_save(error: anyhow::Error, save_result: Result<()>) -> anyhow::Error {
+    match save_result {
+        Ok(()) => error,
+        Err(save_error) => error.context(format!("failed to save workflow result: {save_error:#}")),
+    }
+}
+
 fn save_cancelled_workflow_and_exit(
     config: &GlobalConfig,
     mut record: workflow_cmd::WorkflowRecord,
 ) -> ! {
-    mark_workflow_record_cancelled(&mut record);
-    if let Err(error) = config
-        .write()
-        .append_session_note(result_cmd::build_workflow_session_note(&record))
-    {
+    let save_result = append_cancelled_workflow_record(
+        &mut |note| config.write().append_session_note(note),
+        &mut record,
+    );
+    if let Err(error) = save_result {
         eprintln!(
             "{}: {error:#}",
             localized(
@@ -1925,6 +1967,43 @@ mod tests {
             );
             assert_eq!(record.repair_attempts, attempts);
         }
+    }
+
+    #[test]
+    fn planner_generation_cancellation_appends_once_as_cancelled() {
+        let mut record = workflow_cmd::WorkflowRecord::from_partial(
+            "save workflow".to_string(),
+            workflow_save_fixture(),
+            vec![
+                workflow_cmd::StepResult::exited("check", 0, "ready", ""),
+                workflow_cmd::StepResult::exited("write", 0, "written", ""),
+                workflow_cmd::StepResult::exited("verify", 1, "", "not ready"),
+            ],
+            1,
+            workflow_cmd::WorkflowStatus::Failed,
+            "blocked_by_failure",
+        );
+        let transition = decide_workflow_repair_transition(true, 1, false, false);
+        let mut saved = Vec::new();
+
+        if should_append_workflow_record_before_planner(transition) {
+            saved.push(result_cmd::build_workflow_session_note(&record));
+        }
+        let terminal = append_cancelled_workflow_record(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            &mut record,
+        )
+        .unwrap();
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(record.status, workflow_cmd::WorkflowStatus::Cancelled);
+        assert_eq!(record.repair_attempts, 1);
+        assert_eq!(terminal.exit_code, Some(130));
+        assert!(saved[0].contains("Repair attempts: 1"));
+        assert!(saved[0].contains("Workflow status: cancelled"));
     }
 
     #[test]
