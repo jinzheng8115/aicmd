@@ -148,6 +148,10 @@ Chinese aliases are also supported for common topics, such as `aicmd help 配置
 
 常见中文主题也支持，例如 `aicmd help 配置`、`aicmd help 搜索`、`aicmd help 修复`。
 
+Terminal help follows the configured `language` and shows one language at a time.
+
+终端帮助遵循已配置的 `language`，一次只显示一种语言。
+
 ## 7. Regular command workflow / 普通命令工作流
 
 Example:
@@ -224,7 +228,73 @@ aicmd --dry-run 当前目录有多少文件     # preview prompt / 预览 prompt
 aicmd --no-summary 当前目录有多少文件  # skip configured AI summary once / 本次跳过已配置的 AI summary
 aicmd --summary 当前目录有多少文件     # request AI summary once / 本次请求 AI summary
 aicmd --no-cache 当前目录有多少文件    # bypass successful command cache / 不复用缓存命令
+aicmd "安装 jq，并验证安装结果"          # workflow may be selected automatically / 可能自动选择 workflow
 ```
+
+### 7.1 Workflow execution / Workflow 执行
+
+When a task needs environment checks, one or more changes, and final verification, AICmd can automatically select `workflow` from the ordinary `aicmd <task>` entry. `workflow` is not a new command.
+
+当任务需要环境检查、一个或多个修改步骤和最终验证时，AICmd 可以从普通的 `aicmd <任务>` 入口自动选择 `workflow`。`workflow` 不是新命令。
+
+```bash
+aicmd "安装 jq，并验证安装结果"
+```
+
+Read-only checks run automatically. File and system changes run only after the complete workflow plan is confirmed. Modification steps are never retried automatically. A workflow is complete only after its read-only verification succeeds.
+
+只读检查会自动运行。文件和系统修改只有在完整 workflow 计划确认后才会执行。修改步骤绝不自动重试；只有只读验证成功后，workflow 才算完成。
+
+Only a leading contiguous prefix of `check` steps runs before confirmation. After those checks, AICmd shows the whole remaining eligible change plan once. Destructive steps retain a second confirmation. A repair plan is displayed and confirmed again, even when it contains only read-only work.
+
+只有连续且位于开头的 `check` 步骤会在确认前运行。完成这些检查后，AICmd 会一次展示剩余符合条件的完整修改计划。破坏性步骤仍需二次确认。修订计划即使只包含只读工作，也会再次展示并要求确认。
+
+Workflow plans use the existing structured-plan JSON with `mode: "workflow"`; the workflow-only payload is `summary` plus `steps`:
+
+workflow 计划使用既有结构化计划 JSON，并设置 `mode: "workflow"`；workflow 专属载荷为 `summary` 和 `steps`：
+
+```json
+{
+  "mode": "workflow",
+  "command": "",
+  "query": "",
+  "problem": "",
+  "preflight": [],
+  "summary": "Install jq and verify it",
+  "steps": [
+    {
+      "id": "check-jq",
+      "kind": "check",
+      "command": "command -v jq",
+      "risk": "read_only",
+      "on_failure": "continue"
+    },
+    {
+      "id": "install-jq",
+      "kind": "action",
+      "command": "<package-manager> install jq",
+      "risk": "changes_system",
+      "run_if": { "step": "check-jq", "result": "failed" },
+      "on_failure": "stop"
+    },
+    {
+      "id": "verify-jq",
+      "kind": "verify",
+      "command": "jq --version",
+      "risk": "read_only",
+      "on_failure": "repair"
+    }
+  ]
+}
+```
+
+Each step has `id`, `kind`, `command`, `risk`, and `on_failure`; `run_if` is optional and can refer only to an earlier `check` result (`passed` or `failed`). `check` and `verify` must be read-only, and a workflow must contain at least one `verify`. Actions and verification run in plan order after confirmation.
+
+每个步骤包含 `id`、`kind`、`command`、`risk` 和 `on_failure`；`run_if` 可选，且只能引用更早的 `check` 结果（`passed` 或 `failed`）。`check` 和 `verify` 必须只读，workflow 至少包含一个 `verify`。确认后，action 和验证会按计划顺序执行。
+
+`Ctrl-C` stops the current step and all later steps, preserves captured output, writes one aggregate session record with the plan and ordered results, and exits 130. At most two repair plans are generated; each is strictly validated, rechecked, and reconfirmed. AI summary remains optional and is outside workflow completion status.
+
+`Ctrl-C` 会停止当前步骤和之后的全部步骤，保留已捕获输出，写入一条包含计划和按序结果的聚合 session 记录，并以 130 退出。最多生成两份修订计划；每份都会严格校验、重新检查并重新确认。AI summary 仍是可选项，不参与 workflow 完成状态。
 
 ## 8. Successful command cache / 成功命令缓存
 

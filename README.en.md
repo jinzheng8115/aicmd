@@ -29,6 +29,7 @@ Examples:
 aicmd how many files are in this directory
 aicmd help me
 aicmd help search
+aicmd "安装 jq，并验证安装结果"
 aicmd list the 10 largest files in this directory
 aicmd do "read data/orders.csv, aggregate amount by user, write output/user_totals.csv"
 aicmd search "how to install copilot-cli"
@@ -249,7 +250,13 @@ aicmd --no-summary how many files are in this directory  # do not ask for AI sum
 aicmd --no-cache how many files are in this directory   # do not reuse a successful cached command
 ```
 
-Before execution confirmation, AICmd runs the read-only checks declared by the plan. It can check commands, paths, write access, environment-variable presence, operating system, and Git working-tree state. If any check fails, AICmd shows all reasons and suggestions and does not execute the command.
+When a plain task needs environment checks, changes, and final verification, AICmd automatically uses a workflow; this is not a new command and still starts with `aicmd <task>`. It runs leading read-only checks, then shows the complete change plan once. File and system changes in that plan require confirmation; destructive steps keep their second confirmation, and repair plans require renewed confirmation.
+
+Read-only checks run automatically. File and system changes run only after the complete workflow plan is confirmed. Modification steps are never retried automatically. A workflow is complete only after its read-only verification succeeds.
+
+Each workflow writes its plan and ordered step results as one aggregate session record. `Ctrl-C` preserves existing output and that record, then exits 130. At most two repair plans are fully revalidated and reconfirmed. AI summary is optional and does not decide workflow status.
+
+Regular commands can also declare read-only checks. AICmd can check commands, paths, write access, environment-variable presence, operating system, and Git working-tree state. If any check fails, AICmd shows all reasons and suggestions and does not execute the command.
 
 ```text
 Preflight failed
