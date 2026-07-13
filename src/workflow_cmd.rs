@@ -75,9 +75,8 @@ impl PreparedWorkflow {
     }
 
     pub fn needs_confirmation(&self) -> bool {
-        self.plan.steps.iter().any(|step| {
-            self.status_of(&step.id) == StepStatus::Pending && step.risk > WorkflowRisk::ReadOnly
-        })
+        self.next_step()
+            .is_some_and(|step| step.risk > WorkflowRisk::ReadOnly)
     }
 
     pub fn next_step(&self) -> Option<&WorkflowStep> {
@@ -90,6 +89,19 @@ impl PreparedWorkflow {
     }
 
     pub fn record(&mut self, result: StepResult) -> Result<()> {
+        if self.is_stopped() {
+            anyhow::bail!("workflow is stopped")
+        }
+        let next_step = self
+            .next_step()
+            .ok_or_else(|| anyhow::anyhow!("workflow has no eligible step"))?;
+        if result.step_id != next_step.id {
+            anyhow::bail!(
+                "expected workflow step '{}', got '{}'",
+                next_step.id,
+                result.step_id
+            )
+        }
         let status = self
             .statuses
             .get_mut(&result.step_id)
@@ -102,11 +114,12 @@ impl PreparedWorkflow {
 
     pub fn is_stopped(&self) -> bool {
         self.results.iter().any(|result| {
-            result.status == StepStatus::Failed
-                && matches!(
-                    self.step(&result.step_id).on_failure,
-                    WorkflowFailurePolicy::Stop | WorkflowFailurePolicy::Repair
-                )
+            result.status == StepStatus::Cancelled
+                || (result.status == StepStatus::Failed
+                    && matches!(
+                        self.step(&result.step_id).on_failure,
+                        WorkflowFailurePolicy::Stop | WorkflowFailurePolicy::Repair
+                    ))
         })
     }
 
@@ -178,12 +191,19 @@ mod tests {
     }
 
     #[test]
-    fn failed_check_enables_conditioned_install() {
+    fn confirmation_after_failed_check_enables_risky_action() {
         let plan = fixture_plan();
         let results = vec![StepResult::exited("check", 1, "", "not found")];
         let prepared = prepare_workflow(plan, &results).unwrap();
         assert_eq!(prepared.status_of("install"), StepStatus::Pending);
         assert!(prepared.needs_confirmation());
+    }
+
+    #[test]
+    fn no_confirmation_before_unresolved_check() {
+        let prepared = prepare_workflow(fixture_plan(), &[]).unwrap();
+        assert_eq!(prepared.next_step().unwrap().id, "check");
+        assert!(!prepared.needs_confirmation());
     }
 
     #[test]
@@ -203,6 +223,54 @@ mod tests {
         workflow
             .record(StepResult::exited("install", 1, "", "failed"))
             .unwrap();
+        assert!(workflow.is_stopped());
+        assert!(workflow.next_step().is_none());
+    }
+
+    #[test]
+    fn out_of_order_record_is_rejected() {
+        let mut workflow = prepare_workflow(fixture_plan(), &[]).unwrap();
+        assert!(workflow
+            .record(StepResult::exited("install", 0, "", ""))
+            .is_err());
+    }
+
+    #[test]
+    fn skipped_step_record_is_rejected() {
+        let mut workflow =
+            prepare_workflow(fixture_plan(), &[StepResult::exited("check", 0, "", "")]).unwrap();
+        assert!(workflow
+            .record(StepResult::exited("install", 0, "", ""))
+            .is_err());
+    }
+
+    #[test]
+    fn record_after_stop_is_rejected() {
+        let mut workflow =
+            prepare_workflow(fixture_plan(), &[StepResult::exited("check", 1, "", "")]).unwrap();
+        workflow
+            .record(StepResult::exited("install", 1, "", "failed"))
+            .unwrap();
+        assert!(workflow
+            .record(StepResult::exited("verify", 0, "ok", ""))
+            .is_err());
+    }
+
+    #[test]
+    fn cancelled_step_stops_later_work() {
+        let mut workflow =
+            prepare_workflow(fixture_plan(), &[StepResult::exited("check", 1, "", "")]).unwrap();
+        workflow
+            .record(StepResult {
+                step_id: "install".to_string(),
+                status: StepStatus::Cancelled,
+                exit_code: 130,
+                termination: "cancelled".to_string(),
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+            .unwrap();
+        assert_eq!(workflow.status_of("install"), StepStatus::Cancelled);
         assert!(workflow.is_stopped());
         assert!(workflow.next_step().is_none());
     }
