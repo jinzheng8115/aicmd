@@ -25,6 +25,7 @@ mod session_cmd;
 mod setup_cmd;
 mod shell_init_cmd;
 mod update_cmd;
+mod workflow_cmd;
 #[macro_use]
 mod utils;
 
