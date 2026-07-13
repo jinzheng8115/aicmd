@@ -18,8 +18,8 @@ The object has exactly these fields: `mode`, `command`, `query`, `problem`, `pre
   {"mode":"workflow","command":"","query":"","problem":"","preflight":[],"summary":"Install tool","steps":[{"id":"check","kind":"check","command":"command -v tool","risk":"read_only","on_failure":"continue"},{"id":"install","kind":"action","command":"brew install tool","risk":"changes_system","run_if":{"step":"check","result":"failed"},"on_failure":"stop"},{"id":"verify","kind":"verify","command":"tool --version","risk":"read_only","on_failure":"repair"}]}
   ```
 
-  check and verify steps must be read_only. run_if may reference only an earlier check and supports passed or failed. Include at least one verify step.
-  check 和 verify 必须是 read_only。run_if 只能引用之前的 check，结果只能是 passed 或 failed。至少包含一个 verify 步骤。
+  check and verify steps must be read_only. run_if is allowed only on action and verify steps, is forbidden on check steps, and may reference only an earlier check with a passed or failed result. Include at least one verify step.
+  check 和 verify 必须是 read_only。run_if 只能用于 action 和 verify 步骤，禁止用于 check 步骤；只能引用之前的 check，结果只能是 passed 或 failed。至少包含一个 verify 步骤。
 
 For `direct` and `script`, `preflight` contains every required read-only check. Supported check types are `command_exists`, `path_exists`, `path_writable`, `env_exists`, `os`, and `git_clean`. Each item contains exactly `type`, `value`, `failure_message`, and `suggestion`. For `search`, `diagnose`, and `workflow`, use an empty array.
 对于 `direct` 和 `script`，`preflight` 包含所有必要的只读检查。支持的检查类型为 `command_exists`、`path_exists`、`path_writable`、`env_exists`、`os` 和 `git_clean`。每项只能包含 `type`、`value`、`failure_message` 和 `suggestion`。`search`、`diagnose` 和 `workflow` 使用空数组。
