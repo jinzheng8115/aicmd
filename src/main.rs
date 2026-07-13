@@ -834,7 +834,7 @@ fn plan_request_decision(cache_eligible: bool, cache_hit: bool) -> PlanRequestDe
 fn command_role_for_route(route: RouteKind) -> Option<&'static str> {
     match route {
         RouteKind::Command | RouteKind::Diagnose => Some(SHELL_COMMAND_ROLE),
-        RouteKind::Search => None,
+        RouteKind::Search | RouteKind::Workflow => None,
     }
 }
 
@@ -893,6 +893,13 @@ async fn route_execution_plan(
             RouteKind::Command => println!("{}", plan.command),
             RouteKind::Search => println!("mode: search\nquery: {}", plan.query),
             RouteKind::Diagnose => println!("mode: diagnose\nproblem: {}", plan.problem),
+            RouteKind::Workflow => bail!(
+                "{}",
+                localized(
+                    "工作流执行尚未实现",
+                    "workflow execution is not implemented"
+                )
+            ),
         }
         return Ok(());
     }
@@ -937,6 +944,13 @@ async fn route_execution_plan(
             let input = input_with_execution_role(config, input, route)?;
             shell_execute(config, shell, input, abort_signal, retry_budget, None, 0).await
         }
+        RouteKind::Workflow => bail!(
+            "{}",
+            localized(
+                "工作流执行尚未实现",
+                "workflow execution is not implemented"
+            )
+        ),
     }
 }
 
@@ -1456,6 +1470,7 @@ mod tests {
             Some(SHELL_COMMAND_ROLE)
         );
         assert_eq!(command_role_for_route(RouteKind::Search), None);
+        assert_eq!(command_role_for_route(RouteKind::Workflow), None);
     }
 
     #[test]
