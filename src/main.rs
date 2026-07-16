@@ -1486,7 +1486,7 @@ async fn handle_generated_command(
             match confirm_cmd::confirm_command(&eval_str, &risk, from_cache)? {
                 confirm_cmd::ConfirmationAction::Execute => {
                     let eval_command = execute_cmd::with_cwd_capture(shell, &eval_str);
-                    debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
+                    debug!("{} {:?}", shell.cmd, [&shell.arg, &eval_command]);
                     let before = if risk.captures_git_changes() {
                         change_report_cmd::GitSnapshot::capture(&cwd)
                     } else {
