@@ -1,6 +1,6 @@
 use super::{MarkdownRender, SseEvent};
 
-use crate::utils::{poll_abort_signal, spawn_spinner, AbortSignal};
+use crate::utils::{poll_abort_signal, spawn_progress_spinner, AbortSignal};
 
 use anyhow::Result;
 use crossterm::{
@@ -14,17 +14,45 @@ use std::{
 use textwrap::core::display_width;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+struct RawModeGuard {
+    enabled: bool,
+}
+
+impl RawModeGuard {
+    fn enable() -> Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self { enabled: true })
+    }
+
+    fn finish(mut self) -> Result<()> {
+        if self.enabled {
+            disable_raw_mode()?;
+            self.enabled = false;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        if self.enabled {
+            let _ = disable_raw_mode();
+        }
+    }
+}
+
 pub async fn markdown_stream(
     rx: UnboundedReceiver<SseEvent>,
     render: &mut MarkdownRender,
     abort_signal: &AbortSignal,
+    progress: (String, usize, usize, bool),
 ) -> Result<()> {
-    enable_raw_mode()?;
+    let raw_mode = RawModeGuard::enable()?;
     let mut stdout = io::stdout();
 
-    let ret = markdown_stream_inner(rx, render, abort_signal, &mut stdout).await;
+    let ret = markdown_stream_inner(rx, render, abort_signal, &mut stdout, progress).await;
 
-    disable_raw_mode()?;
+    raw_mode.finish()?;
 
     if ret.is_err() {
         println!();
@@ -35,26 +63,34 @@ pub async fn markdown_stream(
 pub async fn raw_stream(
     mut rx: UnboundedReceiver<SseEvent>,
     abort_signal: &AbortSignal,
+    progress: (String, usize, usize, bool),
 ) -> Result<()> {
-    let mut spinner = Some(spawn_spinner("Generating"));
+    let (stage, attempt, max_attempts, chinese) = progress;
+    let mut spinner = Some(spawn_progress_spinner(
+        stage,
+        attempt,
+        max_attempts,
+        chinese,
+    ));
 
     loop {
         if abort_signal.aborted() {
             break;
         }
-        if let Some(evt) = rx.recv().await {
-            if let Some(spinner) = spinner.take() {
-                spinner.stop();
-            }
+        let Some(evt) = rx.recv().await else {
+            break;
+        };
+        if let Some(spinner) = spinner.take() {
+            spinner.stop();
+        }
 
-            match evt {
-                SseEvent::Text(text) => {
-                    print!("{text}");
-                    stdout().flush()?;
-                }
-                SseEvent::Done => {
-                    break;
-                }
+        match evt {
+            SseEvent::Text(text) => {
+                print!("{text}");
+                stdout().flush()?;
+            }
+            SseEvent::Done => {
+                break;
             }
         }
     }
@@ -69,13 +105,20 @@ async fn markdown_stream_inner(
     render: &mut MarkdownRender,
     abort_signal: &AbortSignal,
     writer: &mut Stdout,
+    progress: (String, usize, usize, bool),
 ) -> Result<()> {
     let mut buffer = String::new();
     let mut buffer_rows = 1;
 
     let columns = terminal::size()?.0;
 
-    let mut spinner = Some(spawn_spinner("Generating"));
+    let (stage, attempt, max_attempts, chinese) = progress;
+    let mut spinner = Some(spawn_progress_spinner(
+        stage,
+        attempt,
+        max_attempts,
+        chinese,
+    ));
 
     'outer: loop {
         if abort_signal.aborted() {
@@ -171,11 +214,11 @@ async fn gather_events(rx: &mut UnboundedReceiver<SseEvent>) -> Vec<SseEvent> {
                 match reply_event {
                     SseEvent::Text(v) => texts.push(v),
                     SseEvent::Done => {
-                        done = true;
                         break;
                     }
                 }
             }
+            done = true;
         } => {}
         _ = tokio::time::sleep(Duration::from_millis(50)) => {}
     };
@@ -214,4 +257,43 @@ fn split_line_tail(text: &str) -> (&str, &str) {
 fn need_rows(text: &str, columns: u16) -> u16 {
     let buffer_width = display_width(text).max(1) as u16;
     buffer_width.div_ceil(columns)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::create_abort_signal;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    #[tokio::test]
+    async fn raw_stream_returns_when_sender_closes_without_done_event() {
+        let (tx, rx) = unbounded_channel();
+        drop(tx);
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(200),
+            raw_stream(
+                rx,
+                &create_abort_signal(),
+                ("Generating command".to_string(), 1, 3, false),
+            ),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "raw stream must not wait forever after sender closes"
+        );
+        assert!(result.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn gather_events_turns_closed_sender_into_done_event() {
+        let (tx, mut rx) = unbounded_channel();
+        drop(tx);
+
+        let events = gather_events(&mut rx).await;
+
+        assert!(matches!(events.as_slice(), [SseEvent::Done]));
+    }
 }

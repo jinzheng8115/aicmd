@@ -44,8 +44,8 @@ fn input_needs_session_context(text: &str) -> bool {
     markers.iter().any(|marker| text.contains(marker))
 }
 
-fn should_include_session_context(context_enabled: bool, text: &str) -> bool {
-    context_enabled && input_needs_session_context(text)
+fn should_include_session_context(context_enabled: bool, forced: bool, text: &str) -> bool {
+    context_enabled && (forced || input_needs_session_context(text))
 }
 
 fn trim_text_for_context(value: &str, max_chars: usize) -> String {
@@ -67,18 +67,13 @@ fn trim_message_for_context(message: &Message) -> Message {
 }
 
 fn compact_messages_for_context(messages: &[Message]) -> Vec<Message> {
-    let mut system_messages = vec![];
-    let mut other_messages = vec![];
-    for message in messages {
-        if message.role.is_system() {
-            system_messages.push(message.clone());
-        } else {
-            other_messages.push(trim_message_for_context(message));
-        }
-    }
+    let other_messages: Vec<Message> = messages
+        .iter()
+        .filter(|message| !message.role.is_system())
+        .map(trim_message_for_context)
+        .collect();
     let keep_from = other_messages.len().saturating_sub(MAX_CONTEXT_MESSAGES);
-    system_messages.extend(other_messages.into_iter().skip(keep_from));
-    system_messages
+    other_messages.into_iter().skip(keep_from).collect()
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -244,20 +239,20 @@ impl Session {
     }
 
     pub fn build_messages(&self, input: &Input) -> Vec<Message> {
-        if !should_include_session_context(self.context_enabled, &input.text()) {
+        if !should_include_session_context(
+            self.context_enabled,
+            input.force_session_context(),
+            &input.text(),
+        ) {
             return input.role().build_messages(input);
         }
 
-        let mut messages = compact_messages_for_context(&self.messages);
-        let mut need_add_msg = true;
-        let len = messages.len();
-        if len == 0 {
-            messages = input.role().build_messages(input);
-            need_add_msg = false;
-        }
-        if need_add_msg {
-            messages.push(Message::new(MessageRole::User, input.message_content()));
-        }
+        let mut messages = input.role().build_messages(input);
+        let current_user = messages
+            .pop()
+            .expect("role messages always include the current user input");
+        messages.extend(compact_messages_for_context(&self.messages));
+        messages.push(current_user);
         messages
     }
 }
@@ -310,7 +305,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compact_context_keeps_system_and_recent_messages() {
+    fn compact_context_keeps_only_recent_non_system_messages() {
         let mut messages = vec![Message::new(
             MessageRole::System,
             MessageContent::Text("system".to_string()),
@@ -322,10 +317,122 @@ mod tests {
             ));
         }
         let compact = compact_messages_for_context(&messages);
-        assert_eq!(compact.len(), 9);
-        assert!(compact[0].role.is_system());
-        assert!(compact[1].content.to_text().contains("message-4"));
-        assert!(compact[8].content.to_text().contains("message-11"));
+        assert_eq!(compact.len(), 8);
+        assert!(compact.iter().all(|message| !message.role.is_system()));
+        assert!(compact[0].content.to_text().contains("message-4"));
+        assert!(compact[7].content.to_text().contains("message-11"));
+    }
+
+    #[test]
+    fn current_role_prompt_and_examples_replace_old_session_system_prompt() {
+        let config: GlobalConfig = std::sync::Arc::new(parking_lot::RwLock::new(Config::default()));
+        let mut session = Session::new(&config.read(), "test");
+        session.set_context_enabled(true);
+        session.messages = vec![
+            Message::new(
+                MessageRole::System,
+                MessageContent::Text("old session system".to_string()),
+            ),
+            Message::new(
+                MessageRole::User,
+                MessageContent::Text("previous user".to_string()),
+            ),
+            Message::new(
+                MessageRole::Assistant,
+                MessageContent::Text("previous assistant".to_string()),
+            ),
+        ];
+        let role = Role::new(
+            "planner",
+            "current role system\n### INPUT:\nexample input\n### OUTPUT:\nexample output",
+        );
+        let input = Input::from_str(&config, "继续刚才的任务", Some(role));
+
+        let messages = session.build_messages(&input);
+        let texts: Vec<String> = messages
+            .iter()
+            .map(|message| message.content.to_text())
+            .collect();
+
+        assert_eq!(texts[0], "current role system");
+        assert_eq!(texts[1], "example input");
+        assert_eq!(texts[2], "example output");
+        assert!(!texts.iter().any(|text| text == "old session system"));
+        assert!(texts.iter().any(|text| text == "previous user"));
+        assert!(texts.iter().any(|text| text == "previous assistant"));
+        assert_eq!(texts.last().unwrap(), "继续刚才的任务");
+    }
+
+    #[test]
+    fn recent_failure_execution_note_enters_planner_messages() -> Result<()> {
+        let mut config = Config::default();
+        let mut session = Session::new(&config, "test");
+        session.set_context_enabled(true);
+        session.messages = vec![
+            Message::new(
+                MessageRole::System,
+                MessageContent::Text("old session system".to_string()),
+            ),
+            Message::new(
+                MessageRole::Assistant,
+                MessageContent::Text(
+                    "Command execution result:\nCommand:\nfalse\n\nExit code: 1".to_string(),
+                ),
+            ),
+        ];
+        config.session = Some(session);
+        let config: GlobalConfig = std::sync::Arc::new(parking_lot::RwLock::new(config));
+        let planner = Role::builtin(SHELL_ROLE)?;
+        let input = Input::from_str(&config, "继续修复刚才失败的任务", None).with_role(planner);
+
+        let messages = input.build_messages()?;
+        let request = messages
+            .iter()
+            .map(|message| message.content.to_text())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(request.contains("Command:\nfalse"));
+        assert!(request.contains("Exit code: 1"));
+        assert!(!request.contains("old session system"));
+        Ok(())
+    }
+
+    #[test]
+    fn planner_and_command_roles_each_use_their_current_system_prompt() -> Result<()> {
+        let config: GlobalConfig = std::sync::Arc::new(parking_lot::RwLock::new(Config::default()));
+        let mut session = Session::new(&config.read(), "test");
+        session.set_context_enabled(true);
+        session.messages = vec![
+            Message::new(
+                MessageRole::System,
+                MessageContent::Text("old session system".to_string()),
+            ),
+            Message::new(
+                MessageRole::Assistant,
+                MessageContent::Text("Command:\nfalse\n\nExit code: 1".to_string()),
+            ),
+        ];
+        let cases = [
+            (SHELL_ROLE, "execution planner"),
+            (SHELL_COMMAND_ROLE, "system operations"),
+        ];
+
+        for (role_name, current_prompt_marker) in cases {
+            let role = Role::builtin(role_name)?;
+            let input = Input::from_str(&config, "继续刚才的任务", Some(role));
+            let messages = session.build_messages(&input);
+            let request = messages
+                .iter()
+                .map(|message| message.content.to_text())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            assert!(request.contains(current_prompt_marker));
+            assert!(request.contains("Command:\nfalse"));
+            assert!(!request.contains("old session system"));
+        }
+        Ok(())
     }
 
     #[test]
@@ -353,7 +460,28 @@ mod tests {
     #[test]
     fn context_requires_explicit_session_enablement() {
         let task = "根据刚才的结果继续处理";
-        assert!(!should_include_session_context(false, task));
-        assert!(should_include_session_context(true, task));
+        assert!(!should_include_session_context(false, false, task));
+        assert!(should_include_session_context(true, false, task));
+    }
+
+    #[test]
+    fn disabled_or_unmarked_context_keeps_role_only_messages() {
+        let config: GlobalConfig = std::sync::Arc::new(parking_lot::RwLock::new(Config::default()));
+        let role = Role::new("planner", "planner system");
+        let cases = [(false, "继续刚才的任务"), (true, "列出当前目录文件")];
+
+        for (context_enabled, text) in cases {
+            let mut session = Session::new(&config.read(), "test");
+            session.set_context_enabled(context_enabled);
+            session.messages.push(Message::new(
+                MessageRole::Assistant,
+                MessageContent::Text("session history".to_string()),
+            ));
+            let input = Input::from_str(&config, text, Some(role.clone()));
+
+            let actual = serde_yaml::to_string(&session.build_messages(&input)).unwrap();
+            let expected = serde_yaml::to_string(&input.role().build_messages(&input)).unwrap();
+            assert_eq!(actual, expected);
+        }
     }
 }

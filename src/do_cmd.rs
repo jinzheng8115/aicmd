@@ -1,6 +1,10 @@
 use anyhow::{bail, Context, Result};
 use chrono::Local;
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use crate::{search_cmd, utils::strip_ansi_codes};
 
@@ -116,7 +120,7 @@ fn build_prompt(
         )
     } else if has_search_context {
         format!(
-            "Based on the referenced search result and current system environment, create a reviewable {kind} script {path} to complete this task: {task}.\n根据参考搜索结果和当前系统环境，创建一个可审查的 {kind} 脚本 {path} 来完成这个任务: {task}。\nRequirements / 要求：\n- Output only one directly executable terminal command.\n- 只输出一条可直接执行的终端命令。\n- The command must create the script, write script contents, make it executable, and execute it.\n- 这条命令必须创建脚本、写入脚本内容、设置可执行权限并执行脚本。\n- Do not output markdown code blocks, explanatory prose, or natural-language steps.\n- 不要输出 markdown 代码块、解释段落或自然语言步骤。\nScript requirements / 脚本要求：\n- Use a shebang and print clear steps.\n- 使用 shebang，并打印清晰步骤。\n- Check necessary dependencies according to the current system environment before acting.\n- 先根据当前系统环境检查必要依赖。\n- Prefer official or direct sources from the search result.\n- 优先使用搜索结果中的官方或直接来源。\n- Choose reviewable and confirmable commands before installing or changing system state.\n- 安装或修改系统状态前选择可审查、可确认的命令。\n- For install/setup tasks, do not exit just because the target command is not installed; installing it is the goal.\n- 安装/设置软件时，不要因为目标命令当前不存在就退出，因为安装它正是任务目标。\n- You may check dependencies such as brew/npm/node/git/curl, or use an idempotent pattern such as `if command -v TARGET >/dev/null 2>&1; then TARGET --version; else INSTALL_COMMAND && TARGET --version; fi`.\n- 可以先检查 brew/npm/node/git/curl 等依赖，或使用 `if command -v 目标命令 >/dev/null 2>&1; then 目标命令 --version; else 安装命令 && 目标命令 --version; fi` 这种幂等结构。\n- If a required package manager is missing, do not call that missing package manager to install itself.\n- 如果依赖的包管理器不存在，不要调用不存在的包管理器安装自己。\n- Include a verification step after installation.\n- 安装后必须包含验证步骤。\n- If the search result is insufficient, unsafe, requires login/credentials/paid permission, or the correct method cannot be determined, do not create a script that modifies the system; output only one safe explanation command with the reason and next action.\n- 如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请不要创建会修改系统的脚本，只输出一条安全说明命令解释原因和下一步建议。{system_context}{file_context}",
+            "Based on the referenced search result and current system environment, create a reviewable {kind} script {path} to complete this task: {task}.\n根据参考搜索结果和当前系统环境，创建一个可审查的 {kind} 脚本 {path} 来完成这个任务: {task}。\nRequirements / 要求：\n- Output only one directly executable terminal command.\n- 只输出一条可直接执行的终端命令。\n- The command must create the script, write script contents, make it executable, and execute it.\n- 这条命令必须创建脚本、写入脚本内容、设置可执行权限并执行脚本。\n- Do not output markdown code blocks, explanatory prose, or natural-language steps.\n- 不要输出 markdown 代码块、解释段落或自然语言步骤。\n- Do not invent, complete, or repair source URLs or installation commands from model memory.\n- 只允许使用搜索证据中完整出现的来源 URL 和安装命令，不得依靠模型记忆补全。\nScript requirements / 脚本要求：\n- Use a shebang and print clear steps.\n- 使用 shebang，并打印清晰步骤。\n- Check necessary dependencies according to the current system environment before acting.\n- 先根据当前系统环境检查必要依赖。\n- Prefer official or direct sources from the search result.\n- 优先使用搜索结果中的官方或直接来源。\n- Choose reviewable and confirmable commands before installing or changing system state.\n- 安装或修改系统状态前选择可审查、可确认的命令。\n- For install/setup tasks, do not exit just because the target command is not installed; installing it is the goal.\n- 安装/设置软件时，不要因为目标命令当前不存在就退出，因为安装它正是任务目标。\n- You may check dependencies such as brew/npm/node/git/curl, or use an idempotent pattern such as `if command -v TARGET >/dev/null 2>&1; then TARGET --version; else INSTALL_COMMAND && TARGET --version; fi`.\n- 可以先检查 brew/npm/node/git/curl 等依赖，或使用 `if command -v 目标命令 >/dev/null 2>&1; then 目标命令 --version; else 安装命令 && 目标命令 --version; fi` 这种幂等结构。\n- If a required package manager is missing, do not call that missing package manager to install itself.\n- 如果依赖的包管理器不存在，不要调用不存在的包管理器安装自己。\n- Include a verification step after installation.\n- 安装后必须包含验证步骤。\n- If the search result is insufficient, unsafe, requires login/credentials/paid permission, or the correct method cannot be determined, do not create a script that modifies the system; output only one safe explanation command with the reason and next action.\n- 如果搜索结果不足、命令不安全、需要用户登录/凭据/付费权限，或无法确定正确安装方式，请不要创建会修改系统的脚本，只输出一条安全说明命令解释原因和下一步建议。{system_context}{file_context}",
             kind = script_kind.display,
             path = script_path,
             task = task,
@@ -132,7 +136,9 @@ fn build_prompt(
             file_context = file_context,
         )
     };
-    prompt
+    format!(
+        "{prompt}\n\nReturn the executable command in the required JSON `command` field and declare all required read-only checks in `preflight`.\n请将可执行命令放入规定的 JSON `command` 字段，并在 `preflight` 中声明所有必要的只读检查。"
+    )
 }
 
 fn build_system_context(shell_name: &str) -> String {
@@ -194,20 +200,41 @@ fn resolve_context_files(files: &[String], search_refs: &[String]) -> Result<Vec
             bail!("--from-search requires a non-empty saved search name");
         }
         let summary_path = search_cmd::saved_search_path(name)?;
-        if summary_path.is_file() {
-            resolved.push(summary_path.display().to_string());
-            continue;
-        }
-        let raw_path = search_cmd::raw_search_path(name)?;
-        if raw_path.is_file() {
+        if !summary_path.is_file() {
+            let raw_path = search_cmd::raw_search_path(name)?;
+            if !raw_path.is_file() {
+                bail!(
+                    "Saved search not found: {name}. Run `aicmd search list` to see saved searches."
+                );
+            }
             bail!(
                 "Saved search summary not found: {name}. Raw search exists at {}. Run: aicmd search summarize {name}",
                 raw_path.display()
             );
         }
-        bail!("Saved search not found: {name}. Run `aicmd search list` to see saved searches.");
+        let raw_path = search_cmd::raw_search_path(name)?;
+        let raw = search_cmd::load_raw_search(name)?;
+        resolved.extend(validated_search_context_files(
+            name,
+            &summary_path,
+            &raw_path,
+            &raw,
+        )?);
     }
     Ok(resolved)
+}
+
+fn validated_search_context_files(
+    name: &str,
+    summary_path: &Path,
+    raw_path: &Path,
+    raw: &search_cmd::RawSearchRecord,
+) -> Result<Vec<String>> {
+    search_cmd::validate_execution_evidence(name, raw)?;
+    Ok(vec![
+        summary_path.display().to_string(),
+        raw_path.display().to_string(),
+    ])
 }
 
 fn read_file_context(files: &[String]) -> Result<String> {
@@ -281,6 +308,11 @@ mod tests {
         assert!(prompt.contains("当前系统环境"));
         assert!(prompt.contains("不要因为目标命令当前不存在就退出"));
         assert!(prompt.contains("设置可执行权限并执行脚本"));
+        assert!(prompt.contains(
+            "Do not invent, complete, or repair source URLs or installation commands from model memory."
+        ));
+        assert!(prompt
+            .contains("只允许使用搜索证据中完整出现的来源 URL 和安装命令，不得依靠模型记忆补全。"));
     }
 
     #[test]
@@ -305,5 +337,40 @@ mod tests {
         assert!(context.contains("shell: zsh"));
         assert!(context.contains("os:"));
         assert!(context.contains("arch:"));
+    }
+
+    #[test]
+    fn search_context_requires_and_includes_summary_and_raw_files() {
+        let summary = PathBuf::from("/tmp/aicmd-searches/demo.txt");
+        let raw = PathBuf::from("/tmp/aicmd-searches/demo.raw.txt");
+        let record = search_cmd::RawSearchRecord {
+            query: "demo".to_string(),
+            raw_output: "https://example.com\nbrew install demo".to_string(),
+        };
+
+        let files = validated_search_context_files("demo", &summary, &raw, &record).unwrap();
+        assert_eq!(
+            files,
+            vec![summary.display().to_string(), raw.display().to_string()]
+        );
+    }
+
+    #[test]
+    fn search_context_error_identifies_the_failing_reference() {
+        let error = validated_search_context_files(
+            "second-search",
+            PathBuf::from("/tmp/aicmd-searches/second-search.txt").as_path(),
+            PathBuf::from("/tmp/aicmd-searches/second-search.raw.txt").as_path(),
+            &search_cmd::RawSearchRecord {
+                query: "demo".to_string(),
+                raw_output: "https://example.com".to_string(),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("second-search"));
+        assert!(error.contains("saved search is insufficient"));
+        assert!(error.contains("aicmd search <more specific query>"));
     }
 }

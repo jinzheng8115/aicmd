@@ -10,11 +10,14 @@ License: MIT OR Apache-2.0
 ## 1. Start with the main entry point
 
 ```bash
+aicmd                       # enter the continuous prompt for multiple tasks
 aicmd <what you want>       # automatically choose command, script, search, or diagnosis
 aicmd setup                # first-time setup or reconfiguration
-aicmd doctor               # check install, model, temperature, summary, MCP, cache, and PATH
+aicmd doctor               # offline checks for install, model, MCP config/executables, and more
 aicmd help me              # show built-in help when unsure
 ```
+
+In an interactive terminal, running `aicmd` without arguments opens `AICmd>`. Tasks in that prompt use the Beijing-date daily session (for example, `cmd-20260712`); a failed child task returns to the prompt. Leave with `exit`, `quit`, `.exit`, EOF, or `Ctrl-C`.
 
 You no longer need to decide whether to use `do`, `search`, or `err` first. AICmd creates a strict structured plan and selects the workflow automatically.
 If the model does not return a valid plan, AICmd stops safely and asks you to retry; it never guesses a shell command from Markdown or prose.
@@ -26,6 +29,7 @@ Examples:
 aicmd how many files are in this directory
 aicmd help me
 aicmd help search
+aicmd "安装 jq，并验证安装结果"
 aicmd list the 10 largest files in this directory
 aicmd do "read data/orders.csv, aggregate amount by user, write output/user_totals.csv"
 aicmd search "how to install copilot-cli"
@@ -226,6 +230,14 @@ With `language: zh`, this prompt is shown in Chinese only.
 - `do`: generate an execution script from the search result and current system environment.
 - `open`: open the latest search record.
 
+You can also use natural language without remembering the search subcommands:
+
+```bash
+aicmd save the last search
+aicmd save the last search as docker-install
+aicmd use the last search result to install Docker
+```
+
 ## 6. Command usage
 
 ### 6.1 Regular command
@@ -238,6 +250,26 @@ aicmd --no-summary how many files are in this directory  # do not ask for AI sum
 aicmd --no-cache how many files are in this directory   # do not reuse a successful cached command
 ```
 
+When a plain task needs environment checks, changes, and final verification, AICmd automatically uses a workflow; this is not a new command and still starts with `aicmd <task>`. It runs leading read-only checks, then shows the complete change plan once. File and system changes in that plan require confirmation; destructive steps keep their second confirmation, and repair plans require renewed confirmation.
+
+Read-only checks run automatically. File and system changes run only after the complete workflow plan is confirmed. Modification steps are never retried automatically. A workflow is complete only after its read-only verification succeeds.
+
+Each workflow writes its plan and ordered step results as one aggregate session record. `Ctrl-C` preserves existing output and that record, then exits 130. At most two repair plans are fully revalidated and reconfirmed. AI summary is optional and does not decide workflow status.
+
+Regular commands can also declare read-only checks. AICmd can check commands, paths, write access, environment-variable presence, operating system, and Git working-tree state. If any check fails, AICmd shows all reasons and suggestions and does not execute the command.
+
+```text
+Preflight failed
+
+✗ Input file does not exist
+  Check: path_exists = data/orders.csv
+  Suggestion: verify the file path
+
+Command was not executed.
+```
+
+Checks never install dependencies, repair the environment, or elevate privileges. `--dry-run` only shows the full planner prompt containing the check contract; `--print` only prints the command. Neither runs checks.
+
 Before execution, AICmd asks:
 
 ```text
@@ -245,6 +277,10 @@ Run? [Y/n/?]
 ```
 
 AICmd shows a risk level. Press `Enter` or `y` to run, `n` to quit, or `?` for revise, explain, and copy actions. Destructive commands require an extra confirmation.
+
+Model generation and MCP calls show the current stage, request-wide attempt number, elapsed time, and a `Ctrl-C` cancellation hint. Each attempt is limited to 30 seconds; one user request gets at most 3 attempts and approximately 90 seconds in total. AICmd retries only transient failures such as timeouts, connection interruptions, HTTP 429, and HTTP 5xx. Authentication, configuration, request, and sensitive-content errors stop immediately.
+
+Confirmed terminal commands are never retried automatically and have no default hard timeout. A quiet command prints a liveness update after 5 seconds. `Ctrl-C` preserves stdout/stderr already produced and records exit code 130 with `Termination: cancelled` in the current session.
 
 If the same regular task succeeded before, AICmd reuses the previous command and shows the same confirmation. Press `?`, then `g`, to regenerate it:
 
@@ -257,6 +293,22 @@ If execution fails, AICmd shows a failure menu. `fix` asks the model to generate
 ```text
 fix(修复) | explain(解释) | copy(复制) | quit(退出):
 ```
+
+The failed command, exit code, and stdout/stderr are saved in today's daily session. If you leave the failure menu, enter `continue fixing the last failed task`; this phrase selects the daily session, bypasses the successful-command cache, and returns to the normal planning and confirmation flow. It does not execute a repair automatically. Planning and subsequent command-generation requests include recent non-system session history, so the model can directly reference the saved failed command, exit code, and output. Each request still uses the current planner or command-generation role's own system prompt.
+
+For commands already classified as modifying files or the system, AICmd compares Git porcelain status before and after execution and shows only new records or records whose status changed:
+
+```text
+Detected file changes:
+- M src/main.rs
+- ?? output/report.txt
+
+Recovery guidance:
+1. Use git diff to inspect tracked file changes.
+2. Recover manually after inspection; AICmd does not automatically reset or delete files.
+```
+
+Git capture is advisory. A non-Git directory or capture failure does not block command execution.
 
 ### 6.2 Script workflow: `aicmd do`
 
@@ -271,7 +323,7 @@ aicmd do --from-search gemini-cli "install gemini-cli"
 aicmd do -o scripts/task.sh "clean CSV"
 ```
 
-`--from-search` reads `~/.aicmd/searches/<name>.txt` and also includes the current system environment, such as OS, architecture, cwd, and whether `brew/node/npm/git/curl` are available. This helps generate a more reliable script.
+`--from-search` reads both the saved summary and raw MCP result. The raw result must contain at least one `http://` or `https://` source and one recognized command-evidence line; otherwise AICmd rejects it before model generation and recommends a more specific `aicmd search ...`. After the gate passes, the summary, raw evidence, and current system environment are included in generation context.
 
 ### 6.3 Error diagnosis: `aicmd err`
 
@@ -284,15 +336,32 @@ It runs the command, captures stdout/stderr/exit code, and asks the LLM to gener
 
 ### 6.4 Sessions
 
+Use natural language for common session actions:
+
+```bash
+aicmd continue fixing the last failed task
+aicmd show current session
+aicmd list sessions
+aicmd show last 5 messages in session dev
+aicmd in session dev continue with the previous task
+aicmd clear session dev
+```
+
+A named session applies only to the current invocation; it does not switch later commands. A later plain command returns to the daily session. Clearing either the current or a named session always shows the resolved session name and asks for confirmation.
+
+Explicit `-s`/`--session`, `--empty-session`, and `--list-sessions` controls always take precedence over session intent in the text; the explicit CLI option determines what happens next. Clearing does not load or modify the target before confirmation. After confirmation, a missing target reports `Session not found` and does not create an empty session file.
+
+The existing advanced commands remain available when you need explicit control:
+
 ```bash
 aicmd -s                     # show current/default session
-aicmd -s dev                 # start or join dev session
+aicmd -s dev                 # use or create dev for this invocation
 aicmd -s dev hello           # send request in dev session
 aicmd --list-sessions        # list sessions
 aicmd -s dev --empty-session # clear dev session, asks for confirmation
 ```
 
-Plain `aicmd ...` saves to daily history such as `cmd-20260619`, but does not send that history to the model. Only an explicit named session such as `-s dev` enables continuing context.
+A one-shot `aicmd <task>` saves to daily history such as `cmd-20260712`, but does not send that history to the model. The no-argument continuous prompt explicitly uses today's daily session for every task; `continue fixing the last failed task` selects the same daily session. Explicit `-s dev` remains available for a different per-invocation session.
 
 Inspect history:
 
@@ -301,6 +370,7 @@ aicmd session
 aicmd session list
 aicmd session show
 aicmd session show dev --limit 5
+aicmd show last 5 messages
 aicmd last
 ```
 
@@ -377,18 +447,15 @@ aicmd init --from-env --force
 
 ### MCP search timeout
 
-The first `npx -y ...` run may need to download MCP packages. Increase timeout temporarily:
+Run `aicmd doctor` first. It does not start an MCP server or access the network, but it checks JSON, command-to-server references, the `stdio` type, server executables, and optional tool fields. A missing executable is reported against its server.
+
+Runtime errors name the stage: `start`, `initialize`, `tools/list`, `tool selection`, or `tools/call`, and include a next action. Only a local response timeout recommends changing the matching variable:
 
 ```bash
 AICMD_MCP_START_TIMEOUT_SECS=300 AICMD_MCP_CALL_TIMEOUT_SECS=600 aicmd search "weather in Beijing today"
 ```
 
-You can also check:
-
-```bash
-aicmd config mcp
-aicmd mcp list
-```
+For other MCP stage errors, follow the guidance to run `aicmd doctor` and inspect the executable, arguments, or explicit tool configuration.
 
 ### `cd ..` runs but the current directory does not change
 

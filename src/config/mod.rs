@@ -371,6 +371,29 @@ impl Config {
         self.use_session_with_context(session_name, true)
     }
 
+    pub fn use_existing_session_with_context(
+        &mut self,
+        session_name: &str,
+        context_enabled: bool,
+    ) -> Result<()> {
+        if self.session.is_some() {
+            bail!(
+                "Already in a session, please run '.exit session' first to exit the current session."
+            );
+        }
+        let session_path = self.session_file(session_name);
+        if !session_path.exists() {
+            bail!(
+                "Session not found: {session_name} ({})",
+                session_path.display()
+            );
+        }
+        let mut session = Session::load(self, session_name, &session_path)?;
+        session.set_context_enabled(context_enabled);
+        self.session = Some(session);
+        Ok(())
+    }
+
     pub fn use_session_with_context(
         &mut self,
         session_name: Option<&str>,
@@ -413,6 +436,7 @@ impl Config {
         } else {
             bail!("No session")
         }
+        self.save_current_session()?;
         self.discontinuous_last_message();
         Ok(())
     }

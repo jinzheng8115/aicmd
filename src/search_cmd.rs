@@ -155,6 +155,44 @@ pub fn load_raw_search(name: &str) -> Result<RawSearchRecord> {
         .with_context(|| format!("Failed to parse raw search: {}", path.display()))
 }
 
+pub fn validate_execution_evidence(name: &str, raw: &RawSearchRecord) -> Result<()> {
+    const COMMAND_PREFIXES: &[&str] = &[
+        "brew ", "npm ", "npx ", "pnpm ", "yarn ", "apt ", "apt-get ", "dnf ", "yum ", "pacman ",
+        "curl ", "wget ", "pip ", "pip3 ", "python ", "python3 ", "cargo ", "go ", "git ",
+        "docker ", "kubectl ", "sh ", "bash ", "zsh ",
+    ];
+
+    let has_url = raw.raw_output.contains("http://") || raw.raw_output.contains("https://");
+    let has_command = raw.raw_output.lines().any(|line| {
+        let line = trim_markdown_list_marker(line.trim());
+        let line = line.strip_prefix("$ ").unwrap_or(line);
+        COMMAND_PREFIXES
+            .iter()
+            .any(|prefix| line.starts_with(prefix))
+    });
+    if !has_url || !has_command {
+        bail!(
+            "The saved search is insufficient for execution: `{name}`. Run `aicmd search <more specific query>` to collect a complete source URL and installation command."
+        );
+    }
+    Ok(())
+}
+
+fn trim_markdown_list_marker(line: &str) -> &str {
+    if let Some(line) = ["- ", "* ", "+ "]
+        .iter()
+        .find_map(|marker| line.strip_prefix(marker))
+    {
+        return line.trim_start();
+    }
+    if let Some((number, line)) = line.split_once(". ") {
+        if !number.is_empty() && number.chars().all(|ch| ch.is_ascii_digit()) {
+            return line.trim_start();
+        }
+    }
+    line
+}
+
 pub fn saved_search_path(name: &str) -> Result<PathBuf> {
     let name = if name == "last" {
         LAST_SEARCH_NAME.to_string()
@@ -581,5 +619,34 @@ mod tests {
         let record = parse_raw_search_record(&content).unwrap();
         assert_eq!(record.query, "docker 如何安装");
         assert_eq!(record.raw_output, "raw result\nline 2");
+    }
+
+    #[test]
+    fn execution_evidence_requires_url_and_recognized_command() {
+        let valid = RawSearchRecord {
+            query: "install demo".to_string(),
+            raw_output: "Source: https://example.com/demo\n- $ brew install demo".to_string(),
+        };
+        assert!(validate_execution_evidence("demo-install", &valid).is_ok());
+
+        for raw_output in [
+            "Source: https://example.com/demo\nRead the installation guide.",
+            "Source: https://example.com/demo\n$ echo install demo",
+            "brew install demo",
+            "Read the installation guide.",
+        ] {
+            let error = validate_execution_evidence(
+                "demo-install",
+                &RawSearchRecord {
+                    query: "install demo".to_string(),
+                    raw_output: raw_output.to_string(),
+                },
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains("demo-install"));
+            assert!(error.contains("saved search is insufficient"));
+            assert!(error.contains("aicmd search <more specific query>"));
+        }
     }
 }

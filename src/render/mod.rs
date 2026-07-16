@@ -14,13 +14,14 @@ pub async fn render_stream(
     rx: UnboundedReceiver<SseEvent>,
     config: &GlobalConfig,
     abort_signal: AbortSignal,
+    progress: (String, usize, usize, bool),
 ) -> Result<()> {
     let ret = if *IS_STDOUT_TERMINAL && config.read().highlight {
         let render_options = config.read().render_options()?;
         let mut render = MarkdownRender::init(render_options)?;
-        markdown_stream(rx, &mut render, &abort_signal).await
+        markdown_stream(rx, &mut render, &abort_signal, progress).await
     } else {
-        raw_stream(rx, &abort_signal).await
+        raw_stream(rx, &abort_signal, progress).await
     };
     ret.map_err(|err| err.context("Failed to reader stream"))
 }

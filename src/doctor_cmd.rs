@@ -1,20 +1,19 @@
-use crate::config::Config;
+use crate::{config::Config, mcp_cmd};
 
 use anyhow::Result;
-use serde_json::Value;
 use std::{env, fs, path::PathBuf};
 
 struct Check {
-    name: &'static str,
+    name: String,
     status: &'static str,
     detail: String,
     suggestion: Option<String>,
 }
 
 impl Check {
-    fn ok(name: &'static str, detail: impl Into<String>) -> Self {
+    fn ok(name: impl Into<String>, detail: impl Into<String>) -> Self {
         Self {
-            name,
+            name: name.into(),
             status: "ok",
             detail: detail.into(),
             suggestion: None,
@@ -22,21 +21,25 @@ impl Check {
     }
 
     fn warning(
-        name: &'static str,
+        name: impl Into<String>,
         detail: impl Into<String>,
         suggestion: impl Into<String>,
     ) -> Self {
         Self {
-            name,
+            name: name.into(),
             status: "warning",
             detail: detail.into(),
             suggestion: Some(suggestion.into()),
         }
     }
 
-    fn error(name: &'static str, detail: impl Into<String>, suggestion: impl Into<String>) -> Self {
+    fn error(
+        name: impl Into<String>,
+        detail: impl Into<String>,
+        suggestion: impl Into<String>,
+    ) -> Self {
         Self {
-            name,
+            name: name.into(),
             status: "error",
             detail: detail.into(),
             suggestion: Some(suggestion.into()),
@@ -210,84 +213,20 @@ fn yaml_scalar_display(value: &serde_yaml::Value) -> String {
     }
 }
 
-fn mcp_config_path() -> PathBuf {
-    env::var("AICMD_MCP_CONFIG_FILE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| Config::config_dir().join("mcp.json"))
+fn check_mcp() -> Vec<Check> {
+    mcp_checks(mcp_cmd::diagnose_config())
 }
 
-fn check_mcp() -> Vec<Check> {
-    let path = mcp_config_path();
-    if !path.exists() {
-        return vec![
-            Check::warning(
-                "MCP config",
-                format!("not found at {}", path.display()),
-                "Create ~/.aicmd/mcp.json or place mcp.json next to .env and run: aicmd init --from-env --force",
-            ),
-            Check::warning(
-                "Search",
-                "not checked because MCP config is missing",
-                "Configure the search command in ~/.aicmd/mcp.json",
-            ),
-        ];
-    }
-
-    let content = match fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(err) => {
-            return vec![
-                Check::warning(
-                    "MCP config",
-                    format!("unable to read {}: {err}", path.display()),
-                    "Check file permissions for ~/.aicmd/mcp.json",
-                ),
-                Check::warning(
-                    "Search",
-                    "not checked because MCP config cannot be read",
-                    "Fix ~/.aicmd/mcp.json, then run: aicmd doctor",
-                ),
-            ];
-        }
-    };
-
-    let parsed: Value = match serde_json::from_str(&content) {
-        Ok(value) => value,
-        Err(err) => {
-            return vec![
-                Check::warning(
-                    "MCP config",
-                    format!("invalid JSON at {}: {err}", path.display()),
-                    "Fix ~/.aicmd/mcp.json JSON syntax",
-                ),
-                Check::warning(
-                    "Search",
-                    "not checked because MCP config JSON is invalid",
-                    "Fix ~/.aicmd/mcp.json, then run: aicmd doctor",
-                ),
-            ];
-        }
-    };
-
-    let root = parsed.get("mcp").unwrap_or(&parsed);
-    let search = root
-        .get("commands")
-        .and_then(|commands| commands.get("search"))
-        .is_some();
-    let search_check = if search {
-        Check::ok("Search", "configured")
-    } else {
-        Check::warning(
-            "Search",
-            "command not configured",
-            "Add mcp.commands.search to ~/.aicmd/mcp.json",
-        )
-    };
-
-    vec![
-        Check::ok("MCP config", path.display().to_string()),
-        search_check,
-    ]
+fn mcp_checks(diagnostics: Vec<mcp_cmd::McpDiagnostic>) -> Vec<Check> {
+    diagnostics
+        .into_iter()
+        .map(|diagnostic| Check {
+            name: diagnostic.name,
+            status: diagnostic.status,
+            detail: diagnostic.detail,
+            suggestion: diagnostic.suggestion,
+        })
+        .collect()
 }
 
 fn check_command_cache() -> Check {
@@ -396,4 +335,57 @@ fn check_shell_integration() -> Check {
         "not detected",
         r#"Run: eval "$(aicmd shell-init)""#,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mcp_cmd::McpDiagnostic;
+
+    #[test]
+    fn mcp_diagnostics_become_individual_doctor_checks() {
+        let checks = mcp_checks(vec![
+            McpDiagnostic {
+                name: "MCP server web".into(),
+                status: "error",
+                detail: "executable not found".into(),
+                suggestion: Some("Install it".into()),
+            },
+            McpDiagnostic {
+                name: "MCP command search".into(),
+                status: "ok",
+                detail: "server web".into(),
+                suggestion: None,
+            },
+        ]);
+
+        assert_eq!(checks.len(), 2);
+        assert_eq!(checks[0].name, "MCP server web");
+        assert_eq!(checks[0].status, "error");
+        assert_eq!(checks[0].suggestion.as_deref(), Some("Install it"));
+        assert_eq!(checks[1].name, "MCP command search");
+        assert_eq!(checks[1].status, "ok");
+    }
+
+    #[test]
+    fn search_doctor_check_keeps_legacy_states() {
+        for (status, detail) in [
+            ("ok", "configured"),
+            ("warning", "command not configured"),
+            ("warning", "not checked because MCP config is missing"),
+        ] {
+            let check = mcp_checks(vec![McpDiagnostic {
+                name: "Search".into(),
+                status,
+                detail: detail.into(),
+                suggestion: None,
+            }])
+            .pop()
+            .unwrap();
+
+            assert_eq!(check.name, "Search");
+            assert_eq!(check.status, status);
+            assert_eq!(check.detail, detail);
+        }
+    }
 }

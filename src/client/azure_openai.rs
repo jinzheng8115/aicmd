@@ -47,7 +47,7 @@ fn prepare_chat_completions(
 
     let url = format!(
         "{}/openai/deployments/{}/chat/completions?api-version=2024-12-01-preview",
-        &api_base,
+        api_base,
         self_.model.real_name()
     );
 

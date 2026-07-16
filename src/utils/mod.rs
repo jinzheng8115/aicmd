@@ -8,6 +8,7 @@ mod language;
 mod loader;
 mod path;
 mod request;
+mod retry;
 mod spinner;
 mod variables;
 
@@ -21,6 +22,7 @@ pub use self::language::*;
 pub use self::loader::*;
 pub use self::path::*;
 pub use self::request::*;
+pub use self::retry::*;
 pub use self::spinner::*;
 pub use self::variables::*;
 

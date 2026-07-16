@@ -1,3 +1,4 @@
+mod change_report_cmd;
 mod cli;
 mod client;
 mod command_cache;
@@ -10,9 +11,12 @@ mod err_cmd;
 mod execute_cmd;
 mod function;
 mod help_cmd;
+mod intent_cmd;
+mod interactive_cmd;
 mod mcp_cmd;
 mod model_cmd;
 mod plan_cmd;
+mod preflight_cmd;
 mod render;
 mod repair_cmd;
 mod result_cmd;
@@ -21,6 +25,7 @@ mod session_cmd;
 mod setup_cmd;
 mod shell_init_cmd;
 mod update_cmd;
+mod workflow_cmd;
 #[macro_use]
 mod utils;
 
@@ -28,35 +33,61 @@ mod utils;
 extern crate log;
 
 use crate::cli::Cli;
-use crate::client::{call_chat_completions, call_chat_completions_streaming};
+use crate::client::{
+    call_chat_completions_controlled, call_chat_completions_raw_controlled,
+    call_chat_completions_streaming_controlled,
+};
 use crate::config::{
     ensure_parent_exists, load_env_file, Config, GlobalConfig, Input, COMMAND_SUMMARY_ROLE,
-    EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_COMMAND_ROLE, SHELL_ROLE,
+    EXPLAIN_SHELL_ROLE, MCP_SUMMARY_ROLE, SHELL_COMMAND_ROLE, SHELL_ROLE, TEMP_SESSION_NAME,
 };
-use crate::plan_cmd::{request_execution_plan, route_kind, ExecutionPlan, RouteKind};
+use crate::intent_cmd::NaturalIntent;
+use crate::plan_cmd::{
+    parse_generated_command, render_execution_plan, request_execution_plan, route_kind,
+    ExecutionPlan, PlanMode, RouteKind, WorkflowFailurePolicy, WorkflowPlan, WorkflowStepKind,
+};
+use crate::preflight_cmd::PreflightCheck;
 use crate::render::render_error;
 use crate::utils::*;
 
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use inquire::Text;
+use is_terminal::IsTerminal;
 use parking_lot::RwLock;
 use simplelog::{format_description, ConfigBuilder, LevelFilter, SimpleLogger, WriteLogger};
-use std::{env, process, sync::Arc};
+use std::{env, io, process, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut cli = Cli::parse();
+    if interactive_cmd::should_start(&cli, io::stdin().is_terminal(), io::stdout().is_terminal()) {
+        process::exit(interactive_cmd::run(&default_session_name())?);
+    }
     load_env_file()?;
-    let cli = Cli::parse();
-    if let Some(code) = run_pre_config_shortcut(cli.text_args())? {
+    let parsed_intent = intent_cmd::parse(cli.text_args())?;
+    apply_intent_cli_overrides(&mut cli, parsed_intent.as_ref());
+    let natural_intent = parsed_intent
+        .as_ref()
+        .filter(|intent| should_run_session_intent(&cli, Some(intent)));
+    if let Some(code) = run_pre_config_intent(natural_intent)? {
         process::exit(code);
     }
-    let text = cli.text()?;
+    if let Some(code) = run_pre_config_shortcut(cli.text_args()).await? {
+        process::exit(code);
+    }
+    let text = match translate_session_intent(&mut cli, natural_intent) {
+        Some(text) => text,
+        None => cli.text()?,
+    };
     let info_flag = cli.list_sessions;
     setup_logger()?;
     let config = Arc::new(RwLock::new(Config::init(info_flag).await?));
     if let Some(model_id) = &cli.model {
         config.write().set_model(model_id)?;
+    }
+    if let Some(code) = run_builtin_intent(&config, natural_intent).await? {
+        process::exit(code);
     }
     if let Some(code) = run_builtin_shortcut(&config, cli.text_args()).await? {
         process::exit(code);
@@ -68,110 +99,95 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CommandRiskLevel {
-    ReadOnly,
-    ChangesSystem,
-    Destructive,
+fn apply_intent_cli_overrides(cli: &mut Cli, intent: Option<&NaturalIntent>) {
+    if matches!(intent, Some(NaturalIntent::ContinueLastFailure)) {
+        cli.no_cache = true;
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CommandRisk {
-    level: CommandRiskLevel,
-    reasons: Vec<&'static str>,
-}
-
-impl CommandRisk {
-    fn label(&self) -> &'static str {
-        match self.level {
-            CommandRiskLevel::ReadOnly => localized("只读", "read-only"),
-            CommandRiskLevel::ChangesSystem => localized("会修改系统或文件", "changes system"),
-            CommandRiskLevel::Destructive => localized("可能造成破坏", "destructive"),
+fn translate_session_intent(
+    cli: &mut Cli,
+    intent: Option<&NaturalIntent>,
+) -> Option<Option<String>> {
+    if !should_run_session_intent(cli, intent) {
+        return None;
+    }
+    match intent {
+        Some(NaturalIntent::ClearSession { name }) => {
+            cli.session = name.clone().map(Some);
+            cli.empty_session = true;
+            Some(None)
         }
-    }
-
-    fn requires_confirmation(&self) -> bool {
-        matches!(self.level, CommandRiskLevel::Destructive)
-    }
-
-    fn display(&self) -> String {
-        if self.reasons.is_empty() {
-            format!("{}: {}", localized("风险", "Risk"), self.label())
-        } else {
-            format!(
-                "{}: {} ({})",
-                localized("风险", "Risk"),
-                self.label(),
-                self.reasons.join(", ")
-            )
+        Some(NaturalIntent::RunInSession { name, task }) => {
+            cli.session = Some(Some(name.clone()));
+            Some(Some(task.clone()))
         }
+        Some(NaturalIntent::ContinueLastFailure) => {
+            cli.session = Some(Some(default_session_name()));
+            Some(Some(cli.text_args().join(" ").trim().to_string()))
+        }
+        _ => None,
     }
 }
 
-fn classify_command_risk(command: &str) -> CommandRisk {
-    let lower = command.to_lowercase();
-    let mut level = CommandRiskLevel::ReadOnly;
-    let mut reasons = Vec::new();
+fn should_run_session_intent(cli: &Cli, intent: Option<&NaturalIntent>) -> bool {
+    let is_session_intent = matches!(
+        intent,
+        Some(
+            NaturalIntent::ShowRecentContext { .. }
+                | NaturalIntent::CurrentSession
+                | NaturalIntent::ListSessions
+                | NaturalIntent::ShowSessionRecent { .. }
+                | NaturalIntent::ClearSession { .. }
+                | NaturalIntent::RunInSession { .. }
+                | NaturalIntent::ContinueLastFailure
+        )
+    );
+    !is_session_intent || !(cli.session.is_some() || cli.empty_session || cli.list_sessions)
+}
 
-    let destructive_patterns = [
-        ("rm -rf", "recursive force delete"),
-        ("rm -fr", "recursive force delete"),
-        ("mkfs", "format filesystem"),
-        ("dd if=", "raw disk write/copy"),
-        ("diskutil erase", "erase disk"),
-        ("docker system prune", "docker prune"),
-        ("git reset --hard", "discard git changes"),
-        ("git clean -fd", "delete untracked files"),
-        ("chmod -r", "recursive permission change"),
-        ("chown -r", "recursive owner change"),
-        ("drop database", "drop database"),
-        ("truncate table", "truncate table"),
-        ("delete from", "database delete"),
+fn run_pre_config_intent(intent: Option<&NaturalIntent>) -> Result<Option<i32>> {
+    match intent {
+        Some(NaturalIntent::SaveLastSearch { name }) => {
+            Ok(Some(search_cmd::save_last(name.as_deref())?))
+        }
+        Some(NaturalIntent::ShowRecentContext { limit }) => {
+            let args = vec!["show".to_string(), "--limit".to_string(), limit.to_string()];
+            Ok(Some(session_cmd::run_session_command(&args)?))
+        }
+        Some(NaturalIntent::CurrentSession) => Ok(Some(session_cmd::run_session_command(&[])?)),
+        Some(NaturalIntent::ListSessions) => {
+            let args = vec!["list".to_string()];
+            Ok(Some(session_cmd::run_session_command(&args)?))
+        }
+        Some(NaturalIntent::ShowSessionRecent { name, limit }) => {
+            let args = vec![
+                "show".to_string(),
+                name.clone(),
+                "--limit".to_string(),
+                limit.to_string(),
+            ];
+            Ok(Some(session_cmd::run_session_command(&args)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+async fn run_builtin_intent(
+    config: &GlobalConfig,
+    intent: Option<&NaturalIntent>,
+) -> Result<Option<i32>> {
+    let Some(NaturalIntent::DoFromLastSearch { task }) = intent else {
+        return Ok(None);
+    };
+    let args = vec![
+        "do".to_string(),
+        "--from-search".to_string(),
+        "last".to_string(),
+        task.clone(),
     ];
-    for (pattern, reason) in destructive_patterns {
-        if lower.contains(pattern) {
-            level = CommandRiskLevel::Destructive;
-            reasons.push(reason);
-        }
-    }
-
-    let changing_patterns = [
-        ("sudo ", "sudo"),
-        (" >", "redirect write"),
-        (">>", "append write"),
-        ("tee ", "write file"),
-        ("mkdir ", "create directory"),
-        ("touch ", "create/update file"),
-        ("mv ", "move/rename"),
-        ("cp ", "copy"),
-        ("rm ", "delete"),
-        ("chmod ", "permission change"),
-        ("chown ", "owner change"),
-        ("install ", "install"),
-        ("npm install", "install package"),
-        ("brew install", "install package"),
-        ("apt install", "install package"),
-        ("apt-get install", "install package"),
-        ("pip install", "install package"),
-        ("curl ", "network"),
-        ("wget ", "network"),
-        ("docker run", "start container"),
-        ("docker compose up", "start containers"),
-        ("systemctl ", "service control"),
-        ("launchctl ", "service control"),
-    ];
-    if !matches!(level, CommandRiskLevel::Destructive) {
-        for (pattern, reason) in changing_patterns {
-            if lower.contains(pattern) {
-                level = CommandRiskLevel::ChangesSystem;
-                reasons.push(reason);
-            }
-        }
-    }
-
-    reasons.sort_unstable();
-    reasons.dedup();
-    CommandRisk { level, reasons }
+    run_do_shortcut(config, &args, create_abort_signal()).await?;
+    Ok(Some(0))
 }
 
 fn default_session_name() -> String {
@@ -180,7 +196,7 @@ fn default_session_name() -> String {
     format!("cmd-{}", beijing.format("%Y%m%d"))
 }
 
-fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
+async fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
     let Some(cmd) = args.first().map(String::as_str) else {
         return Ok(None);
     };
@@ -222,7 +238,23 @@ fn run_pre_config_shortcut(args: &[String]) -> Result<Option<i32>> {
         {
             Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?))
         }
-        "mcp-raw" => Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?)),
+        "mcp-raw" => {
+            let Some(command) = args.get(1) else {
+                return Ok(Some(mcp_cmd::run_mcp_command(&[])?));
+            };
+            if matches!(command.as_str(), "list" | "help" | "-h" | "--help") {
+                return Ok(Some(mcp_cmd::run_mcp_command(&args[1..])?));
+            }
+            let output = call_mcp_raw(
+                command,
+                &args[2..].join(" "),
+                create_abort_signal(),
+                &RetryBudget::default(),
+            )
+            .await?;
+            print!("{output}");
+            Ok(Some(0))
+        }
         _ => Ok(None),
     }
 }
@@ -236,8 +268,15 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             if args.get(1).is_some_and(|v| v == "summarize") {
                 let target = search_cmd::parse_summarize_target(&args[2..])?;
                 let raw = search_cmd::load_raw_search(&target)?;
-                let summary =
-                    summarize_mcp_output(config, "search", &raw.query, &raw.raw_output).await?;
+                let summary = summarize_mcp_output(
+                    config,
+                    "search",
+                    &raw.query,
+                    &raw.raw_output,
+                    create_abort_signal(),
+                    &RetryBudget::default(),
+                )
+                .await?;
                 let save_name = if target == "last" {
                     None
                 } else {
@@ -246,13 +285,30 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
                 search_cmd::persist_search_result(&raw.query, &summary, save_name)?;
             } else {
                 let options = search_cmd::parse_search_run_args(&args[1..])?;
-                let raw_output = call_mcp_raw("search", &options.query)?;
+                let abort_signal = create_abort_signal();
+                let retry_budget = RetryBudget::default();
+                let raw_output = call_mcp_raw(
+                    "search",
+                    &options.query,
+                    abort_signal.clone(),
+                    &retry_budget,
+                )
+                .await?;
                 let raw_path = search_cmd::persist_raw_search_result(
                     &options.query,
                     &raw_output,
                     options.save_name.clone(),
                 )?;
-                match summarize_mcp_output(config, "search", &options.query, &raw_output).await {
+                match summarize_mcp_output(
+                    config,
+                    "search",
+                    &options.query,
+                    &raw_output,
+                    abort_signal,
+                    &retry_budget,
+                )
+                .await
+                {
                     Ok(summary) => {
                         search_cmd::persist_search_result(
                             &options.query,
@@ -290,7 +346,16 @@ async fn run_builtin_shortcut(config: &GlobalConfig, args: &[String]) -> Result<
             let default_session = default_session_name();
             config.write().use_session(Some(&default_session))?;
             let input = Input::from_str(config, &report, None);
-            shell_execute(config, &SHELL, input, create_abort_signal(), None, 0).await?;
+            shell_execute(
+                config,
+                &SHELL,
+                input,
+                create_abort_signal(),
+                RetryBudget::default(),
+                None,
+                0,
+            )
+            .await?;
             Ok(Some(0))
         }
         "do" => {
@@ -343,9 +408,38 @@ fn sanitize_mcp_output_for_llm(raw: &str) -> String {
     text
 }
 
-fn call_mcp_raw(mcp_command: &str, query: &str) -> Result<String> {
-    let raw_output = mcp_cmd::call_mcp_command(mcp_command, query)
-        .with_context(|| "Unable to run MCP command")?;
+async fn call_mcp_raw(
+    mcp_command: &str,
+    query: &str,
+    abort_signal: AbortSignal,
+    retry_budget: &RetryBudget,
+) -> Result<String> {
+    let stage_zh = format!("正在调用 MCP {mcp_command}");
+    let stage_en = format!("Calling MCP {mcp_command}");
+    let raw_output = run_external_with_managed_retry(
+        ProgressStage::new(&stage_zh, &stage_en),
+        retry_budget,
+        abort_signal.clone(),
+        |attempt| {
+            let mcp_command = mcp_command.to_string();
+            let query = query.to_string();
+            let abort_signal = abort_signal.clone();
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    mcp_cmd::call_mcp_command_controlled(
+                        &mcp_command,
+                        &query,
+                        attempt.timeout,
+                        abort_signal,
+                    )
+                })
+                .await
+                .context("MCP worker failed")?
+            }
+        },
+    )
+    .await
+    .with_context(|| "Unable to run MCP command")?;
     if raw_output.trim().is_empty() {
         bail!("MCP command returned no output");
     }
@@ -357,8 +451,18 @@ async fn run_mcp_with_llm_summary(
     mcp_command: &str,
     query: &str,
 ) -> Result<String> {
-    let raw_output = call_mcp_raw(mcp_command, query)?;
-    summarize_mcp_output(config, mcp_command, query, &raw_output).await
+    let abort_signal = create_abort_signal();
+    let retry_budget = RetryBudget::default();
+    let raw_output = call_mcp_raw(mcp_command, query, abort_signal.clone(), &retry_budget).await?;
+    summarize_mcp_output(
+        config,
+        mcp_command,
+        query,
+        &raw_output,
+        abort_signal,
+        &retry_budget,
+    )
+    .await
 }
 
 async fn prompt_search_follow_up(
@@ -446,7 +550,16 @@ async fn run_do_shortcut(
     let default_session = default_session_name();
     config.write().use_session(Some(&default_session))?;
     let input = Input::from_str(config, &request.prompt, None);
-    shell_execute(config, &SHELL, input, abort_signal, None, 0).await
+    shell_execute(
+        config,
+        &SHELL,
+        input,
+        abort_signal,
+        RetryBudget::default(),
+        None,
+        0,
+    )
+    .await
 }
 
 async fn summarize_mcp_output(
@@ -454,8 +567,9 @@ async fn summarize_mcp_output(
     mcp_command: &str,
     query: &str,
     raw_output: &str,
+    abort_signal: AbortSignal,
+    retry_budget: &RetryBudget,
 ) -> Result<String> {
-    let abort_signal = create_abort_signal();
     let llm_output = sanitize_mcp_output_for_llm(raw_output);
     if llm_output.trim().is_empty() {
         bail!("MCP command returned no usable output after filtering");
@@ -474,9 +588,25 @@ MCP returned content / MCP 返回内容：
     let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
     let (summary, _) = if input.stream() {
-        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?
+        call_chat_completions_streaming_controlled(
+            &input,
+            client.as_ref(),
+            abort_signal,
+            retry_budget,
+            ProgressStage::new("正在整理搜索结果", "Summarizing search result"),
+        )
+        .await?
     } else {
-        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?
+        call_chat_completions_controlled(
+            &input,
+            true,
+            false,
+            client.as_ref(),
+            abort_signal,
+            retry_budget,
+            ProgressStage::new("正在整理搜索结果", "Summarizing search result"),
+        )
+        .await?
     };
     println!();
     Ok(summary)
@@ -507,10 +637,27 @@ async fn summarize_command_output(
     let input = Input::from_str(config, &prompt, Some(role));
     let client = input.create_client()?;
     println!("{}", dimmed_text("\nAI summary:"));
+    let retry_budget = RetryBudget::default();
     let (summary, _) = if input.stream() {
-        call_chat_completions_streaming(&input, client.as_ref(), abort_signal).await?
+        call_chat_completions_streaming_controlled(
+            &input,
+            client.as_ref(),
+            abort_signal,
+            &retry_budget,
+            ProgressStage::new("正在生成执行结果总结", "Summarizing command output"),
+        )
+        .await?
     } else {
-        call_chat_completions(&input, true, false, client.as_ref(), abort_signal).await?
+        call_chat_completions_controlled(
+            &input,
+            true,
+            false,
+            client.as_ref(),
+            abort_signal,
+            &retry_budget,
+            ProgressStage::new("正在生成执行结果总结", "Summarizing command output"),
+        )
+        .await?
     };
     println!();
     Ok(Some(summary))
@@ -537,7 +684,12 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
 
     config.write().use_role(SHELL_ROLE)?;
     let default_session = default_session_name();
-    if matches!(cli.session, Some(None)) && text.is_none() && cli.file.is_empty() {
+    if matches!(cli.session, Some(None))
+        && !cli.empty_session
+        && !cli.list_sessions
+        && text.is_none()
+        && cli.file.is_empty()
+    {
         println!("current session: {default_session}");
         return Ok(());
     }
@@ -547,16 +699,10 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         Some(default_session.as_str())
     };
     let context_enabled = cli.session.is_some();
-    config
-        .write()
-        .use_session_with_context(session_name, context_enabled)?;
-    if cli.list_sessions {
-        let sessions = config.read().list_sessions().join("\n");
-        println!("{sessions}");
-        return Ok(());
-    }
-    if cli.empty_session {
-        let target = session_name.unwrap_or("temporary");
+    let clear_target = cli
+        .empty_session
+        .then(|| session_name.unwrap_or(TEMP_SESSION_NAME));
+    if let Some(target) = clear_target {
         if !confirm_cmd::confirm_high_risk(&format!(
             "{} '{target}'?",
             localized("确认清空会话的全部历史记录", "Clear all history in session")
@@ -564,6 +710,27 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             println!("{}", localized("已取消", "cancelled"));
             return Ok(());
         }
+        let target_path = config.read().session_file(target);
+        if !target_path.exists() {
+            bail!("Session not found: {target} ({})", target_path.display());
+        }
+    }
+    if let Some(target) = clear_target {
+        config
+            .write()
+            .use_existing_session_with_context(target, context_enabled)?;
+    } else {
+        config
+            .write()
+            .use_session_with_context(session_name, context_enabled)?;
+    }
+    if cli.list_sessions {
+        let sessions = config.read().list_sessions().join("\n");
+        println!("{sessions}");
+        return Ok(());
+    }
+    if cli.empty_session {
+        let target = clear_target.expect("clear target is resolved above");
         config.write().empty_session()?;
         if text.is_none() && cli.file.is_empty() {
             println!("session cleared: {target}");
@@ -591,9 +758,9 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
     let input = create_input(&config, text, &cli.file, abort_signal.clone()).await?;
     let cache_eligible = should_lookup_command_cache(&config, cache_task.as_deref());
     let cached_command = if cache_eligible {
-        cache_task.as_deref().and_then(|task| {
-            command_cache::lookup(task, &SHELL.name, env::consts::OS).map(|record| record.command)
-        })
+        cache_task
+            .as_deref()
+            .and_then(|task| command_cache::lookup(task, &SHELL.name, env::consts::OS))
     } else {
         None
     };
@@ -609,13 +776,15 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
             ))
         );
         let ask_summary = config.read().ask_summary;
+        let cached = cached_command.expect("cache hit has a record");
         return handle_generated_command(
             &config,
             &SHELL,
             input_with_execution_role(&config, input, RouteKind::Command)?,
             abort_signal,
             ShellExecutionOptions {
-                eval_str: cached_command.expect("cache hit has a command"),
+                eval_str: cached.command,
+                preflight: cached.preflight,
                 cache_task,
                 record_assistant_message: false,
                 repair_attempts: 0,
@@ -625,7 +794,16 @@ async fn run(config: GlobalConfig, cli: Cli, text: Option<String>) -> Result<()>
         )
         .await;
     }
-    request_and_route_execution_plan(&config, &SHELL, input, abort_signal, cache_task).await?;
+    let retry_budget = RetryBudget::default();
+    request_and_route_execution_plan(
+        &config,
+        &SHELL,
+        input,
+        abort_signal,
+        retry_budget,
+        cache_task,
+    )
+    .await?;
     Ok(())
 }
 
@@ -657,7 +835,7 @@ fn plan_request_decision(cache_eligible: bool, cache_hit: bool) -> PlanRequestDe
 fn command_role_for_route(route: RouteKind) -> Option<&'static str> {
     match route {
         RouteKind::Command | RouteKind::Diagnose => Some(SHELL_COMMAND_ROLE),
-        RouteKind::Search => None,
+        RouteKind::Search | RouteKind::Workflow => None,
     }
 }
 
@@ -679,12 +857,22 @@ async fn request_and_route_execution_plan(
     shell: &Shell,
     input: Input,
     abort_signal: AbortSignal,
+    retry_budget: RetryBudget,
     cache_task: Option<String>,
 ) -> Result<()> {
-    let plan = request_execution_plan(config, &input, abort_signal.clone())
+    let plan = request_execution_plan(config, &input, abort_signal.clone(), &retry_budget)
         .await
         .context(localized("无效执行计划", "Invalid execution plan"))?;
-    route_execution_plan(config, shell, input, plan, abort_signal, cache_task).await
+    route_execution_plan(
+        config,
+        shell,
+        input,
+        plan,
+        abort_signal,
+        retry_budget,
+        cache_task,
+    )
+    .await
 }
 
 async fn route_execution_plan(
@@ -693,10 +881,11 @@ async fn route_execution_plan(
     input: Input,
     plan: ExecutionPlan,
     abort_signal: AbortSignal,
+    retry_budget: RetryBudget,
     cache_task: Option<String>,
 ) -> Result<()> {
     if config.read().dry_run {
-        println!("{}", serde_json::to_string_pretty(&plan)?);
+        println!("{}", render_execution_plan(&plan)?);
         return Ok(());
     }
 
@@ -705,6 +894,7 @@ async fn route_execution_plan(
             RouteKind::Command => println!("{}", plan.command),
             RouteKind::Search => println!("mode: search\nquery: {}", plan.query),
             RouteKind::Diagnose => println!("mode: diagnose\nproblem: {}", plan.problem),
+            RouteKind::Workflow => println!("{}", render_execution_plan(&plan)?),
         }
         return Ok(());
     }
@@ -720,6 +910,7 @@ async fn route_execution_plan(
                 abort_signal,
                 ShellExecutionOptions {
                     eval_str: plan.command,
+                    preflight: plan.preflight,
                     cache_task,
                     record_assistant_message: true,
                     repair_attempts: 0,
@@ -730,16 +921,467 @@ async fn route_execution_plan(
             .await
         }
         RouteKind::Search => {
-            let raw_output = call_mcp_raw("search", &plan.query)?;
-            summarize_mcp_output(config, "search", &plan.query, &raw_output).await?;
+            let raw_output =
+                call_mcp_raw("search", &plan.query, abort_signal.clone(), &retry_budget).await?;
+            summarize_mcp_output(
+                config,
+                "search",
+                &plan.query,
+                &raw_output,
+                abort_signal.clone(),
+                &retry_budget,
+            )
+            .await?;
             prompt_search_follow_up(config, abort_signal, Some(&plan.query)).await
         }
         RouteKind::Diagnose => {
-            let input = Input::from_str(config, &plan.problem, None);
+            let input = input.with_text(plan.problem).with_session_context();
             let input = input_with_execution_role(config, input, route)?;
-            shell_execute(config, shell, input, abort_signal, None, 0).await
+            shell_execute(config, shell, input, abort_signal, retry_budget, None, 0).await
+        }
+        RouteKind::Workflow => {
+            let workflow = plan.workflow().context("workflow payload missing")?;
+            run_workflow_plan(config, shell, input.text(), workflow, abort_signal, 0).await
         }
     }
+}
+
+#[async_recursion::async_recursion]
+async fn run_workflow_plan(
+    config: &GlobalConfig,
+    shell: &Shell,
+    request: String,
+    plan: WorkflowPlan,
+    abort_signal: AbortSignal,
+    repair_attempts: u8,
+) -> Result<()> {
+    let mut check_results = Vec::new();
+    let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> = async {
+        workflow_cmd::validate_read_only_workflow_steps(&plan)?;
+        let checks = plan
+            .steps
+            .iter()
+            .take_while(|step| step.kind == WorkflowStepKind::Check)
+            .collect::<Vec<_>>();
+        for step in checks {
+            let command = execute_cmd::with_cwd_capture(shell, &step.command);
+            let output =
+                execute_cmd::run_command_capture_controlled(shell, &command, abort_signal.clone())
+                    .await?;
+            let result = workflow_cmd::step_result_from_output(&step.id, output);
+            let stop = result.status == workflow_cmd::StepStatus::Cancelled
+                || (result.status == workflow_cmd::StepStatus::Failed
+                    && matches!(
+                        step.on_failure,
+                        WorkflowFailurePolicy::Stop | WorkflowFailurePolicy::Repair
+                    ));
+            check_results.push(result);
+            if stop {
+                break;
+            }
+        }
+
+        let mut prepared = workflow_cmd::prepare_workflow(plan.clone(), &check_results)?;
+        let confirmed = if repair_attempts == 0 {
+            workflow_cmd::confirm_workflow(&prepared)?
+        } else {
+            workflow_cmd::confirm_repaired_workflow(&prepared)?
+        };
+        if !confirmed {
+            return Ok((
+                workflow_cmd::WorkflowStatus::Cancelled,
+                "confirmation_declined",
+                false,
+            ));
+        }
+        let execution =
+            workflow_cmd::execute_prepared_workflow(shell, &mut prepared, abort_signal.clone())
+                .await;
+        check_results = prepared.results.clone();
+        let status = execution?;
+        let interrupted = check_results
+            .iter()
+            .any(|result| result.status == workflow_cmd::StepStatus::Cancelled);
+        let pending_termination = match status {
+            workflow_cmd::WorkflowStatus::Completed => "not_run",
+            workflow_cmd::WorkflowStatus::Failed => "blocked_by_failure",
+            workflow_cmd::WorkflowStatus::Cancelled => "cancelled",
+        };
+        Ok((status, pending_termination, interrupted))
+    }
+    .await;
+
+    let mut terminal = classify_workflow_terminal(&run_result);
+    let mut record = workflow_cmd::WorkflowRecord::from_partial(
+        request.clone(),
+        plan,
+        check_results,
+        repair_attempts,
+        terminal.status,
+        terminal.pending_termination,
+    );
+    let has_repair = workflow_has_repair_failure(&record);
+    let pre_planner_transition = decide_workflow_repair_transition(
+        has_repair,
+        repair_attempts,
+        abort_signal.aborted(),
+        false,
+    );
+    if has_repair && workflow_cmd::can_repair_workflow(repair_attempts) && abort_signal.aborted() {
+        terminal = cancelled_workflow_terminal();
+        mark_workflow_record_cancelled(&mut record);
+    }
+    if should_append_workflow_record_before_planner(pre_planner_transition) {
+        let save_result = append_workflow_record(config, &record);
+        if let WorkflowAfterSaveAction::Exit {
+            code,
+            report_save_error,
+        } = workflow_after_save_action(terminal, &save_result)
+        {
+            if report_save_error {
+                let save_error = save_result
+                    .as_ref()
+                    .expect_err("save error is present when reporting is requested");
+                eprintln!(
+                    "{}: {save_error:#}",
+                    localized(
+                        "工作流结果保存失败；任务仍按取消处理",
+                        "Workflow result save failed; task remains cancelled"
+                    )
+                );
+            }
+            process::exit(code);
+        }
+        return match (run_result, save_result) {
+            (Err(error), Err(save_error)) => {
+                Err(error.context(format!("failed to save workflow result: {save_error:#}")))
+            }
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(save_error)) => Err(save_error),
+            (Ok(_), Ok(())) => Ok(()),
+        };
+    }
+
+    let repair_prompt_result = {
+        let cwd = env::current_dir()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+        build_next_workflow_repair_prompt(&record, &shell.name, &cwd)
+    };
+    let repair_prompt = match repair_prompt_result {
+        Ok(Some(prompt)) => prompt,
+        Ok(None) => return append_workflow_record(config, &record),
+        Err(error) => {
+            return Err(error_after_workflow_save(
+                error,
+                append_workflow_record(config, &record),
+            ));
+        }
+    };
+    if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), false)
+        != WorkflowRepairTransition::RequestPlanner
+    {
+        save_cancelled_workflow_and_exit(config, record);
+    }
+    let input = Input::from_str(config, &repair_prompt, None).with_session_context();
+    let retry_budget = RetryBudget::default();
+    let revised =
+        match request_execution_plan(config, &input, abort_signal.clone(), &retry_budget).await {
+            Ok(revised) => revised,
+            Err(_) if abort_signal.aborted() => save_cancelled_workflow_and_exit(config, record),
+            Err(error) => {
+                let error = error.context(localized(
+                    "无法生成有效的 workflow 修订计划",
+                    "Failed to generate a valid revised workflow plan",
+                ));
+                return Err(error_after_workflow_save(
+                    error,
+                    append_workflow_record(config, &record),
+                ));
+            }
+        };
+    let revised = match require_workflow_repair_plan(revised) {
+        Ok(revised) => revised,
+        Err(error) => {
+            return Err(error_after_workflow_save(
+                error,
+                append_workflow_record(config, &record),
+            ));
+        }
+    };
+    append_workflow_record(config, &record)?;
+    if decide_workflow_repair_transition(true, repair_attempts, abort_signal.aborted(), true)
+        != WorkflowRepairTransition::ExecuteRevisedPlan
+    {
+        let cancelled = workflow_cmd::WorkflowRecord::from_partial(
+            request.clone(),
+            revised,
+            Vec::new(),
+            repair_attempts + 1,
+            workflow_cmd::WorkflowStatus::Cancelled,
+            "cancelled",
+        );
+        save_cancelled_workflow_and_exit(config, cancelled);
+    }
+    run_workflow_plan(
+        config,
+        shell,
+        request,
+        revised,
+        abort_signal,
+        repair_attempts + 1,
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkflowRepairTransition {
+    Stop,
+    RequestPlanner,
+    ExecuteRevisedPlan,
+}
+
+fn decide_workflow_repair_transition(
+    has_repair_failure: bool,
+    repair_attempts: u8,
+    aborted: bool,
+    revised_plan_ready: bool,
+) -> WorkflowRepairTransition {
+    if !has_repair_failure || !workflow_cmd::can_repair_workflow(repair_attempts) || aborted {
+        WorkflowRepairTransition::Stop
+    } else if revised_plan_ready {
+        WorkflowRepairTransition::ExecuteRevisedPlan
+    } else {
+        WorkflowRepairTransition::RequestPlanner
+    }
+}
+
+fn should_append_workflow_record_before_planner(transition: WorkflowRepairTransition) -> bool {
+    transition != WorkflowRepairTransition::RequestPlanner
+}
+
+fn workflow_has_repair_failure(record: &workflow_cmd::WorkflowRecord) -> bool {
+    record.status == workflow_cmd::WorkflowStatus::Failed
+        && record.results.iter().any(|result| {
+            result.status == workflow_cmd::StepStatus::Failed
+                && record.plan.steps.iter().any(|step| {
+                    step.id == result.step_id && step.on_failure == WorkflowFailurePolicy::Repair
+                })
+        })
+}
+
+fn cancelled_workflow_terminal() -> WorkflowTerminal {
+    WorkflowTerminal {
+        status: workflow_cmd::WorkflowStatus::Cancelled,
+        pending_termination: "cancelled",
+        exit_code: Some(130),
+    }
+}
+
+fn mark_workflow_record_cancelled(record: &mut workflow_cmd::WorkflowRecord) {
+    record.status = workflow_cmd::WorkflowStatus::Cancelled;
+    for result in &mut record.results {
+        if result.status == workflow_cmd::StepStatus::Pending {
+            result.termination = "cancelled".to_string();
+        }
+    }
+}
+
+fn append_workflow_record(
+    config: &GlobalConfig,
+    record: &workflow_cmd::WorkflowRecord,
+) -> Result<()> {
+    config
+        .write()
+        .append_session_note(result_cmd::build_workflow_session_note(record))
+}
+
+fn append_cancelled_workflow_record(
+    append_note: &mut dyn FnMut(String) -> Result<()>,
+    record: &mut workflow_cmd::WorkflowRecord,
+) -> Result<WorkflowTerminal> {
+    mark_workflow_record_cancelled(record);
+    append_note(result_cmd::build_workflow_session_note(record))?;
+    Ok(cancelled_workflow_terminal())
+}
+
+fn error_after_workflow_save(error: anyhow::Error, save_result: Result<()>) -> anyhow::Error {
+    match save_result {
+        Ok(()) => error,
+        Err(save_error) => error.context(format!("failed to save workflow result: {save_error:#}")),
+    }
+}
+
+fn save_cancelled_workflow_and_exit(
+    config: &GlobalConfig,
+    mut record: workflow_cmd::WorkflowRecord,
+) -> ! {
+    let save_result = append_cancelled_workflow_record(
+        &mut |note| config.write().append_session_note(note),
+        &mut record,
+    );
+    if let Err(error) = save_result {
+        eprintln!(
+            "{}: {error:#}",
+            localized(
+                "工作流结果保存失败；任务仍按取消处理",
+                "Workflow result save failed; task remains cancelled"
+            )
+        );
+    }
+    process::exit(130)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorkflowTerminal {
+    status: workflow_cmd::WorkflowStatus,
+    pending_termination: &'static str,
+    exit_code: Option<i32>,
+}
+
+fn classify_workflow_terminal(
+    run_result: &Result<(workflow_cmd::WorkflowStatus, &'static str, bool)>,
+) -> WorkflowTerminal {
+    match run_result {
+        Ok((status, pending_termination, interrupted)) => WorkflowTerminal {
+            status: *status,
+            pending_termination,
+            exit_code: interrupted.then_some(130),
+        },
+        Err(error) if workflow_confirmation_interrupted(error) => WorkflowTerminal {
+            status: workflow_cmd::WorkflowStatus::Cancelled,
+            pending_termination: "cancelled",
+            exit_code: Some(130),
+        },
+        Err(_) => WorkflowTerminal {
+            status: workflow_cmd::WorkflowStatus::Failed,
+            pending_termination: "not_run",
+            exit_code: None,
+        },
+    }
+}
+
+fn workflow_confirmation_interrupted(error: &anyhow::Error) -> bool {
+    error.to_string() == "Interrupted"
+        || error.chain().any(|cause| {
+            cause
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::Interrupted)
+        })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkflowAfterSaveAction {
+    Exit { code: i32, report_save_error: bool },
+    Continue,
+}
+
+fn workflow_after_save_action(
+    terminal: WorkflowTerminal,
+    save_result: &Result<()>,
+) -> WorkflowAfterSaveAction {
+    match terminal.exit_code {
+        Some(code) => WorkflowAfterSaveAction::Exit {
+            code,
+            report_save_error: save_result.is_err(),
+        },
+        None => WorkflowAfterSaveAction::Continue,
+    }
+}
+
+#[cfg(test)]
+fn append_workflow_terminal_note(
+    append_note: &mut dyn FnMut(String) -> Result<()>,
+    request: &str,
+    plan: WorkflowPlan,
+    results: Vec<workflow_cmd::StepResult>,
+    repair_attempts: u8,
+    status: workflow_cmd::WorkflowStatus,
+    pending_termination: &str,
+) -> Result<()> {
+    let record = workflow_cmd::WorkflowRecord::from_partial(
+        request.to_string(),
+        plan,
+        results,
+        repair_attempts,
+        status,
+        pending_termination,
+    );
+    append_note(result_cmd::build_workflow_session_note(&record))
+}
+
+fn build_next_workflow_repair_prompt(
+    record: &workflow_cmd::WorkflowRecord,
+    shell: &str,
+    cwd: &str,
+) -> Result<Option<String>> {
+    if !workflow_has_repair_failure(record) {
+        return Ok(None);
+    }
+    let Some(failed_result) = record.results.iter().find(|result| {
+        result.status == workflow_cmd::StepStatus::Failed
+            && record.plan.steps.iter().any(|step| {
+                step.id == result.step_id && step.on_failure == WorkflowFailurePolicy::Repair
+            })
+    }) else {
+        return Ok(None);
+    };
+    let failed_step = record
+        .plan
+        .steps
+        .iter()
+        .find(|step| step.id == failed_result.step_id)
+        .expect("failed workflow result belongs to its plan");
+    let previous_plan = serde_json::json!({
+        "mode": "workflow",
+        "command": "",
+        "query": "",
+        "problem": "",
+        "preflight": [],
+        "summary": &record.plan.summary,
+        "steps": &record.plan.steps,
+    });
+    let previous_plan_json = serde_json::to_string_pretty(&previous_plan)
+        .context("failed to serialize previous workflow plan")?;
+    let completed_results = record
+        .results
+        .iter()
+        .filter(|result| result.status != workflow_cmd::StepStatus::Pending)
+        .map(|result| {
+            format!(
+                "{}: {} (exit_code={}, termination={})",
+                result.step_id,
+                result.status.as_str(),
+                result.exit_code,
+                result.termination
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(Some(repair_cmd::build_workflow_repair_prompt(
+        &repair_cmd::WorkflowRepairContext {
+            user_task: &record.request,
+            shell,
+            os: env::consts::OS,
+            cwd,
+            previous_plan_json: &previous_plan_json,
+            completed_results: &completed_results,
+            failed_step: &failed_step.id,
+            exit_code: failed_result.exit_code,
+            stdout: &failed_result.stdout,
+            stderr: &failed_result.stderr,
+        },
+    )))
+}
+
+fn require_workflow_repair_plan(plan: ExecutionPlan) -> Result<WorkflowPlan> {
+    if plan.mode != PlanMode::Workflow {
+        bail!(localized(
+            "修订计划必须保持 workflow 模式",
+            "Revised plan must remain in workflow mode"
+        ));
+    }
+    plan.workflow().context("workflow payload missing")
 }
 
 #[async_recursion::async_recursion]
@@ -748,17 +1390,26 @@ async fn shell_execute(
     shell: &Shell,
     input: Input,
     abort_signal: AbortSignal,
+    retry_budget: RetryBudget,
     cache_task: Option<String>,
     repair_attempts: u8,
 ) -> Result<()> {
     let client = input.create_client()?;
     config.write().before_chat_completion(&input)?;
-    let (eval_str, _) =
-        call_chat_completions(&input, false, true, client.as_ref(), abort_signal.clone()).await?;
+    let (raw, _) = call_chat_completions_raw_controlled(
+        &input,
+        client.as_ref(),
+        abort_signal.clone(),
+        &retry_budget,
+        ProgressStage::new("正在生成命令", "Generating command"),
+    )
+    .await?;
     if config.read().dry_run {
-        config.read().print_markdown(&eval_str)?;
+        config.read().print_markdown(&raw)?;
         return Ok(());
     }
+    let generated =
+        parse_generated_command(&raw).context(localized("无效命令计划", "Invalid command plan"))?;
     let ask_summary = config.read().ask_summary;
     handle_generated_command(
         config,
@@ -766,7 +1417,8 @@ async fn shell_execute(
         input,
         abort_signal,
         ShellExecutionOptions {
-            eval_str,
+            eval_str: generated.command,
+            preflight: generated.preflight,
             cache_task,
             record_assistant_message: true,
             repair_attempts,
@@ -780,6 +1432,7 @@ async fn shell_execute(
 #[derive(Debug, Clone)]
 struct ShellExecutionOptions {
     eval_str: String,
+    preflight: Vec<PreflightCheck>,
     cache_task: Option<String>,
     record_assistant_message: bool,
     repair_attempts: u8,
@@ -797,6 +1450,7 @@ async fn handle_generated_command(
 ) -> Result<()> {
     let ShellExecutionOptions {
         eval_str,
+        preflight,
         cache_task,
         record_assistant_message,
         repair_attempts,
@@ -815,93 +1469,66 @@ async fn handle_generated_command(
         println!("{eval_str}");
         return Ok(());
     }
-    let client = input.create_client()?;
     if *IS_STDOUT_TERMINAL {
-        let command = color_text(&eval_str, nu_ansi_term::Color::Rgb(255, 165, 0));
-        let risk = classify_command_risk(&eval_str);
+        let cwd = env::current_dir().context("Unable to read current directory")?;
+        let report = preflight_cmd::run_checks(&preflight, &cwd);
+        println!("{}", preflight_cmd::format_report(&report));
+        if !report.passed() {
+            let input_text = input.text();
+            let task = cache_task.as_deref().unwrap_or(&input_text);
+            let note = result_cmd::build_preflight_session_note(task, &report);
+            config.write().append_session_note(note)?;
+            return Ok(());
+        }
+        let client = input.create_client()?;
+        let risk = confirm_cmd::classify_command_risk(&eval_str);
         loop {
-            println!("{command}");
-            println!("{}", dimmed_text(&risk.display()));
-            let mut answer_char = confirm_cmd::read_action(
-                &['y', 'n', '?'],
-                'y',
-                localized("执行？[Y/n/?] ", "Run? [Y/n/?] "),
-            )?;
-            if answer_char == '?' {
-                let first_letter_color = nu_ansi_term::Color::Cyan;
-                let mut keys = vec!['r', 'd', 'c', 'q'];
-                let mut options = vec![
-                    format!(
-                        "{}{}",
-                        color_text("r", first_letter_color),
-                        localized(" 修改", "evise")
-                    ),
-                    format!(
-                        "{}{}",
-                        color_text("d", first_letter_color),
-                        localized(" 解释", "escribe")
-                    ),
-                    format!(
-                        "{}{}",
-                        color_text("c", first_letter_color),
-                        localized(" 复制", "opy")
-                    ),
-                    format!(
-                        "{}{}",
-                        color_text("q", first_letter_color),
-                        localized(" 退出", "uit")
-                    ),
-                ];
-                if from_cache {
-                    keys.insert(0, 'g');
-                    options.insert(
-                        0,
-                        format!(
-                            "{}{}",
-                            color_text("g", first_letter_color),
-                            localized(" 重新生成", "enerate")
-                        ),
-                    );
-                }
-                answer_char = confirm_cmd::read_action(
-                    &keys,
-                    'q',
-                    &format!(
-                        "{}：{}: ",
-                        localized("更多", "More"),
-                        options.join(&dimmed_text(" | "))
-                    ),
-                )?;
-            }
-
-            match answer_char {
-                'y' => {
-                    if risk.requires_confirmation()
-                        && !confirm_cmd::confirm_high_risk(localized(
-                            "高风险命令，确认执行？",
-                            "High-risk command. Continue?",
-                        ))?
-                    {
-                        println!("{}", localized("已取消", "cancelled"));
-                        continue;
-                    }
+            match confirm_cmd::confirm_command(&eval_str, &risk, from_cache)? {
+                confirm_cmd::ConfirmationAction::Execute => {
                     let eval_command = execute_cmd::with_cwd_capture(shell, &eval_str);
-                    debug!("{} {:?}", shell.cmd, &[&shell.arg, &eval_command]);
-                    let output = execute_cmd::run_command_capture(shell, &eval_command)?;
-                    let (code, stdout, stderr) = (output.code, output.stdout, output.stderr);
+                    debug!("{} {:?}", shell.cmd, [&shell.arg, &eval_command]);
+                    let before = if risk.captures_git_changes() {
+                        change_report_cmd::GitSnapshot::capture(&cwd)
+                    } else {
+                        None
+                    };
+                    let output = execute_cmd::run_command_capture_controlled(
+                        shell,
+                        &eval_command,
+                        abort_signal.clone(),
+                    )
+                    .await?;
+                    if let Some(before) = before {
+                        if let Some(after) = change_report_cmd::GitSnapshot::capture(&cwd) {
+                            let changes = before.changes_since(&after);
+                            if !changes.is_empty() {
+                                println!(
+                                    "\n{}",
+                                    change_report_cmd::format_recovery_report(&changes)
+                                );
+                            }
+                        }
+                    }
+                    let (code, stdout, stderr, termination) = (
+                        output.code,
+                        output.stdout,
+                        output.stderr,
+                        output.termination,
+                    );
                     if code == 0 && config.read().save_shell_history {
                         let _ = append_to_shell_history(&shell.name, &eval_str, code);
                     }
-                    let summary_requested = config.read().ai_summary
-                        || (ask_summary
-                            && confirm_cmd::read_action(
-                                &['y', 'n'],
-                                'n',
-                                localized(
-                                    "是否生成 AI summary？[y/N] ",
-                                    "Generate AI summary? [y/N] ",
-                                ),
-                            )? == 'y');
+                    let summary_requested = termination == execute_cmd::CommandTermination::Exited
+                        && (config.read().ai_summary
+                            || (ask_summary
+                                && confirm_cmd::read_action(
+                                    &['y', 'n'],
+                                    'n',
+                                    localized(
+                                        "是否生成 AI summary？[y/N] ",
+                                        "Generate AI summary? [y/N] ",
+                                    ),
+                                )? == 'y'));
                     let summary = if summary_requested {
                         match summarize_command_output(
                             config,
@@ -925,11 +1552,16 @@ async fn handle_generated_command(
                     let session_note = result_cmd::build_execution_session_note(
                         &eval_str,
                         code,
+                        termination.as_str(),
                         &stdout,
                         &stderr,
                         summary.as_deref(),
                     );
                     config.write().append_session_note(session_note)?;
+                    if termination == execute_cmd::CommandTermination::Cancelled {
+                        eprintln!("{}", localized("命令已取消", "Command cancelled"));
+                        process::exit(130);
+                    }
                     if code == 0 {
                         if let Some(task) = cache_task.as_deref() {
                             if let Err(err) = command_cache::record_success(
@@ -937,6 +1569,7 @@ async fn handle_generated_command(
                                 &shell.name,
                                 env::consts::OS,
                                 &eval_str,
+                                &preflight,
                             ) {
                                 eprintln!("Command cache update failed: {err:#}");
                             }
@@ -944,52 +1577,8 @@ async fn handle_generated_command(
                     }
                     if code != 0 && *IS_STDOUT_TERMINAL {
                         loop {
-                            let first_letter_color = nu_ansi_term::Color::Cyan;
-                            let mut option_keys = vec!['e', 'c', 'q'];
-                            let mut options = vec![
-                                format!(
-                                    "{}{}",
-                                    color_text("e", first_letter_color),
-                                    localized(" 解释", "xplain")
-                                ),
-                                format!(
-                                    "{}{}",
-                                    color_text("c", first_letter_color),
-                                    localized(" 复制", "opy")
-                                ),
-                                format!(
-                                    "{}{}",
-                                    color_text("q", first_letter_color),
-                                    localized(" 退出", "uit")
-                                ),
-                            ];
-                            if repair_attempts < 2 {
-                                option_keys.insert(0, 'f');
-                                options.insert(
-                                    0,
-                                    format!(
-                                        "{}{}",
-                                        color_text("f", first_letter_color),
-                                        localized(" 修复", "ix")
-                                    ),
-                                );
-                            } else {
-                                println!(
-                                    "{}",
-                                    dimmed_text(localized(
-                                        "已达到自动修复次数上限。请手动检查错误，或修改任务描述。",
-                                        "Repair limit reached. Please inspect the error manually or revise the task."
-                                    ))
-                                );
-                            }
-                            let prompt = format!(
-                                "{}。{}: ",
-                                localized("命令执行失败", "Command failed"),
-                                options.join(&dimmed_text(" | "))
-                            );
-                            let next = confirm_cmd::read_action(&option_keys, 'e', &prompt)?;
-                            match next {
-                                'f' if repair_attempts < 2 => {
+                            match result_cmd::prompt_failure_action(repair_attempts)? {
+                                result_cmd::FailureAction::Repair => {
                                     let cwd = env::current_dir()
                                         .map(|path| path.display().to_string())
                                         .unwrap_or_else(|_| "unknown".to_string());
@@ -1012,12 +1601,13 @@ async fn handle_generated_command(
                                         shell,
                                         input,
                                         abort_signal.clone(),
+                                        RetryBudget::default(),
                                         None,
                                         repair_attempts + 1,
                                     )
                                     .await;
                                 }
-                                'e' => {
+                                result_cmd::FailureAction::Explain => {
                                     if let Err(err) = summarize_command_output(
                                         config,
                                         &eval_str,
@@ -1032,7 +1622,7 @@ async fn handle_generated_command(
                                     }
                                     continue;
                                 }
-                                'c' => {
+                                result_cmd::FailureAction::Copy => {
                                     set_text(&eval_str)?;
                                     println!("{}", dimmed_text("✓ Copied the failed command."));
                                     continue;
@@ -1043,17 +1633,18 @@ async fn handle_generated_command(
                     }
                     process::exit(code);
                 }
-                'g' if from_cache => {
+                confirm_cmd::ConfirmationAction::Regenerate => {
                     return request_and_route_execution_plan(
                         config,
                         shell,
                         input,
                         abort_signal.clone(),
+                        RetryBudget::default(),
                         None,
                     )
                     .await;
                 }
-                'r' => {
+                confirm_cmd::ConfirmationAction::Revise => {
                     let revision =
                         Text::new(localized("输入修改要求:", "Enter revision:")).prompt()?;
                     let text = format!("{}\n{revision}", input.text());
@@ -1063,35 +1654,41 @@ async fn handle_generated_command(
                         shell,
                         input,
                         abort_signal.clone(),
+                        RetryBudget::default(),
                         None,
                         repair_attempts,
                     )
                     .await;
                 }
-                'd' => {
+                confirm_cmd::ConfirmationAction::Describe => {
                     let role = config.read().retrieve_role(EXPLAIN_SHELL_ROLE)?;
                     let input = Input::from_str(config, &eval_str, Some(role));
+                    let retry_budget = RetryBudget::default();
                     if input.stream() {
-                        call_chat_completions_streaming(
+                        call_chat_completions_streaming_controlled(
                             &input,
                             client.as_ref(),
                             abort_signal.clone(),
+                            &retry_budget,
+                            ProgressStage::new("正在解释命令", "Explaining command"),
                         )
                         .await?;
                     } else {
-                        call_chat_completions(
+                        call_chat_completions_controlled(
                             &input,
                             true,
                             false,
                             client.as_ref(),
                             abort_signal.clone(),
+                            &retry_budget,
+                            ProgressStage::new("正在解释命令", "Explaining command"),
                         )
                         .await?;
                     }
                     println!();
                     continue;
                 }
-                'c' => {
+                confirm_cmd::ConfirmationAction::Copy => {
                     set_text(&eval_str)?;
                     println!("{}", dimmed_text("✓ Copied the command."));
                     continue;
@@ -1161,6 +1758,470 @@ fn setup_logger() -> Result<()> {
 mod tests {
     use super::*;
 
+    fn workflow_save_fixture() -> WorkflowPlan {
+        plan_cmd::parse_execution_plan(
+            r#"{
+              "mode":"workflow","command":"","query":"","problem":"","preflight":[],
+              "summary":"Save terminal workflow",
+              "steps":[
+                {"id":"check","kind":"check","command":"true","risk":"read_only","on_failure":"continue"},
+                {"id":"write","kind":"action","command":"touch /tmp/aicmd-save","risk":"changes_files","on_failure":"stop"},
+                {"id":"verify","kind":"verify","command":"true","risk":"read_only","on_failure":"repair"}
+              ]
+            }"#,
+        )
+        .unwrap()
+        .workflow()
+        .unwrap()
+    }
+
+    #[test]
+    fn early_workflow_failure_appends_complete_terminal_note() {
+        let mut saved = Vec::new();
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            Vec::new(),
+            0,
+            workflow_cmd::WorkflowStatus::Failed,
+            "not_run",
+        )
+        .unwrap();
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].matches("Step:").count(), 3);
+        assert!(saved[0].contains("Workflow status: failed"));
+    }
+
+    #[test]
+    fn cancelled_workflow_appends_partial_output_and_later_steps() {
+        let mut saved = Vec::new();
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            vec![workflow_cmd::StepResult {
+                step_id: "check".to_string(),
+                status: workflow_cmd::StepStatus::Cancelled,
+                exit_code: 130,
+                termination: "cancelled".to_string(),
+                stdout: "partial output".to_string(),
+                stderr: String::new(),
+            }],
+            0,
+            workflow_cmd::WorkflowStatus::Cancelled,
+            "cancelled",
+        )
+        .unwrap();
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].matches("Step:").count(), 3);
+        assert!(saved[0].contains("partial output"));
+        assert!(saved[0].contains("Termination: cancelled"));
+    }
+
+    #[test]
+    fn confirmation_interruption_is_saved_as_cancelled_with_exit_130() {
+        let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> =
+            Err(anyhow::anyhow!("Interrupted"));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut saved = Vec::new();
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        )
+        .unwrap();
+
+        assert_eq!(terminal.status, workflow_cmd::WorkflowStatus::Cancelled);
+        assert_eq!(terminal.exit_code, Some(130));
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].matches("Step:").count(), 3);
+        assert!(saved[0].contains("Workflow status: cancelled"));
+        assert!(saved[0].contains("Termination: cancelled"));
+    }
+
+    #[test]
+    fn destructive_confirmation_interrupt_is_cancelled_once_and_exits_130_after_save_failure() {
+        let mut plan = workflow_save_fixture();
+        plan.steps
+            .iter_mut()
+            .find(|step| step.id == "write")
+            .unwrap()
+            .command = "rm -rf /tmp/aicmd-confirm-interrupted".to_string();
+        let prepared = workflow_cmd::prepare_workflow(
+            plan.clone(),
+            &[workflow_cmd::StepResult::exited(
+                "check",
+                0,
+                "leading check output",
+                "",
+            )],
+        )
+        .unwrap();
+        let run_result = workflow_cmd::confirm_workflow_with(
+            &prepared,
+            false,
+            || Ok(true),
+            || Err(std::io::Error::from(std::io::ErrorKind::Interrupted).into()),
+        )
+        .map(|_| (workflow_cmd::WorkflowStatus::Completed, "not_run", false));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut saved = Vec::new();
+        let save_result = append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                anyhow::bail!("session disk full")
+            },
+            "remove temporary files",
+            plan,
+            prepared.results.clone(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        );
+        let action = workflow_after_save_action(terminal, &save_result);
+
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].contains("leading check output"));
+        assert!(saved[0].contains("Workflow status: cancelled"));
+        assert_eq!(
+            action,
+            WorkflowAfterSaveAction::Exit {
+                code: 130,
+                report_save_error: true,
+            }
+        );
+    }
+
+    #[test]
+    fn non_interruption_confirmation_error_remains_failed() {
+        let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> =
+            Err(anyhow::anyhow!("confirmation failed: Interrupted"));
+        let terminal = classify_workflow_terminal(&run_result);
+
+        assert_eq!(terminal.status, workflow_cmd::WorkflowStatus::Failed);
+        assert_eq!(terminal.pending_termination, "not_run");
+        assert_eq!(terminal.exit_code, None);
+    }
+
+    #[test]
+    fn cancellation_keeps_exit_130_when_session_append_fails() {
+        let run_result: Result<(workflow_cmd::WorkflowStatus, &'static str, bool)> =
+            Err(anyhow::anyhow!("Interrupted"));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut append_calls = 0;
+        let save_result = append_workflow_terminal_note(
+            &mut |_| {
+                append_calls += 1;
+                anyhow::bail!("session disk full")
+            },
+            "save workflow",
+            workflow_save_fixture(),
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        );
+        let action = workflow_after_save_action(terminal, &save_result);
+
+        assert_eq!(append_calls, 1);
+        assert!(save_result.is_err());
+        assert_eq!(
+            action,
+            WorkflowAfterSaveAction::Exit {
+                code: 130,
+                report_save_error: true,
+            }
+        );
+    }
+
+    #[test]
+    fn repair_prompt_uses_aggregate_failed_workflow_record() {
+        let record = workflow_cmd::WorkflowRecord::from_partial(
+            "save workflow".to_string(),
+            workflow_save_fixture(),
+            vec![
+                workflow_cmd::StepResult::exited("check", 0, "ready", ""),
+                workflow_cmd::StepResult::exited("write", 0, "written", ""),
+                workflow_cmd::StepResult::exited("verify", 1, "", "not ready"),
+            ],
+            0,
+            workflow_cmd::WorkflowStatus::Failed,
+            "blocked_by_failure",
+        );
+
+        let prompt = build_next_workflow_repair_prompt(&record, "zsh", "/tmp")
+            .unwrap()
+            .unwrap();
+
+        assert!(prompt.contains("\"original_request\": \"save workflow\""));
+        assert!(prompt.contains("\"mode\": \"workflow\""));
+        assert!(prompt.contains("\"summary\": \"Save terminal workflow\""));
+        assert!(prompt.contains("check: passed"));
+        assert!(prompt.contains("write: passed"));
+        assert!(prompt.contains("\"failed_step\": \"verify\""));
+        assert!(prompt.contains("\"stderr\": \"not ready\""));
+    }
+
+    #[test]
+    fn repaired_plan_must_remain_workflow_mode() {
+        let plan = plan_cmd::parse_execution_plan(
+            r#"{"mode":"direct","command":"true","query":"","problem":"","preflight":[]}"#,
+        )
+        .unwrap();
+
+        assert!(require_workflow_repair_plan(plan).is_err());
+    }
+
+    #[test]
+    fn repair_transition_stops_on_pre_and_post_planner_cancellation() {
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, true, false),
+            WorkflowRepairTransition::Stop
+        );
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, true, true),
+            WorkflowRepairTransition::Stop
+        );
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, false, false),
+            WorkflowRepairTransition::RequestPlanner
+        );
+        assert_eq!(
+            decide_workflow_repair_transition(true, 0, false, true),
+            WorkflowRepairTransition::ExecuteRevisedPlan
+        );
+    }
+
+    #[test]
+    fn repair_transition_and_records_are_bounded_to_two_attempts() {
+        for (attempts, expected) in [
+            (0, WorkflowRepairTransition::RequestPlanner),
+            (1, WorkflowRepairTransition::RequestPlanner),
+            (2, WorkflowRepairTransition::Stop),
+        ] {
+            assert_eq!(
+                decide_workflow_repair_transition(true, attempts, false, false),
+                expected
+            );
+            let record = workflow_cmd::WorkflowRecord::from_partial(
+                "save workflow".to_string(),
+                workflow_save_fixture(),
+                Vec::new(),
+                attempts,
+                workflow_cmd::WorkflowStatus::Failed,
+                "blocked_by_failure",
+            );
+            assert_eq!(record.repair_attempts, attempts);
+        }
+    }
+
+    #[test]
+    fn planner_generation_cancellation_appends_once_as_cancelled() {
+        let mut record = workflow_cmd::WorkflowRecord::from_partial(
+            "save workflow".to_string(),
+            workflow_save_fixture(),
+            vec![
+                workflow_cmd::StepResult::exited("check", 0, "ready", ""),
+                workflow_cmd::StepResult::exited("write", 0, "written", ""),
+                workflow_cmd::StepResult::exited("verify", 1, "", "not ready"),
+            ],
+            1,
+            workflow_cmd::WorkflowStatus::Failed,
+            "blocked_by_failure",
+        );
+        let transition = decide_workflow_repair_transition(true, 1, false, false);
+        let mut saved = Vec::new();
+
+        if should_append_workflow_record_before_planner(transition) {
+            saved.push(result_cmd::build_workflow_session_note(&record));
+        }
+        let terminal = append_cancelled_workflow_record(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            &mut record,
+        )
+        .unwrap();
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(record.status, workflow_cmd::WorkflowStatus::Cancelled);
+        assert_eq!(record.repair_attempts, 1);
+        assert_eq!(terminal.exit_code, Some(130));
+        assert!(saved[0].contains("Repair attempts: 1"));
+        assert!(saved[0].contains("Workflow status: cancelled"));
+    }
+
+    #[test]
+    fn unsafe_verify_is_saved_as_failure_without_repair_transition() {
+        let mut plan = workflow_save_fixture();
+        plan.steps
+            .iter_mut()
+            .find(|step| step.kind == WorkflowStepKind::Verify)
+            .unwrap()
+            .command = "touch /tmp/aicmd-unsafe-verify".to_string();
+        let run_result = workflow_cmd::validate_read_only_workflow_steps(&plan)
+            .map(|_| (workflow_cmd::WorkflowStatus::Completed, "not_run", false));
+        let terminal = classify_workflow_terminal(&run_result);
+        let mut saved = Vec::new();
+
+        append_workflow_terminal_note(
+            &mut |note| {
+                saved.push(note);
+                Ok(())
+            },
+            "unsafe verify",
+            plan.clone(),
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        )
+        .unwrap();
+        let record = workflow_cmd::WorkflowRecord::from_partial(
+            "unsafe verify".to_string(),
+            plan,
+            Vec::new(),
+            0,
+            terminal.status,
+            terminal.pending_termination,
+        );
+
+        assert_eq!(terminal.status, workflow_cmd::WorkflowStatus::Failed);
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].contains("Workflow status: failed"));
+        assert!(build_next_workflow_repair_prompt(&record, "zsh", "/tmp")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn git_change_capture_is_limited_to_modifying_risk_levels() {
+        assert!(!confirm_cmd::CommandRiskLevel::ReadOnly.captures_git_changes());
+        assert!(confirm_cmd::CommandRiskLevel::ChangesSystem.captures_git_changes());
+        assert!(confirm_cmd::CommandRiskLevel::Destructive.captures_git_changes());
+    }
+
+    #[test]
+    fn run_in_session_intent_sets_named_session_and_task() {
+        let mut cli = Cli::try_parse_from(["aicmd"]).unwrap();
+        let text = translate_session_intent(
+            &mut cli,
+            Some(&NaturalIntent::RunInSession {
+                name: "dev".to_string(),
+                task: "continue this task".to_string(),
+            }),
+        );
+
+        assert_eq!(cli.session, Some(Some("dev".to_string())));
+        assert_eq!(text, Some(Some("continue this task".to_string())));
+    }
+
+    #[test]
+    fn continue_last_failure_uses_daily_session_and_normal_planner_text() {
+        let mut cli = Cli::try_parse_from([
+            "aicmd", "continue", "fixing", "the", "last", "failed", "task",
+        ])
+        .unwrap();
+        apply_intent_cli_overrides(&mut cli, Some(&NaturalIntent::ContinueLastFailure));
+        let text = translate_session_intent(&mut cli, Some(&NaturalIntent::ContinueLastFailure));
+
+        assert!(cli.no_cache);
+        assert_eq!(cli.session, Some(Some(default_session_name())));
+        assert_eq!(
+            text,
+            Some(Some("continue fixing the last failed task".to_string()))
+        );
+    }
+
+    #[test]
+    fn continue_last_failure_disables_cache_before_explicit_session_precedence() {
+        let mut cli = Cli::try_parse_from([
+            "aicmd",
+            "-s",
+            "cmd-20260712",
+            "continue",
+            "fixing",
+            "the",
+            "last",
+            "failed",
+            "task",
+        ])
+        .unwrap();
+        let intent = NaturalIntent::ContinueLastFailure;
+
+        apply_intent_cli_overrides(&mut cli, Some(&intent));
+
+        assert!(cli.no_cache);
+        assert!(!should_run_session_intent(&cli, Some(&intent)));
+        assert_eq!(translate_session_intent(&mut cli, Some(&intent)), None);
+        assert_eq!(cli.session, Some(Some("cmd-20260712".to_string())));
+    }
+
+    #[test]
+    fn explicit_session_flag_keeps_natural_session_text_for_planner() {
+        let mut cli = Cli::try_parse_from(["aicmd", "-s", "dev", "clear current session"]).unwrap();
+        let intent = NaturalIntent::ClearSession { name: None };
+
+        assert!(!should_run_session_intent(&cli, Some(&intent)));
+        assert_eq!(translate_session_intent(&mut cli, Some(&intent)), None);
+        assert_eq!(cli.session, Some(Some("dev".to_string())));
+        assert!(!cli.empty_session);
+        assert_eq!(cli.text_args().join(" "), "clear current session");
+    }
+
+    #[test]
+    fn every_explicit_session_control_suppresses_natural_session_intents() {
+        let cases = [
+            (
+                Cli::try_parse_from(["aicmd", "-s", "dev", "show current session"]).unwrap(),
+                NaturalIntent::CurrentSession,
+            ),
+            (
+                Cli::try_parse_from(["aicmd", "--empty-session", "clear session temp"]).unwrap(),
+                NaturalIntent::ClearSession {
+                    name: Some("temp".to_string()),
+                },
+            ),
+            (
+                Cli::try_parse_from(["aicmd", "--list-sessions", "list sessions"]).unwrap(),
+                NaturalIntent::ListSessions,
+            ),
+        ];
+
+        for (cli, intent) in cases {
+            assert!(!should_run_session_intent(&cli, Some(&intent)));
+        }
+    }
+
+    #[test]
+    fn pre_config_session_intents_are_handled() {
+        assert_eq!(
+            run_pre_config_intent(Some(&NaturalIntent::CurrentSession)).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            run_pre_config_intent(Some(&NaturalIntent::ListSessions)).unwrap(),
+            Some(0)
+        );
+    }
+
     #[test]
     fn plan_request_uses_cache_only_for_an_eligible_cache_hit() {
         assert_eq!(
@@ -1192,6 +2253,7 @@ mod tests {
             Some(SHELL_COMMAND_ROLE)
         );
         assert_eq!(command_role_for_route(RouteKind::Search), None);
+        assert_eq!(command_role_for_route(RouteKind::Workflow), None);
     }
 
     #[test]
@@ -1213,6 +2275,7 @@ mod tests {
         let note = result_cmd::build_execution_session_note(
             "printf hello",
             0,
+            "exited",
             "hello",
             "",
             Some("printed hello"),
