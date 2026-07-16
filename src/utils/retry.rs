@@ -11,8 +11,8 @@ use super::{
     localized, AbortSignal, IS_STDOUT_TERMINAL,
 };
 
-pub const EXTERNAL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
-pub const EXTERNAL_TOTAL_TIMEOUT: Duration = Duration::from_secs(45);
+pub const EXTERNAL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+pub const EXTERNAL_TOTAL_TIMEOUT: Duration = Duration::from_secs(90);
 pub const EXTERNAL_MAX_ATTEMPTS: usize = 3;
 
 #[derive(Debug, Clone, Copy)]
@@ -299,6 +299,15 @@ mod tests {
     use crate::utils::create_abort_signal;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+
+    #[test]
+    fn default_retry_policy_uses_thirty_second_attempts_and_ninety_second_total() {
+        let policy = RetryPolicy::default();
+
+        assert_eq!(policy.attempt_timeout, Duration::from_secs(30));
+        assert_eq!(policy.total_timeout, Duration::from_secs(90));
+        assert_eq!(policy.max_attempts, 3);
+    }
 
     #[test]
     fn retry_budget_allows_three_attempts_with_fifteen_second_slices() {

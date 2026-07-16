@@ -690,9 +690,9 @@ aicmd 当前目录下有多少文件
 
 ### Long-running task status and retries / 长时间任务状态与重试
 
-Model and MCP work shares one request budget: at most 3 attempts, 15 seconds per attempt, and approximately 45 seconds overall. Terminal output shows the stage, attempt number, elapsed time, and `Ctrl-C` hint. Non-TTY use writes status transitions to stderr and keeps stdout suitable for pipelines.
+Model and MCP work shares one request budget: at most 3 attempts, 30 seconds per attempt, and approximately 90 seconds overall. Terminal output shows the stage, attempt number, elapsed time, and `Ctrl-C` hint. Non-TTY use writes status transitions to stderr and keeps stdout suitable for pipelines.
 
-模型和 MCP 工作共享同一个请求额度：最多尝试 3 次、每次最多 15 秒、全流程总计约 45 秒。终端会显示阶段、尝试次数、耗时和 `Ctrl-C` 提示。非 TTY 模式只把状态切换写入 stderr，stdout 仍可用于管道。
+模型和 MCP 工作共享同一个请求额度：最多尝试 3 次、每次最多 30 秒、全流程总计约 90 秒。终端会显示阶段、尝试次数、耗时和 `Ctrl-C` 提示。非 TTY 模式只把状态切换写入 stderr，stdout 仍可用于管道。
 
 Only timeouts, transport interruptions, HTTP 429/5xx, and unexpected MCP process/channel exits are retried. Authentication, request, sensitive-content, MCP configuration, and tool-selection errors stop immediately. Every MCP retry starts a fresh server process and reaps the previous child.
 

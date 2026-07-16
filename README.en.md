@@ -278,7 +278,7 @@ Run? [Y/n/?]
 
 AICmd shows a risk level. Press `Enter` or `y` to run, `n` to quit, or `?` for revise, explain, and copy actions. Destructive commands require an extra confirmation.
 
-Model generation and MCP calls show the current stage, request-wide attempt number, elapsed time, and a `Ctrl-C` cancellation hint. Each attempt is limited to 15 seconds; one user request gets at most 3 attempts and approximately 45 seconds in total. AICmd retries only transient failures such as timeouts, connection interruptions, HTTP 429, and HTTP 5xx. Authentication, configuration, request, and sensitive-content errors stop immediately.
+Model generation and MCP calls show the current stage, request-wide attempt number, elapsed time, and a `Ctrl-C` cancellation hint. Each attempt is limited to 30 seconds; one user request gets at most 3 attempts and approximately 90 seconds in total. AICmd retries only transient failures such as timeouts, connection interruptions, HTTP 429, and HTTP 5xx. Authentication, configuration, request, and sensitive-content errors stop immediately.
 
 Confirmed terminal commands are never retried automatically and have no default hard timeout. A quiet command prints a liveness update after 5 seconds. `Ctrl-C` preserves stdout/stderr already produced and records exit code 130 with `Termination: cancelled` in the current session.
 
