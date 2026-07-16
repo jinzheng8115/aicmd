@@ -396,7 +396,7 @@ aicmd config doctor          # same as aicmd doctor; includes model, MCP, and ca
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.4.2
+aicmd update --version v0.4.3
 aicmd update --dry-run
 ```
 

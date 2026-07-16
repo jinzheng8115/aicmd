@@ -396,7 +396,7 @@ aicmd config doctor          # 等同于 aicmd doctor，包含模型、MCP、缓
 ```bash
 aicmd update --check
 aicmd update
-aicmd update --version v0.4.2
+aicmd update --version v0.4.3
 aicmd update --dry-run
 ```
 
